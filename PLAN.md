@@ -667,105 +667,77 @@ flowchart LR
 - [x] 13.3 Sharing API and dialog; nobody grants more than their own role; owners only through ownership
 - [x] 13.4 Tests: sharing, team capping, revoke, read-only keys, collections and search follow the grants
 
-------|-----|----------|-------|
-| **Files export** | People, other programs | ZIP of the current files in the shown folder structure with the shown names | space, folder, collection |
-| **Bundle** | Another tildoc server | archive with every version, places, original paths, tags, collections, optional extracted text/OCR PDFs | space, collection |
-| **Server backup** | Administrators | bundle of the whole server: users, teams, spaces, tags, collections, keys | whole instance |
+### Phase 14 — Encryption of exports and backups (`age`)
+
+**Goal:** exports (ZIP, bundle) and server backups can be encrypted with
+[age](https://age-encryption.org/v1); imports, `verify` and `restore`
+decrypt them. Files stay readable with the standard `age` CLI
+(`age -d -i key.txt backup.tildoc.age > backup.tildoc`).
 
 ```mermaid
 flowchart LR
-  subgraph Export
-    S[(snapshot<br/>REPEATABLE READ)] --> W[archive writer<br/>zip or bundle tar]
-    W --> E[encryption hook<br/>later: age]
-    E --> O[HTTP download / backup file / CLI]
-  end
-  subgraph Import
-    U[upload / file / CLI] --> D[decrypt hook] --> R[archive reader]
-    R -->|each blob| ST[Stage + Commit<br/>SHA-256 verified]
-    R -->|manifest| M[validate] --> A[apply in one transaction<br/>same rules as uploads]
-    ST --> A
-  end
+  A[archive writer<br/>zip / bundle tar] --> S{Sealer}
+  S -->|recipients<br/>X25519 / ML-KEM hybrid| B[backup file .age]
+  S -->|passphrase<br/>scrypt| E[download .zip.age / .tildoc.age]
+  U[upload / file] --> D{auto-detect<br/>age header} -->|identity or passphrase| R[archive reader]
+  D -->|plain| R
 ```
 
-#### Files export (ZIP)
-
-- Streamed directly into the download (no temporary copy on the server),
-  `archive/zip` from the stdlib (UTF-8 names, ZIP64 for large exports).
-- Exactly what the UI and WebDAV show: folder tree and file names of the
-  space or folder; a collection is exported flat with the names shown in
-  `/@collections/<name>/` ("name (2).ext" on clashes).
-- Current versions only, no trash. Empty folders are included.
-- REST: `GET /api/spaces/{id}/export`, `/api/folders/{id}/export`,
-  `/api/collections/{id}/export` (read permission). UI: "Export as ZIP" on
-  the space/folder toolbar and the collection page. CLI: `tildoc export`.
-
-#### Bundle (tildoc to tildoc)
-
-- Format `tildoc-bundle` v1, documented in `docs/bundle-format.md`:
-  a tar stream with `manifest.json` first, then `blobs/<sha256>` (each
-  content once), optional `text/<sha256>` and derived OCR PDFs.
-- Manifest: format version, kind (space | collection | server), folders,
-  documents with all versions (hash, size, mime, time, author username,
-  source, metadata), places (path, original path, created), tags (name,
-  color), collections (name, tag rule, members). Users are referenced by
-  username, never by id or with credentials (except in server backups).
-- Consistent: metadata is read in one REPEATABLE READ snapshot; blob
-  garbage collection waits while an export runs.
-
-#### Import (one path, same rules as uploads)
-
-- Every blob goes through the normal ingest (`Stage` → SHA-256 check against
-  the manifest → `Commit` → `registerBlob`, processing jobs for new content):
-  bytes already on the server are not stored twice.
-- Documents and places are created with the same rules as uploads and moves:
-  identical content already in the target space becomes another place of
-  that document and the histories merge (decision 22); names that are taken
-  get " (imported)".
-- Targets: a new space (default; name/short name adjustable, the importer
-  becomes owner) or an existing folder. Tags matched by name, missing ones
-  created. Collections created as personal collections of the importer
-  (or for a team the importer manages).
-- Bundles are untrusted input: format/version check, path and name
-  validation (no traversal, `valid_name`), size and count limits, SHA-256
-  of every blob verified, unknown fields rejected. The metadata is applied
-  in one transaction: an import either fully succeeds or leaves nothing
-  behind (orphan blobs are collected by GC).
-- Runs as a job (upload to a staging file, then apply) with progress in the
-  UI; REST `POST /api/imports/bundle`, UI "Import space" on the Spaces page,
-  CLI `tildoc import`.
-- A plain ZIP (e.g. a files export) can be imported into a folder; it is
-  unpacked through the same upload path.
-
-#### Server backup (administration)
-
-- Admin starts a backup; a job writes a server bundle to `TILDOC_BACKUP_DIR`
-  (volume). Administration lists backups (date, size, status), deletes them
-  and sets retention (keep N). CLI `tildoc backup` for cron/systemd timers.
-- Contains users (password hashes), teams, spaces, all documents and
-  versions, tags, collections, access keys (secrets stay encrypted with
-  `TILDOC_MASTER_KEY`, which is NOT in the backup), SSH keys. Not included:
-  sessions, jobs, derived data (optional), trash (optional).
-- Restore: `tildoc restore <file>` into an empty instance, ids preserved.
-- Independent of the database schema version (logical format), so backups
-  survive schema changes; `pg_dump` + data volume stays documented for
-  byte-exact operator backups.
-
-#### Encryption (later, prepared now)
-
-- Exports, bundles and backups are produced as a writer chain; encryption
-  is an optional stage between archive and output (and decryption before
-  the reader on import), so it can be added without changing the formats.
+- **Library:** `filippo.io/age` (reference implementation; its only
+  dependencies are `golang.org/x/crypto`/`x/sys`, already in use, plus
+  `filippo.io/edwards25519`). Own crypto is not an option.
+- **Core:** `internal/core/agecrypt.go` implements `Sealer`/`Opener`:
+  `RecipientSealer` (public keys), `PassphraseSealer`, `IdentityOpener`
+  (identity file and/or passphrase). `open()` detects the age header
+  (`age-encryption.org/v1`), so plain and encrypted input share one path;
+  an encrypted file without a key fails with a clear error.
+- **Backups:** encrypted to the public keys in
+  `TILDOC_BACKUP_RECIPIENTS` (comma-separated) or
+  `TILDOC_BACKUP_RECIPIENTS_FILE`. The server never holds a private key,
+  so it can write backups but not read them. Files get `.age`;
+  `backups.encrypted` + recipient fingerprints are recorded and shown in
+  Administration. `tildoc backup verify|restore --identity key.txt`.
+  Differentials still work (computed from `backup_blobs`, not the files).
+- **Exports (UI/REST):** optional passphrase. The browser downloads via
+  GET (no CSRF header possible), so: `POST …/export` with the passphrase
+  (JSON, CSRF header) → single-use download ticket (random 256-bit, 60 s,
+  bound to the session, in memory) → `GET /api/exports/{ticket}` streams
+  the encrypted file. The passphrase never appears in a URL or log.
+- **Imports (UI/REST):** encrypted bundles/ZIPs are decrypted while the
+  upload streams into the staging file; the passphrase comes in a request
+  header and is never stored (the background job only sees plaintext,
+  like any upload). Only passphrases in the browser — private keys are not
+  uploaded to the server.
+- **CLI:** `export --passphrase-file f | --recipient age1… | --recipients-file f`,
+  `import --identity f | --passphrase-file f`; `TILDOC_PASSPHRASE` as
+  alternative; never as a plain argument (shell history, `ps`).
+- **Security limits:** scrypt is memory-hard (work factor 18 ≈ 256 MiB,
+  ~1 s): server-side passphrase operations run through a semaphore
+  (2 concurrent) and decryption caps the work factor at 18 (bundles are
+  untrusted: a header with factor 22 would cost 4 GiB). Minimum
+  passphrase length 12. Ciphertext is authenticated per 64 KiB chunk;
+  truncation is detected at EOF, and imports only apply after the full
+  stream verified.
 
 #### Steps
 
-- [x] 11.1 Export foundation: writer chain with encryption hook, snapshot reader, GC guard
-- [x] 11.2 Files export (ZIP) for space, folder, collection: core, REST, UI buttons, CLI
-- [x] 11.3 Bundle format v1 spec + exporter for space and collection
-- [x] 11.4 Bundle importer: validation, blob ingest with dedup, documents/history/places/tags/collections, atomic apply, job + progress, REST/UI/CLI
-- [x] 11.5 ZIP import into a folder (through the upload path)
-- [x] 11.6 Server backup: job, backup directory, list/delete/retention in Administration, CLI backup/restore
-- [x] 11.7 Tests: round trips between two test instances (files, bundle, server backup), dedup and merge on import, permissions, hostile bundles (traversal, hash mismatch, oversize, unknown version), ZIP read by `unzip`/`bsdtar` in e2e, UI smoke
-- [x] 11.8 Docs: README (export/import/backup, restore procedure), bundle format
+- [ ] 14.1 `filippo.io/age`; `agecrypt.go` (sealers, opener, header detection, work-factor cap, semaphore)
+- [ ] 14.2 Backups: recipients config, `.age` files, `backups.encrypted`/`recipients`, verify/restore with identity, Administration shows state + warning when unencrypted
+- [ ] 14.3 Exports: ticket endpoint, passphrase field in the export menu (ZIP and bundle)
+- [ ] 14.4 Imports: passphrase in ImportDialog, decrypt while staging, clear error for missing/wrong key
+- [ ] 14.5 CLI flags for export/import/backup/restore
+- [ ] 14.6 Tests: round trips (recipient, passphrase, both decrypted with the `age` CLI in e2e), wrong key, truncated/tampered file, oversized work factor, ticket single-use/expiry/other session, UI smoke (encrypted export + import)
+- [ ] 14.7 Docs: README (key generation, restore), bundle-format (encryption layer), HISTORY.md
+
+#### Open questions
+
+1. Backups without `TILDOC_BACKUP_RECIPIENTS`: (a) allowed with a warning
+   in Administration and logs (recommended for dev), or (b) refused?
+2. Should exports also support encrypting to a user's **public key** stored
+   in their profile (no shared passphrase)? Proposed: later.
+3. Post-quantum: accept hybrid ML-KEM recipients (`age1pq…`) besides
+   X25519? Proposed: yes, `age.ParseRecipients` handles both; README
+   recommends generating PQ keys (`age-keygen -pq`).
 
 Open questions: see below.
 

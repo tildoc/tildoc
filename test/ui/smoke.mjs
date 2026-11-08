@@ -83,6 +83,9 @@ await step('upload files', async () => {
   await page.locator('input[type=file][multiple]').setInputFiles([join(FIX, 'Quartalsbericht.pdf'), join(FIX, 'notes.txt'), join(FIX, 'Handbuch.pdf')]);
   await toast('3 uploaded');
   await row('Quartalsbericht.pdf').waitFor();
+  // the list follows background processing without a reload
+  for (const n of ['Quartalsbericht.pdf', 'notes.txt', 'Handbuch.pdf'])
+    await row(n).locator('.pill.status.done').waitFor({ timeout: 30000 });
 });
 
 await step('dedup upload', async () => {
@@ -205,6 +208,23 @@ await step('viewer find highlights', async () => {
   await page.locator('.textLayer .hl.current', { hasText: /zebra/i }).waitFor();
   await page.locator('.thumb .hitmark').first().waitFor();
   await page.waitForFunction(() => document.querySelector('.pager input').value === '4');
+  // the highlight must not cover the text: the glyphs underneath stay dark
+  const shot = (await page.locator('.textLayer .hl.current').screenshot()).toString('base64');
+  const dark = await page.evaluate(async (b64) => {
+    const img = new Image();
+    img.src = 'data:image/png;base64,' + b64;
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = img.width; c.height = img.height;
+    const g = c.getContext('2d');
+    g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, c.width, c.height).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] < 200) n++;
+    return n;
+  }, shot);
+  if (dark < 10) throw new Error(`search highlight hides the text (${dark} dark pixels)`);
+  await page.screenshot({ path: join(OUT, 'viewer_find_highlight_active.png') });
   await page.getByPlaceholder('Find in document').press('Escape');
   await page.locator('.find').waitFor({ state: 'detached' });
 });

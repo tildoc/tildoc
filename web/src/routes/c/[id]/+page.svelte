@@ -8,6 +8,7 @@
   import Icon from '#lib/components/Icon.svelte';
   import Confirm from '#lib/components/Confirm.svelte';
   import CollectionForm from '#lib/components/CollectionForm.svelte';
+  import { watchBusy, isBusy } from '#lib/poll.svelte.js';
 
   let data = $state(null);
   let error = $state('');
@@ -17,17 +18,23 @@
 
   let id = $derived(page.params.id);
 
-  async function load(keep = false) {
+  async function load(keep = false, quiet = false) {
+    const cid = id;
     try {
-      data = await get(`/collections/${id}`);
+      const d = await get(`/collections/${cid}`);
+      if (cid !== id) return;
+      data = d;
       error = '';
       const want = page.url.searchParams.get('sel');
       if (!keep) selected = want ? [`l:${want}`] : [];
     } catch (e) {
+      if (quiet) return;
       error = e.message;
       data = null;
     }
   }
+
+  watchBusy(() => data?.items?.some((i) => isBusy(i.status)), () => load(true, true));
 
   $effect(() => {
     id;

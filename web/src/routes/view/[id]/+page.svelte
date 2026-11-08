@@ -10,6 +10,7 @@
   import Icon from '#lib/components/Icon.svelte';
   import DocView from '#lib/components/viewer/DocView.svelte';
   import DocDetails from '#lib/components/DocDetails.svelte';
+  import { watchBusy, isBusy } from '#lib/poll.svelte.js';
 
   let linkId = $derived(route.params.id);
   let file = $state(null);
@@ -62,13 +63,17 @@
     }
   }
 
-  async function reloadDoc() {
+  async function reloadDoc(quiet = false) {
+    const id = file.document_id;
     try {
-      doc = await get(`/documents/${file.document_id}`);
+      const d = await get(`/documents/${id}`);
+      if (id === file?.document_id) doc = d;
     } catch (e) {
-      errorToast(e);
+      if (!quiet) errorToast(e);
     }
   }
+
+  watchBusy(() => isBusy(doc?.status), () => reloadDoc(true));
 
   async function loadSiblings(f) {
     if (siblings.some((s) => s.link_id === f.link_id)) return;

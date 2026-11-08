@@ -672,6 +672,7 @@
   .pages { display: flex; flex-direction: column; width: max-content; min-width: 100%; }
   .pg {
     position: relative;
+    isolation: isolate;
     margin: 0 auto;
     flex: none;
     background: var(--paper);
@@ -698,6 +699,9 @@
   .pg :global(.textLayer) {
     position: absolute; text-align: initial; inset: 0; overflow: clip; opacity: 1; line-height: 1;
     text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; caret-color: CanvasText; z-index: 1;
+    /* the text layer is its own stacking context: blend it as a whole with the
+       rendered page so highlights act like a highlighter (text stays visible) */
+    mix-blend-mode: multiply;
     --min-font-size: 1;
     --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
     --min-font-size-inv: calc(1 / var(--min-font-size));
@@ -710,7 +714,7 @@
   .pg :global(.textLayer .markedContent) { display: contents; }
   .pg :global(.textLayer span[role='img']) { user-select: none; cursor: default; }
   .pg :global(.textLayer ::selection) { background: rgb(31 78 121 / 0.3); }
-  .pg :global(.textLayer .hl) { position: relative; margin: -1px -2px; padding: 1px 2px; border-radius: 2px; background: var(--highlight); mix-blend-mode: multiply; transform: none !important; font-size: inherit !important; }
+  .pg :global(.textLayer .hl) { position: relative; margin: -1px -2px; padding: 1px 2px; border-radius: 2px; background: var(--highlight); transform: none !important; font-size: inherit !important; }
   .pg :global(.textLayer .hl.current) { background: var(--highlight-strong); box-shadow: 0 0 0 2px #9a7b00; }
   .pg :global(.linkLayer) { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
   .pg :global(.linkLayer a) { position: absolute; pointer-events: auto; border-radius: 2px; }

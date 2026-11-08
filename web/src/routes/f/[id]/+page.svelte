@@ -13,6 +13,7 @@
   import FolderPicker from '#lib/components/FolderPicker.svelte';
   import CollectionPicker from '#lib/components/CollectionPicker.svelte';
   import ImportDialog from '#lib/components/ImportDialog.svelte';
+  import { watchBusy, isBusy } from '#lib/poll.svelte.js';
 
   let data = $state(null);
   let error = $state('');
@@ -24,9 +25,12 @@
 
   let folderId = $derived(page.params.id);
 
-  async function load(keepSelection = false) {
+  // quiet: background refresh (processing status); errors keep the current view
+  async function load(keepSelection = false, quiet = false) {
+    const id = folderId;
     try {
-      const d = await get(`/folders/${folderId}`);
+      const d = await get(`/folders/${id}`);
+      if (id !== folderId) return;
       data = d;
       error = '';
       const want = page.url.searchParams.get('sel');
@@ -34,10 +38,13 @@
       else if (!keepSelection) selected = [];
       else selected = selected.filter((k) => rows.some((r) => r.key === k));
     } catch (e) {
+      if (quiet) return;
       error = e.message;
       data = null;
     }
   }
+
+  watchBusy(() => data?.files.some((f) => isBusy(f.status)), () => load(true, true));
 
   $effect(() => {
     folderId;

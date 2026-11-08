@@ -8,6 +8,7 @@
   import { get } from '../api.js';
   import { errorToast, stored, store } from '../state.svelte.js';
   import { defaultVariant } from '../format.js';
+  import { watchBusy, isBusy } from '../poll.svelte.js';
 
   let { file, onclose, onopen, onchanged, query = '' } = $props();
   let doc = $state(null);
@@ -16,11 +17,13 @@
   let width = $state(stored('peekWidth', 460));
   let opening = $state(false);
 
-  async function load() {
+  async function load(quiet = false) {
+    const id = file.document_id;
     try {
-      doc = await get(`/documents/${file.document_id}`);
+      const d = await get(`/documents/${id}`);
+      if (id === file.document_id) doc = d;
     } catch (e) {
-      errorToast(e);
+      if (!quiet) errorToast(e);
     }
   }
 
@@ -37,11 +40,7 @@
     });
   });
 
-  $effect(() => {
-    if (!doc || !['pending', 'processing'].includes(doc.status)) return;
-    const t = setTimeout(load, 2500);
-    return () => clearTimeout(t);
-  });
+  watchBusy(() => isBusy(doc?.status), () => load(true));
 
   const maxW = () => Math.round(window.innerWidth * 0.6);
   const clampW = (w) => Math.max(320, Math.min(maxW(), w));
