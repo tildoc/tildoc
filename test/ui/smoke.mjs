@@ -2,6 +2,7 @@
 // tildoc (fresh database). Usage: BASE=http://localhost:8080 node smoke.mjs
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
 const BASE = process.env.BASE || 'http://localhost:8080';
@@ -30,6 +31,8 @@ function pdf(...pages) {
 }
 writeFileSync(join(FIX, 'Quartalsbericht.pdf'), pdf('Quartalsbericht Umsatz Hamburg 2026'));
 writeFileSync(join(FIX, 'Handbuch.pdf'), pdf('Handbuch Einleitung', 'Kapitel zwei Grundlagen', 'Kapitel drei Wartung', 'Anhang Zebra Tabelle', 'Index und Register'));
+writeFileSync(join(FIX, 'scan.pdf'), pdf('Scan Original Seite'));
+writeFileSync(join(FIX, 'scan-ocr.pdf'), pdf('Erkannter OCR Text'));
 writeFileSync(join(FIX, 'notes.txt'), 'Protokoll der Besprechung: Zuständigkeiten und Termine\n');
 writeFileSync(join(FIX, 'notes-copy.txt'), 'Protokoll der Besprechung: Zuständigkeiten und Termine\n');
 
@@ -518,7 +521,7 @@ await step('revisit renders from cache', async () => {
   page.on('response', onResp);
   await page.route(`**/api/folders/${folderId}`, async (route) => {
     await new Promise((r) => setTimeout(r, 3000));
-    await route.continue();
+    await route.continue().catch(() => {}); // may already be unrouted
   });
   await page.goBack();
   await row('Handbuch.pdf').waitFor({ timeout: 1500 });
@@ -547,10 +550,54 @@ await step('history graph', async () => {
   const box = await page.locator('aside.peek').boundingBox();
   if (box.x + box.width > 1440 + 1) throw new Error(`peek panel overflows the window (${box.x + box.width}px)`);
   if ((await hist.locator('path.edge.restore').count()) !== 1 || (await hist.locator('path.edge.main').count()) !== 2) throw new Error('edges');
-  // view an older version from the graph
-  await hist.locator('li', { hasText: 'Version 2' }).getByRole('button', { name: 'View' }).click();
-  await hist.locator('li.viewing', { hasText: 'Version 2' }).waitFor();
+  // only the shown node is marked; no "current" label
+  if ((await hist.locator('li.shown').count()) !== 1 || !(await hist.locator('li.shown').textContent()).includes('Version 3')) throw new Error('shown node');
+  if (await hist.getByText('current', { exact: true }).count()) throw new Error('current label still shown');
+  // selecting a node shows it in the preview ...
+  await hist.getByRole('button', { name: 'Show version 2' }).click();
+  await hist.locator('li.shown', { hasText: 'Version 2' }).waitFor();
+  await page.locator('aside.peek .preview', { hasText: 'second draft' }).waitFor();
   await page.locator('aside.peek .bar .pill', { hasText: 'Viewing version 2' }).waitFor();
+  // ... and Open opens exactly that
+  await page.locator('aside.peek').getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL(/\/view\/.*[?&]v=2/);
+  await page.locator('.viewer', { hasText: 'second draft' }).waitFor();
+});
+
+await step('history: open the selected variant', async () => {
+  // a scan whose tildoc OCR variant exists (the UI test has no OCR tools:
+  // the variant is attached in the database, as the worker would do)
+  const sp = await home();
+  const f = await api('POST', '/folders', { parent_id: sp.root_folder_id, name: 'Variants' });
+  const { readFileSync } = await import('node:fs');
+  const scan = await api('PUT', `/folders/${f.id}/files?path=scan.pdf`, readFileSync(join(FIX, 'scan.pdf')).toString('latin1'));
+  const ocr = await api('PUT', `/folders/${f.id}/files?path=scan-ocr.pdf`, readFileSync(join(FIX, 'scan-ocr.pdf')).toString('latin1'));
+  const sql = `INSERT INTO blob_derivatives(source_sha256, kind, derived_sha256, input_sha256, engine, meta)
+    VALUES (decode('${scan.file.sha256}', 'hex'), 'searchable_pdf', decode('${ocr.file.sha256}', 'hex'), decode('${scan.file.sha256}', 'hex'), 'test', '{}')`;
+  execFileSync('docker', ['exec', 'tildoc-dev-pg', 'psql', '-q', '-U', 'postgres', '-d', 'tildoc', '-c', sql]);
+  await page.goto(`${BASE}/f/${f.id}`);
+  await row('scan.pdf').click();
+  // the preview shows tildoc's OCR (default for scans) and the graph marks that node
+  await page.locator('aside.peek .pg .textLayer span', { hasText: 'Erkannter' }).first().waitFor();
+  await page.locator('aside.peek').getByRole('tab', { name: 'History' }).click();
+  const hist = page.locator('aside.peek .hist');
+  await hist.locator('li.shown', { hasText: 'tildoc OCR' }).waitFor();
+  if ((await hist.locator('li.shown').count()) !== 1) throw new Error('more than one node marked');
+  // select the original: preview and viewer follow
+  await hist.getByRole('button', { name: 'Show version 1' }).click();
+  await hist.locator('li.shown', { hasText: 'Version 1' }).waitFor();
+  await page.locator('aside.peek .pg .textLayer span', { hasText: 'Scan Original' }).first().waitFor();
+  await page.locator('aside.peek').getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL(/variant=original/);
+  await page.locator('.viewer .pg .textLayer span', { hasText: 'Scan Original' }).first().waitFor();
+  // back, select the OCR variant again, open: the viewer shows the variant
+  await page.goto(`${BASE}/f/${f.id}`);
+  await row('scan.pdf').click();
+  await page.locator('aside.peek').getByRole('tab', { name: 'History' }).click();
+  await hist.getByRole('button', { name: 'Show tildoc OCR of version 1' }).click();
+  await page.locator('aside.peek').getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL(/variant=searchable/);
+  await page.locator('.viewer .pg .textLayer span', { hasText: 'Erkannter' }).first().waitFor();
 });
 
 await browser.close();

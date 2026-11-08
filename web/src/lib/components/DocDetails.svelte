@@ -10,7 +10,8 @@
   import { size, date, shortType, statusLabel } from '../format.js';
   import { goto } from '$app/navigation';
 
-  let { doc, file, viewVersion = $bindable(0), onchanged, compact = false } = $props();
+  // viewVersion (0 = current) + viewVariant ('' = default) select what is shown
+  let { doc, file, viewVersion = $bindable(0), viewVariant = $bindable(''), onchanged, compact = false } = $props();
   let picking = $state(false);
   let local = $state(null); // document after a tag change (until the parent reloads)
   let shown = $derived(local && local.id === doc.id ? local : doc);
@@ -68,6 +69,7 @@
       await api('POST', `/documents/${doc.id}/versions`, f);
       toast('Uploaded a new version. Every link shows it.', 'success');
       viewVersion = 0;
+      viewVariant = '';
       onchanged?.();
     } catch (err) {
       errorToast(err);
@@ -79,6 +81,7 @@
       await post(`/documents/${doc.id}/versions/${v}/restore`);
       toast(`Restored version ${v} as the current version`, 'success');
       viewVersion = 0;
+      viewVariant = '';
       onchanged?.();
     } catch (e) {
       errorToast(e);
@@ -142,7 +145,7 @@
       {/if}
       {#if doc.forked_from}<p class="muted small">This document was split off from another one when it was changed through one of several places (copy-on-write).</p>{/if}
     {:else if tab === 'history'}
-      <HistoryGraph {doc} {file} {canWrite} bind:viewVersion onrestore={restore} />
+      <HistoryGraph {doc} {canWrite} bind:viewVersion bind:viewVariant onrestore={restore} />
     {:else if tab === 'links'}
       <p class="muted small">The same document appears in these places. “Upload new version” changes it everywhere. Overwriting the file in just one place, for example from Dolphin, splits that place off into its own document.</p>
       <ul class="list">

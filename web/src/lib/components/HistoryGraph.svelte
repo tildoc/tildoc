@@ -3,11 +3,14 @@
   // variants branching off diagonally, joins where a version continues from a
   // variant or restores an older version. Layout: lib/history.js. The SVG is
   // decoration; the list next to it carries names, details and actions.
+  // Every node is selectable: selecting shows it (version + variant) in the
+  // preview or viewer; only the shown node is marked.
   import Icon from './Icon.svelte';
   import { layoutHistory, edgePath, VARIANT_LABEL } from '../history.js';
-  import { size, date } from '../format.js';
+  import { size, date, shownVariant, VARIANT_NAME } from '../format.js';
 
-  let { doc, file = null, canWrite = false, viewVersion = $bindable(0), onrestore } = $props();
+  // viewVersion: 0 = current; viewVariant: '' = the default for that version
+  let { doc, canWrite = false, viewVersion = $bindable(0), viewVariant = $bindable(''), onrestore } = $props();
 
   const ROW = 54, LANE = 16, PAD = 10, R = 5;
   const graph = $derived(layoutHistory(doc.versions));
@@ -15,8 +18,16 @@
   const x = (lane) => PAD + lane * LANE;
   const y = (row) => row * ROW + 19; // centre of the title line
   const color = (lane) => `var(--lane-${lane % 4})`;
-  const viewing = (v) => (viewVersion || doc.version) === v;
   const param = { image_only_pdf: 'image_only', searchable_pdf: 'searchable' };
+  const shownVer = $derived(viewVersion || doc.version);
+  const shownVar = $derived(shownVariant(doc, viewVersion, viewVariant));
+  const variantOf = (r) => (r.kind === 'version' ? 'original' : param[r.variant]);
+  const isShown = (r) => r.version === shownVer && variantOf(r) === shownVar;
+
+  function select(r) {
+    viewVersion = r.version === doc.version ? 0 : r.version;
+    viewVariant = variantOf(r);
+  }
   const contentURL = $derived(`/api/documents/${doc.id}/content`);
 
   const ORIGINAL = { 'pdf-ocred': 'scan with an existing OCR layer', 'pdf-scanned': 'scan without text', 'pdf-mixed': 'partly scanned',
@@ -42,10 +53,9 @@
     return [what, x.meta?.langs, x.engine, date(x.created_at)].filter(Boolean).join(', ');
   }
 
-  // viewer URLs name the version "v", content URLs "version"
-  function variantQuery(r, versionKey) {
+  function variantQuery(r) {
     const q = new URLSearchParams();
-    if (r.version !== doc.version) q.set(versionKey, String(r.version));
+    if (r.version !== doc.version) q.set('version', String(r.version));
     q.set('variant', param[r.variant]);
     return q;
   }
@@ -58,8 +68,8 @@
         style:stroke={color(e.kind === 'branch' ? e.to.lane : e.kind === 'merge' ? e.from.lane : e.kind === 'restore' ? e.via : 0)} />
     {/each}
     {#each graph.rows as r (r.id)}
+      {#if isShown(r)}<circle cx={x(r.lane)} cy={y(r.row)} r={R + 3.5} class="ring" style:stroke={color(r.lane)} />{/if}
       {#if r.kind === 'version'}
-        {#if r.version === doc.version}<circle cx={x(r.lane)} cy={y(r.row)} r={R + 3.5} class="ring" style:stroke={color(0)} />{/if}
         <circle cx={x(r.lane)} cy={y(r.row)} r={R} style:fill={color(0)} style:stroke={color(0)} />
       {:else}
         <circle cx={x(r.lane)} cy={y(r.row)} r={R} class="variant" class:search={r.data.search_text && r.version === doc.version}
@@ -70,18 +80,15 @@
 
   <ol class="rows" style:padding-left="{width + 6}px" aria-label="History: versions and their variants, oldest first">
     {#each graph.rows as r (r.id)}
-      <li class={r.kind} class:viewing={r.kind === 'version' && viewing(r.version)}>
+      <li class={r.kind} class:shown={isShown(r)}>
+        <button class="pick" aria-pressed={isShown(r)} onclick={() => select(r)}
+          aria-label="Show {r.kind === 'version' ? `version ${r.version}` : `${VARIANT_NAME[variantOf(r)]} of version ${r.version}`}"></button>
         {#if r.kind === 'version'}
           {@const v = r.data}
           <div class="title">
             <strong>Version {v.version}</strong>
-            {#if v.version === doc.version}<span class="pill">current</span>{/if}
-            {#if viewVersion === v.version}<span class="pill viewing-pill">viewing</span>{/if}
             <span class="acts">
-              {#if v.version !== doc.version}
-                <button class="small ghost" onclick={() => (viewVersion = viewVersion === v.version ? 0 : v.version)}>{viewVersion === v.version ? 'Show current' : 'View'}</button>
-                {#if canWrite}<button class="small ghost" onclick={() => onrestore?.(v.version)}>Restore</button>{/if}
-              {/if}
+              {#if v.version !== doc.version && canWrite}<button class="small ghost" onclick={() => onrestore?.(v.version)}>Restore</button>{/if}
               <a class="btn small ghost" href={`${contentURL}?version=${v.version}`} download title="Download version {v.version}" aria-label="Download version {v.version}"><Icon name="download" size={14} /></a>
             </span>
           </div>
@@ -92,8 +99,7 @@
             <span class="vname">{VARIANT_LABEL[r.variant] ?? r.variant}</span>
             {#if vx.search_text && r.version === doc.version}<span class="pill search">used for search</span>{/if}
             <span class="acts">
-              {#if file}<a class="btn small ghost" href={`/view/${file.link_id}?${variantQuery(r, 'v')}`} title="Open this variant" aria-label="Open {VARIANT_LABEL[r.variant]} of version {r.version}"><Icon name="open" size={14} /></a>{/if}
-              <a class="btn small ghost" href={`${contentURL}?${variantQuery(r, 'version')}`} download
+              <a class="btn small ghost" href={`${contentURL}?${variantQuery(r)}`} download
                 title="Download this variant" aria-label="Download {VARIANT_LABEL[r.variant]} of version {r.version}"><Icon name="download" size={14} /></a>
             </span>
           </div>
@@ -120,8 +126,15 @@
   .variant { fill: var(--surface); stroke-width: 2.5; }
   .variant.search { fill: var(--highlight); }
   .rows { list-style: none; margin: 0; padding: 0; }
-  .rows li { height: var(--row); display: flex; flex-direction: column; justify-content: flex-start; padding-top: 8px; min-width: 0; border-radius: var(--r-control); }
-  .rows li.viewing { background: var(--accent-soft); }
+  .rows li { position: relative; height: var(--row); display: flex; flex-direction: column; justify-content: flex-start; padding-top: 8px; min-width: 0; border-radius: var(--r-control); }
+  .rows li:hover { background: var(--surface-2); }
+  .rows li.shown { background: var(--accent-soft); }
+  /* the whole row selects; texts let clicks through, actions stay on top */
+  .pick { position: absolute; inset: 0 0 0 -8px; width: auto; min-height: 0; border: 0; border-radius: var(--r-control); background: none; padding: 0; cursor: pointer; }
+  .pick:hover:not(:disabled) { background: none; }
+  .pick:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .title, .meta { pointer-events: none; position: relative; }
+  .acts { pointer-events: auto; position: relative; z-index: 1; }
   .title { display: flex; align-items: center; gap: 6px; min-width: 0; height: 22px; }
   .title strong, .vname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .vname { font-weight: 600; color: var(--ink-2); }
@@ -130,5 +143,4 @@
   .meta { color: var(--ink-2); font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 4px; }
   .rel { color: var(--ink); }
   .pill.search { background: var(--highlight); color: #1d2a35; border-color: transparent; }
-  .viewing-pill { background: var(--accent); color: var(--on-accent); border-color: transparent; }
 </style>

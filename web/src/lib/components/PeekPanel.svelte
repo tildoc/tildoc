@@ -7,7 +7,7 @@
   import DocDetails from './DocDetails.svelte';
   import { cachedData, revalidate } from '../api.js';
   import { errorToast, stored, store, prefs } from '../state.svelte.js';
-  import { defaultVariant } from '../format.js';
+  import { shownVariant, VARIANT_NAME } from '../format.js';
   import { watchBusy, isBusy } from '../poll.svelte.js';
   import { watchLive } from '../events.svelte.js';
   import { warmup } from '../viewer/pdfjs.js';
@@ -15,6 +15,7 @@
   let { file, onclose, onopen, onchanged, query = '' } = $props();
   let doc = $state(null);
   let viewVersion = $state(0);
+  let viewVariant = $state(''); // '' = the default variant of the shown version
   let page = $state(1), numPages = $state(0), zoom = $state('width');
   let width = $state(stored('peekWidth', 460));
   let opening = $state(false);
@@ -39,6 +40,7 @@
     untrack(() => {
       doc = null;
       viewVersion = 0;
+      viewVariant = '';
       page = 1;
       load();
     });
@@ -76,10 +78,11 @@
 
   function open() {
     opening = true;
-    onopen?.({ page, version: viewVersion });
+    // the viewer opens exactly what the preview shows
+    onopen?.({ page, version: viewVersion, variant: viewVariant ? variant : '' });
   }
 
-  const variant = $derived(defaultVariant(doc));
+  const variant = $derived(doc ? shownVariant(doc, viewVersion, viewVariant) : 'original');
 </script>
 
 <aside class="peek" style:--w="{width}px" aria-label="Preview of {file.name}">
@@ -102,11 +105,11 @@
   <div class="bar">
     <button class="primary" onclick={open}><Icon name="open" size={16} /> Open</button>
     <a class="btn" href={`/api/files/${file.link_id}/content`} download><Icon name="download" size={16} /> Download</a>
-    {#if viewVersion}<span class="pill">Viewing version {viewVersion}</span>{/if}
+    {#if viewVersion || viewVariant}<span class="pill">Viewing version {viewVersion || doc?.version}{variant !== 'original' ? `, ${VARIANT_NAME[variant]}` : ''}</span>{/if}
   </div>
 
   <div class="info">
-    {#if doc}<DocDetails {doc} {file} compact bind:viewVersion onchanged={() => { load(); onchanged?.(); }} />{/if}
+    {#if doc}<DocDetails {doc} {file} compact bind:viewVersion bind:viewVariant onchanged={() => { load(); onchanged?.(); }} />{/if}
   </div>
 </aside>
 

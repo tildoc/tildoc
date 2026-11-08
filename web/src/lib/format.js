@@ -54,17 +54,44 @@ export function iconFor(row) {
   return 'file';
 }
 
-// defaultVariant picks which PDF to show: tildoc's OCR for scans, the
-// original for files that came with their own OCR unless the server prefers
-// tildoc's OCR.
 // textVariant names the PDF whose text the server uses for search: tildoc's
 // OCR when it is the search text, otherwise the original.
 export function textVariant(doc) {
   return doc?.variants?.some((v) => v.kind === 'searchable_pdf' && v.search_text) ? 'searchable' : 'original';
 }
 
-export function defaultVariant(doc) {
-  if (!doc?.has_searchable) return 'original';
-  if (doc.foreign_ocr) return doc.ocr_preference === 'tildoc' ? 'searchable' : 'original';
+// What is shown of a document is one node of its history: a version
+// (0 = current) and a variant of it: 'original' | 'searchable' | 'image_only'.
+export const VARIANT_KIND = { searchable: 'searchable_pdf', image_only: 'image_only_pdf' };
+export const VARIANT_NAME = { original: 'Original', searchable: 'tildoc OCR', image_only: 'Image only' };
+
+// shownVersion returns the version entry for a version number (0 = current).
+export function shownVersion(doc, version = 0) {
+  return doc?.versions?.find((v) => v.version === (version || doc.version));
+}
+
+// hasVariant: does that version have the variant?
+export function hasVariant(doc, version, variant) {
+  if (variant === 'original') return true;
+  const vs = shownVersion(doc, version)?.variants ?? (version ? [] : doc?.variants ?? []);
+  return vs.some((x) => x.kind === VARIANT_KIND[variant]);
+}
+
+// foreignOCR: did that version arrive with someone else's OCR layer?
+export function foreignOCR(doc, version = 0) {
+  return (shownVersion(doc, version)?.kind ?? doc?.kind) === 'pdf-ocred';
+}
+
+// defaultVariant picks which PDF to show: tildoc's OCR for scans, the
+// original for files that came with their own OCR unless the server prefers
+// tildoc's OCR.
+export function defaultVariant(doc, version = 0) {
+  if (!hasVariant(doc, version, 'searchable')) return 'original';
+  if (foreignOCR(doc, version)) return doc.ocr_preference === 'tildoc' ? 'searchable' : 'original';
   return 'searchable';
+}
+
+// shownVariant: the chosen variant if that version has it, else the default.
+export function shownVariant(doc, version, chosen) {
+  return chosen && hasVariant(doc, version, chosen) ? chosen : defaultVariant(doc, version);
 }

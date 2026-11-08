@@ -92,6 +92,7 @@
     const q = new URLSearchParams();
     if (opts.page > 1) q.set('page', opts.page);
     if (opts.version) q.set('v', opts.version);
+    if (opts.variant) q.set('variant', opts.variant);
     openView(`/view/${row.link_id}${q.size ? '?' + q : ''}`);
   }
 

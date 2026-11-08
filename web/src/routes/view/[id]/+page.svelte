@@ -7,7 +7,7 @@
   import { get, cachedData, revalidate } from '#lib/api.js';
   import { errorToast, session, stored, store } from '#lib/state.svelte.js';
   import { COLUMNS, loadView } from '#lib/columns.js';
-  import { defaultVariant } from '#lib/format.js';
+  import { shownVariant, hasVariant, foreignOCR } from '#lib/format.js';
   import Icon from '#lib/components/Icon.svelte';
   import DocView from '#lib/components/viewer/DocView.svelte';
   import DocDetails from '#lib/components/DocDetails.svelte';
@@ -28,8 +28,10 @@
   let findOpen = $state(false), findInput = $state(), findText = $state(''), query = $state('');
   let thumbs = $state(stored('viewerThumbs', true));
   let info = $state(stored('viewerInfo', false));
-  let variant = $state('original');
+  let viewVariant = $state(''); // '' = the default variant of the shown version
   let viewVersion = $state(0);
+  // what is shown: the chosen variant of the shown version (or its default)
+  let variant = $derived(doc ? shownVariant(doc, viewVersion, viewVariant) : 'original');
   let initialPage = $state(1);
   let view = $state();
   let pageInput = $state('1');
@@ -57,7 +59,7 @@
     const show = ({ document: d, ...f }) => {
       file = f;
       doc = d;
-      variant = ['original', 'searchable', 'image_only'].includes(sp.get('variant')) ? sp.get('variant') : defaultVariant(d);
+      viewVariant = ['original', 'searchable', 'image_only'].includes(sp.get('variant')) ? sp.get('variant') : '';
       loadSiblings(f);
     };
     const cached = cachedData(path);
@@ -257,14 +259,14 @@
       </div>
 
       <div class="right">
-        {#if doc.has_searchable}
+        {#if hasVariant(doc, viewVersion, 'searchable')}
           <div class="seg hide-sm" role="group" aria-label="Version of the PDF">
-            {#if doc.foreign_ocr}
-              <button class:active={variant === 'original'} onclick={() => (variant = 'original')} title="The file as uploaded, with the OCR it came with">Existing OCR</button>
-              <button class:active={variant === 'searchable'} onclick={() => (variant = 'searchable')} title="tildoc's own OCR of the plain page images">tildoc OCR</button>
+            {#if foreignOCR(doc, viewVersion)}
+              <button class:active={variant === 'original'} onclick={() => (viewVariant = 'original')} title="The file as uploaded, with the OCR it came with">Existing OCR</button>
+              <button class:active={variant === 'searchable'} onclick={() => (viewVariant = 'searchable')} title="tildoc's own OCR of the plain page images">tildoc OCR</button>
             {:else}
-              <button class:active={variant === 'searchable'} onclick={() => (variant = 'searchable')} title="The original with recognised text added (OCR)">With OCR text</button>
-              <button class:active={variant === 'original'} onclick={() => (variant = 'original')} title="The file exactly as uploaded">Original</button>
+              <button class:active={variant === 'searchable'} onclick={() => (viewVariant = 'searchable')} title="The original with recognised text added (OCR)">With OCR text</button>
+              <button class:active={variant === 'original'} onclick={() => (viewVariant = 'original')} title="The file exactly as uploaded">Original</button>
             {/if}
           </div>
         {/if}
@@ -289,8 +291,8 @@
       <button class="icon" onclick={() => view?.findPrev()} disabled={!matchCount} aria-label="Previous match" title="Previous match (Shift+Enter)"><Icon name="up" size={16} /></button>
       <button class="icon" onclick={() => view?.findNext()} disabled={!matchCount} aria-label="Next match" title="Next match (Enter)"><Icon name="down" size={16} /></button>
       <button class="icon" onclick={closeFind} aria-label="Close find"><Icon name="close" size={16} /></button>
-      {#if query && !matchCount && !searching && doc?.has_searchable && variant === 'original'}
-        <span class="hint-ocr">Scanned pages are only searchable in the version with OCR text. <button class="link" onclick={() => (variant = 'searchable')}>Switch</button></span>
+      {#if query && !matchCount && !searching && hasVariant(doc, viewVersion, 'searchable') && variant === 'original'}
+        <span class="hint-ocr">Scanned pages are only searchable in the version with OCR text. <button class="link" onclick={() => (viewVariant = 'searchable')}>Switch</button></span>
       {/if}
     </div>
   {/if}
@@ -313,7 +315,7 @@
     <aside class="drawer" aria-label="Document details">
       <header><h2>Details</h2><button class="icon" onclick={toggleInfo} aria-label="Close details"><Icon name="close" size={16} /></button></header>
       {#if viewVersion}<p class="viewing">You are viewing version {viewVersion}. <button class="link" onclick={() => (viewVersion = 0)}>Show current version</button></p>{/if}
-      <DocDetails {doc} {file} bind:viewVersion onchanged={reloadDoc} />
+      <DocDetails {doc} {file} bind:viewVersion bind:viewVariant onchanged={reloadDoc} />
     </aside>
   {/if}
 </div>

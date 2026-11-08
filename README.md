@@ -124,8 +124,10 @@ a second time.
 oldest first: versions on the main line, derived variants branching off
 (original → image only → tildoc OCR), and lines joining back where a version
 continues from a variant (e.g. the OCR PDF uploaded as a new version) or
-restores an older version (dashed). Every node can be opened or downloaded;
-older versions can be viewed and restored.
+restores an older version (dashed). Clicking a node shows it (version and
+variant) in the preview or viewer, and only that node is marked; *Open* opens
+exactly the selected node. Every node can be downloaded, older versions
+restored.
 
 Glossary: **Team** (users + roles owner/admin/member/viewer), **Space**
 (container, = S3 bucket, = top-level WebDAV/SFTP folder), **Folder**,
