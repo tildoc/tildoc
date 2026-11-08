@@ -256,11 +256,39 @@ func contentDisposition(kind, name string) string {
 	return kind + `; filename="` + ascii + `"; filename*=UTF-8''` + url.PathEscape(name)
 }
 
+// Disposition selects how ServeContent delivers a blob.
+type Disposition int
+
+const (
+	Attachment   Disposition = iota // download
+	Inline                          // inline, sandboxed
+	InlineNative                    // inline PDF for the browser's own viewer, unsandboxed
+)
+
+// disposition reads ?inline=1 and ?viewer=native. The unsandboxed native
+// PDF mode is only granted to users who chose the browser's viewer in their
+// preferences, so a crafted link cannot opt other users out of the sandbox.
+func (s *Server) disposition(r *http.Request) Disposition {
+	q := r.URL.Query()
+	if q.Get("inline") != "1" {
+		return Attachment
+	}
+	if q.Get("viewer") == "native" {
+		if p := principal(r); p != nil {
+			if prefs, err := s.Svc.GetPrefs(r.Context(), p.UserID); err == nil && prefs.PDFViewer == core.PDFViewerNative {
+				return InlineNative
+			}
+		}
+	}
+	return Inline
+}
+
 // ServeContent writes a blob with safe headers. Content is never rendered
 // as active content on the UI origin: downloads are attachments, inline
-// rendering is limited to PDF, plain text and raster images, and a sandbox
-// CSP isolates everything but PDFs.
-func ServeContent(w http.ResponseWriter, r *http.Request, f blob.File, name, mt, md5 string, mod time.Time, inline bool) {
+// rendering is limited to PDF, plain text and raster images, and every
+// response carries a sandbox CSP. The single exception is InlineNative for
+// PDFs (browsers refuse to run their PDF viewer in a sandboxed document).
+func ServeContent(w http.ResponseWriter, r *http.Request, f blob.File, name, mt, md5 string, mod time.Time, disp Disposition) {
 	h := w.Header()
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Cache-Control", "private, no-cache")
@@ -268,10 +296,10 @@ func ServeContent(w http.ResponseWriter, r *http.Request, f blob.File, name, mt,
 		h.Set("ETag", `"`+md5+`"`)
 	}
 	ctype, ok := inlineSafe(mt)
-	if inline && ok {
+	if disp != Attachment && ok {
 		h.Set("Content-Type", ctype)
 		h.Set("Content-Disposition", contentDisposition("inline", name))
-		if ctype != "application/pdf" {
+		if !(disp == InlineNative && ctype == "application/pdf") {
 			h.Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'")
 		}
 	} else {

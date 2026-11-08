@@ -1,8 +1,8 @@
 // Global client state (Svelte 5 runes).
-import { get, setUnauthorizedHandler } from './api.js';
+import { get, patch, setUnauthorizedHandler } from './api.js';
 
 export const session = $state({ user: null, ready: false, spaces: [], info: null, teams: [] });
-export const ui = $state({ toasts: [], uploads: [], sidebarOpen: false, treeVersion: 0 });
+export const ui = $state({ toasts: [], uploads: [], sidebarOpen: false, treeVersion: 0, palette: false, returnTo: null });
 
 setUnauthorizedHandler(() => {
   session.user = null;
@@ -44,4 +44,52 @@ export function spaceById(id) {
 // bumpTree tells folder trees to reload (after structural changes).
 export function bumpTree() {
   ui.treeVersion++;
+}
+
+// prefs returns the user's preferences with defaults.
+export function prefs() {
+  return { pdf_viewer: 'pdfjs', ...(session.user?.prefs ?? {}) };
+}
+
+export async function setPref(key, value) {
+  const u = await patch('/me', { prefs: { [key]: value } });
+  session.user = u;
+  return u.prefs;
+}
+
+// Theme is a per-browser choice: system | light | dark.
+export function getTheme() {
+  try {
+    return localStorage.getItem('tildoc.theme') || 'system';
+  } catch {
+    return 'system';
+  }
+}
+
+export function applyTheme(t = getTheme()) {
+  const el = document.documentElement;
+  if (t === 'light' || t === 'dark') el.dataset.theme = t;
+  else delete el.dataset.theme;
+}
+
+export function setTheme(t) {
+  try {
+    localStorage.setItem('tildoc.theme', t);
+  } catch {}
+  applyTheme(t);
+}
+
+// stored reads/writes small per-browser UI conveniences.
+export function stored(key, def) {
+  try {
+    const v = localStorage.getItem('tildoc.' + key);
+    return v === null ? def : JSON.parse(v);
+  } catch {
+    return def;
+  }
+}
+export function store(key, v) {
+  try {
+    localStorage.setItem('tildoc.' + key, JSON.stringify(v));
+  } catch {}
 }

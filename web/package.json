@@ -4,11 +4,15 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/vendor-assets.mjs",
     "dev": "vite dev",
+    "prebuild": "node scripts/vendor-assets.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@fontsource-variable/atkinson-hyperlegible-next": "5.3.0",
+    "@fontsource-variable/literata": "5.3.0",
     "@sveltejs/adapter-static": "4.0.1",
     "@sveltejs/kit": "3.1.1",
     "@sveltejs/vite-plugin-svelte": "7.3.1",
@@ -17,5 +21,8 @@
   },
   "imports": {
     "#lib/*": "./src/lib/*"
+  },
+  "dependencies": {
+    "pdfjs-dist": "6.4.299"
   }
 }

@@ -10,15 +10,16 @@ const OUT = join(import.meta.dirname, 'screenshots');
 const FIX = join(import.meta.dirname, 'screenshots', 'fixtures');
 mkdirSync(FIX, { recursive: true });
 
-function pdf(text) {
-  const content = `BT /F1 18 Tf 72 720 Td (${text}) Tj ET`;
-  const objs = [
-    '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
-    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
-  ];
+// pdf builds a minimal PDF with one text line per page.
+function pdf(...pages) {
+  const n = pages.length;
+  const objs = ['<< /Type /Catalog /Pages 2 0 R >>', `<< /Type /Pages /Kids [${pages.map((_, i) => `${4 + i * 2} 0 R`).join(' ')}] /Count ${n} >>`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+  pages.forEach((text, i) => {
+    const content = `BT /F1 18 Tf 72 720 Td (${text}) Tj ET`;
+    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${5 + i * 2} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`);
+    objs.push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  });
   let out = '%PDF-1.4\n';
   const offs = [];
   objs.forEach((o, i) => { offs.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
@@ -28,6 +29,7 @@ function pdf(text) {
   return out;
 }
 writeFileSync(join(FIX, 'Quartalsbericht.pdf'), pdf('Quartalsbericht Umsatz Hamburg 2026'));
+writeFileSync(join(FIX, 'Handbuch.pdf'), pdf('Handbuch Einleitung', 'Kapitel zwei Grundlagen', 'Kapitel drei Wartung', 'Anhang Zebra Tabelle', 'Index und Register'));
 writeFileSync(join(FIX, 'notes.txt'), 'Protokoll der Besprechung: Zuständigkeiten und Termine\n');
 writeFileSync(join(FIX, 'notes-copy.txt'), 'Protokoll der Besprechung: Zuständigkeiten und Termine\n');
 
@@ -63,11 +65,11 @@ await step('setup admin', async () => {
   await page.waitForURL('**/setup');
   await page.getByLabel('Username').fill('admin');
   await page.getByLabel('Display name').fill('Ada Admin');
-  await page.getByLabel('Password (min. 8 characters)').fill('supersecret');
+  await page.getByLabel(/^Password/).fill('supersecret');
   await page.getByLabel('Repeat password').fill('supersecret');
   await page.getByRole('button', { name: 'Create administrator' }).click();
   await page.waitForURL('**/f/**');
-  await page.locator('.crumbs').waitFor();
+  await page.locator('.titlerow h1').waitFor();
 });
 
 await step('new folder', async () => {
@@ -78,8 +80,8 @@ await step('new folder', async () => {
 });
 
 await step('upload files', async () => {
-  await page.locator('input[type=file][multiple]').setInputFiles([join(FIX, 'Quartalsbericht.pdf'), join(FIX, 'notes.txt')]);
-  await toast('2 uploaded');
+  await page.locator('input[type=file][multiple]').setInputFiles([join(FIX, 'Quartalsbericht.pdf'), join(FIX, 'notes.txt'), join(FIX, 'Handbuch.pdf')]);
+  await toast('3 uploaded');
   await row('Quartalsbericht.pdf').waitFor();
 });
 
@@ -89,27 +91,106 @@ await step('dedup upload', async () => {
   await row('notes-copy.txt').locator('.badge').waitFor();
 });
 
-await step('document panel', async () => {
+await step('peek panel renders pdf', async () => {
   await row('Quartalsbericht.pdf').click();
-  await page.locator('aside.panel').waitFor();
-  await page.locator('aside.panel iframe').waitFor();
-  await page.locator('aside.panel .tabs').getByRole('button', { name: 'Info' }).click();
-  await page.locator('aside.panel .status.done').waitFor({ timeout: 20000 });
-  await page.locator('aside.panel .tabs').getByRole('button', { name: 'Text' }).click();
-  await page.locator('aside.panel pre', { hasText: 'Hamburg' }).waitFor();
+  await page.locator('aside.peek').waitFor();
+  await page.locator('aside.peek .pg canvas').first().waitFor();
+  await page.locator('aside.peek .pg .textLayer span', { hasText: 'Hamburg' }).first().waitFor();
+  await page.locator('aside.peek .status.done').waitFor({ timeout: 20000 });
+  await page.locator('aside.peek .tabs').getByRole('tab', { name: 'Text' }).click();
+  await page.locator('aside.peek pre', { hasText: 'Hamburg' }).waitFor();
 });
 
-await step('links tab', async () => {
+await step('places tab', async () => {
   await row('notes.txt').click();
-  await page.locator('aside.panel .tabs').getByRole('button', { name: /Links/ }).click();
-  await page.locator('aside.panel .list li').nth(1).waitFor();
+  await page.locator('aside.peek .sheet-text', { hasText: 'Protokoll' }).waitFor();
+  await page.locator('aside.peek .tabs').getByRole('tab', { name: /Places \(2\)/ }).click();
+  await page.locator('aside.peek .list li').nth(1).waitFor();
 });
 
-await step('full text search', async () => {
-  await page.getByLabel('Search').fill('Umsatz');
-  await page.getByLabel('Search').press('Enter');
+await step('peek toggles with space', async () => {
+  await row('notes.txt').locator('td').nth(2).click();
+  await page.keyboard.press('Space');
+  await page.locator('aside.peek').waitFor({ state: 'detached' });
+  await page.keyboard.press('Space');
+  await page.locator('aside.peek').waitFor();
+});
+
+await step('viewer opens whole pdf', async () => {
+  await row('Handbuch.pdf').click();
+  await page.locator('aside.peek .pg canvas').first().waitFor();
+  await page.locator('aside.peek').getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL('**/view/**');
+  await page.locator('.viewer .stage .pg').nth(4).waitFor();
+  await page.locator('.pager', { hasText: 'of 5' }).waitFor();
+  await page.locator('.viewer .stage .pg canvas').first().waitFor();
+  if ((await page.locator('.thumbs .thumb').count()) !== 5) throw new Error('expected 5 thumbnails');
+});
+
+await step('viewer page jump and zoom', async () => {
+  const pg = page.getByLabel('Page', { exact: true });
+  await pg.fill('3');
+  await pg.press('Enter');
+  await page.waitForFunction(() => document.querySelector('.pager input').value === '3');
+  await page.locator('.thumb.active', { hasText: '3' }).waitFor();
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+  await page.waitForFunction(() => document.querySelector('.zoom select').value === 'custom');
+  await page.keyboard.press('0');
+  await page.waitForFunction(() => document.querySelector('.zoom select').value === 'auto');
+});
+
+await step('viewer find highlights', async () => {
+  await page.keyboard.press('Control+f');
+  await page.getByPlaceholder('Find in document').fill('zebra');
+  await page.locator('.find .count', { hasText: '1 of 1' }).waitFor();
+  await page.locator('.textLayer .hl.current', { hasText: /zebra/i }).waitFor();
+  await page.locator('.thumb .hitmark').first().waitFor();
+  await page.waitForFunction(() => document.querySelector('.pager input').value === '4');
+  await page.getByPlaceholder('Find in document').press('Escape');
+  await page.locator('.find').waitFor({ state: 'detached' });
+});
+
+await step('viewer details and next document', async () => {
+  await page.keyboard.press('i');
+  await page.locator('.drawer .status.done').waitFor({ timeout: 20000 });
+  const before = page.url();
+  await page.keyboard.press(']');
+  await page.waitForURL((u) => u.href !== before);
+  await page.locator('.viewer h1', { hasText: 'notes-copy.txt' }).waitFor();
+  await page.locator('.sheet-text', { hasText: 'Protokoll' }).waitFor();
+  await page.keyboard.press('i');
+});
+
+await step('viewer closes to folder', async () => {
+  await page.keyboard.press('Escape');
+  await page.waitForURL('**/f/**');
+  await page.locator('tr.sel', { hasText: 'notes-copy.txt' }).waitFor();
+});
+
+await step('quick search opens hit page', async () => {
+  await page.keyboard.press('Control+k');
+  await page.getByRole('combobox').fill('Zebra');
+  await page.getByRole('option', { name: /Handbuch\.pdf/ }).locator('.pg', { hasText: 'page 4' }).waitFor({ timeout: 20000 });
+  await page.getByRole('combobox').press('Enter');
+  await page.waitForURL('**/view/**');
+  await page.locator('.textLayer .hl.current').waitFor();
+  await page.waitForFunction(() => document.querySelector('.pager input').value === '4');
+  await page.keyboard.press('Escape');
+  await page.waitForURL('**/f/**');
+});
+
+await step('search page', async () => {
+  await page.keyboard.press('Control+k');
+  await page.getByRole('combobox').fill('Umsatz');
+  await page.getByRole('option', { name: /Show/ }).waitFor();
+  await page.getByRole('option', { name: /Show/ }).click();
   await page.waitForURL('**/search?**');
-  await row('Quartalsbericht.pdf').waitFor();
+  await page.locator('.results mark', { hasText: 'Umsatz' }).first().waitFor();
+  await page.locator('.results').getByRole('button', { name: 'Quartalsbericht.pdf' }).click();
+  await page.waitForURL('**/view/**');
+  await page.locator('.textLayer .hl').first().waitFor();
+  await page.keyboard.press('Escape');
+  await page.waitForURL('**/search?**');
 });
 
 await step('move via dialog', async () => {
@@ -131,9 +212,9 @@ await step('rename', async () => {
   await row('Q3-Bericht.pdf').waitFor();
 });
 
-await step('original location', async () => {
+await step('original place', async () => {
   await row('Q3-Bericht.pdf').click();
-  await page.getByRole('button', { name: 'Original location' }).click();
+  await page.getByRole('button', { name: 'Move to original place' }).click();
   await toast('original import location');
 });
 
@@ -150,12 +231,30 @@ await step('delete and restore', async () => {
 });
 
 await step('access key', async () => {
-  await page.getByRole('link', { name: 'Settings & access' }).click();
-  await page.getByPlaceholder('Label, e.g. laptop-dolphin').fill('dolphin');
+  await page.getByRole('link', { name: 'Settings and access' }).click();
+  await page.getByPlaceholder('Label, for example laptop-dolphin').fill('dolphin');
   await page.getByRole('button', { name: 'Create key' }).click();
-  await page.getByText('shown only once').waitFor();
+  await page.getByText('shown only this once').waitFor();
   await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click();
   await row('dolphin').waitFor();
+});
+
+await step('prefer browser pdf viewer', async () => {
+  await page.getByRole('radio', { name: /Browser’s built-in viewer/ }).check();
+  await toast('browser’s own viewer');
+  await page.goto(BASE + '/');
+  await row('Handbuch.pdf').click();
+  const frame = page.locator('aside.peek iframe.native');
+  await frame.waitFor();
+  const src = await frame.getAttribute('src');
+  if (!src.includes('viewer=native')) throw new Error('native viewer url: ' + src);
+  const res = await page.request.get(BASE + src);
+  if (res.headers()['content-security-policy']) throw new Error('native PDF still sandboxed');
+  await page.getByRole('link', { name: 'Settings and access' }).click();
+  await page.getByRole('radio', { name: /tildoc viewer/ }).check();
+  await toast('tildoc viewer');
+  const res2 = await page.request.get(BASE + src);
+  if (!res2.headers()['content-security-policy']?.includes('sandbox')) throw new Error('PDF must be sandboxed again');
 });
 
 await step('teams and team space', async () => {
@@ -164,20 +263,20 @@ await step('teams and team space', async () => {
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('heading', { name: 'Buchhaltung' }).waitFor();
   await page.getByRole('link', { name: 'Spaces' }).click();
-  await page.getByLabel('Name').fill('Belege');
-  await page.locator('select').selectOption({ label: 'Team Buchhaltung' });
+  await page.getByLabel('Name', { exact: true }).fill('Belege');
+  await page.getByLabel('Belongs to').selectOption({ label: 'Team Buchhaltung' });
   await page.getByRole('button', { name: 'Create space' }).click();
-  await toast('created');
-  await page.locator('nav.side', { hasText: 'Belege' }).waitFor();
+  await toast('Created space');
+  await page.locator('nav.rail', { hasText: 'Belege' }).waitFor();
 });
 
 await step('admin', async () => {
   await page.getByRole('link', { name: 'Administration' }).click();
-  await page.locator('.tile').first().waitFor();
+  await page.locator('.facts').waitFor();
   await page.getByLabel('Username').fill('bob');
-  await page.getByLabel('Initial password').fill('bobpass12');
-  await page.getByRole('button', { name: 'Create user' }).click();
-  await toast('User bob created');
+  await page.getByLabel(/^First password/).fill('bobpass12');
+  await page.getByRole('button', { name: 'Add person' }).click();
+  await toast('Added bob');
 });
 
 await step('columns customization', async () => {
@@ -197,15 +296,31 @@ await step('mobile layout', async () => {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   if (overflow) throw new Error('horizontal overflow on mobile');
   await page.getByRole('button', { name: 'Menu' }).click();
-  await page.locator('nav.side').getByText('Trash').waitFor();
+  await page.locator('nav.rail').getByText('Trash').waitFor();
+  await page.keyboard.press('Escape');
+});
+
+await step('mobile viewer', async () => {
+  await page.goto(BASE + '/');
+  await row('Handbuch.pdf').locator('button.link').click();
+  await page.waitForURL('**/view/**');
+  await page.locator('.viewer .stage .pg canvas').first().waitFor();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+  if (overflow) throw new Error('horizontal overflow in mobile viewer');
 });
 
 await step('dark mode', async () => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto(BASE + '/');
-  await row('notes.txt').click();
-  await page.locator('aside.panel').waitFor();
+  await row('Handbuch.pdf').click();
+  await page.locator('aside.peek .pg canvas').first().waitFor();
+});
+
+await step('dark viewer', async () => {
+  await page.locator('aside.peek').getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL('**/view/**');
+  await page.locator('.viewer .stage .pg canvas').first().waitFor();
 });
 
 await browser.close();

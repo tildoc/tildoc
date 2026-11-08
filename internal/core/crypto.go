@@ -80,8 +80,25 @@ func newAccessKeyID() string {
 	return "DK" + base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b)[:18]
 }
 
-// newSecret returns a 40 char secret (A-Z a-z 0-9 - _).
-func newSecret() string { return randomToken(30) }
+// newSecret returns a 40 char alphanumeric secret (about 238 bits). No '-'
+// or '_': a leading dash breaks command line tools that take the secret as
+// an argument (e.g. `rclone obscure`).
+func newSecret() string {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+	out := make([]byte, 40)
+	buf := make([]byte, 64)
+	for i := 0; i < len(out); {
+		rand.Read(buf)
+		for _, b := range buf {
+			// rejection sampling keeps the distribution uniform (248 = 4*62)
+			if b < 248 && i < len(out) {
+				out[i] = alphabet[int(b)%62]
+				i++
+			}
+		}
+	}
+	return string(out)
+}
 
 func (s *Service) gcm() (cipher.AEAD, error) {
 	if len(s.Cfg.MasterKey) != 32 {

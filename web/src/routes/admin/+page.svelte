@@ -17,7 +17,7 @@
     e.preventDefault();
     try {
       await post('/users', nu);
-      toast(`User ${nu.username} created (with personal space)`, 'success');
+      toast(`Added ${nu.username} with a personal space`, 'success');
       nu = { username: '', password: '', display_name: '', is_admin: false };
       load();
     } catch (err) {
@@ -37,7 +37,7 @@
     if (pw) update(u, { password: pw });
   }
   async function remove(u) {
-    if (!confirm(`Delete user ${u.username} and all personal spaces? This cannot be undone.`)) return;
+    if (!confirm(`Delete ${u.username} and all their personal spaces? This can't be undone.`)) return;
     try {
       await del(`/users/${u.id}`);
       load();
@@ -48,7 +48,7 @@
   async function reprocess(statuses) {
     try {
       const r = await post('/admin/reprocess', { statuses });
-      toast(`${r.queued} blob(s) queued for processing`, 'success');
+      toast(`Queued ${r.queued} file${r.queued === 1 ? '' : 's'} for processing`, 'success');
       load();
     } catch (e) {
       errorToast(e);
@@ -57,71 +57,79 @@
 </script>
 
 <div class="page">
-  <h1>Administration</h1>
+  <header>
+    <h1>Administration</h1>
+    <p>People, storage and background processing for the whole installation. Administrators cannot open other people’s spaces.</p>
+  </header>
   {#if stats}
-    <div class="tiles">
-      <div class="tile"><span>{stats.documents}</span>documents</div>
-      <div class="tile"><span>{stats.blobs}</span>stored blobs</div>
-      <div class="tile"><span>{size(stats.blob_bytes)}</span>stored</div>
-      <div class="tile"><span>{stats.trashed}</span>in trash</div>
-      <div class="tile"><span>{stats.users}</span>users</div>
-      <div class="tile"><span>{stats.spaces}</span>spaces</div>
-    </div>
-    <div class="card">
-      <h2 style="margin-top:0">Processing</h2>
+    <section class="section">
+      <h2>Storage</h2>
+      <dl class="facts">
+        <dt>Documents</dt><dd>{stats.documents}</dd>
+        <dt>In the trash</dt><dd>{stats.trashed}</dd>
+        <dt>Stored files</dt><dd>{stats.blobs}, together {size(stats.blob_bytes)}</dd>
+        <dt>People</dt><dd>{stats.users}</dd>
+        <dt>Spaces</dt><dd>{stats.spaces}</dd>
+      </dl>
+    </section>
+    <section class="section">
+      <h2>Text extraction</h2>
       <div class="row">
-        {#each Object.entries(stats.processing) as [k, v]}<span class="pill">{statusLabel[k] ?? k}: {v}</span>{/each}
-        {#each Object.entries(stats.jobs) as [k, v]}<span class="pill muted">jobs {k}: {v}</span>{/each}
+        {#each Object.entries(stats.processing) as [k, v]}<span class="pill status {k}">{statusLabel[k] ?? k}: {v}</span>{/each}
+        {#each Object.entries(stats.jobs) as [k, v]}<span class="pill">jobs {k}: {v}</span>{/each}
       </div>
-      <div class="row" style="margin-top:10px">
+      <div class="row" style="margin-top:12px">
         <button onclick={() => reprocess(['failed'])}>Retry failed</button>
-        <button onclick={() => reprocess(['ocr_pending'])}>Re-run OCR pending</button>
-        <button onclick={() => reprocess([])}>Reprocess everything</button>
+        <button onclick={() => reprocess(['ocr_pending'])}>Run OCR again where pending</button>
+        <button class="ghost" onclick={() => reprocess([])}>Process everything again</button>
       </div>
       {#if stats.failed_jobs.length}
-        <h2>Failed jobs</h2>
-        <table class="plain"><thead><tr><th>ID</th><th>Kind</th><th>Attempts</th><th>Error</th></tr></thead>
-          <tbody>{#each stats.failed_jobs as j}<tr><td>{j.id}</td><td>{j.kind}</td><td>{j.attempts}</td><td class="muted">{j.last_error}</td></tr>{/each}</tbody></table>
+        <h3 style="margin:18px 0 8px">Failed jobs</h3>
+        <div class="table-wrap">
+          <table class="plain"><thead><tr><th>ID</th><th>Kind</th><th>Attempts</th><th>Error</th></tr></thead>
+            <tbody>{#each stats.failed_jobs as j}<tr><td>{j.id}</td><td>{j.kind}</td><td>{j.attempts}</td><td class="muted">{j.last_error}</td></tr>{/each}</tbody></table>
+        </div>
       {/if}
-    </div>
+    </section>
   {/if}
-  <div class="card" style="overflow-x:auto">
-    <h2 style="margin-top:0">Users</h2>
-    <table class="plain">
-      <thead><tr><th>User</th><th>Admin</th><th>Status</th><th>Created</th><th></th></tr></thead>
-      <tbody>
-        {#each users as u (u.id)}
-          <tr>
-            <td>{u.display_name} <small class="muted">@{u.username}</small></td>
-            <td><input type="checkbox" checked={u.is_admin} disabled={u.id === session.user.id} onchange={(e) => update(u, { is_admin: e.target.checked })} /></td>
-            <td>{u.disabled ? 'disabled' : 'active'}</td>
-            <td>{date(u.created_at)}</td>
-            <td class="row end">
-              {#if u.id !== session.user.id}
-                <button class="small" onclick={() => update(u, { disabled: !u.disabled })}>{u.disabled ? 'Enable' : 'Disable'}</button>
-                <button class="small" onclick={() => resetPw(u)}>Reset password</button>
-                <button class="small" onclick={() => remove(u)}>Delete</button>
-              {/if}
-            </td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
-    <form onsubmit={createUser} style="margin-top:14px">
-      <div class="grid">
+  <section class="section">
+    <h2>People</h2>
+    <div class="table-wrap">
+      <table class="plain">
+        <thead><tr><th>Person</th><th>Administrator</th><th>Status</th><th>Created</th><th></th></tr></thead>
+        <tbody>
+          {#each users as u (u.id)}
+            <tr>
+              <td>{u.display_name} <small class="muted">@{u.username}</small></td>
+              <td><input type="checkbox" aria-label="Administrator" checked={u.is_admin} disabled={u.id === session.user.id} onchange={(e) => update(u, { is_admin: e.target.checked })} /></td>
+              <td>{u.disabled ? 'Disabled' : 'Active'}</td>
+              <td>{date(u.created_at)}</td>
+              <td class="actions">
+                {#if u.id !== session.user.id}
+                  <button class="small" onclick={() => update(u, { disabled: !u.disabled })}>{u.disabled ? 'Enable' : 'Disable'}</button>
+                  <button class="small" onclick={() => resetPw(u)}>Set password</button>
+                  <button class="small ghost" onclick={() => remove(u)}>Delete</button>
+                {/if}
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+    <form onsubmit={createUser} style="margin-top:18px">
+      <h3 style="margin-bottom:8px">Add a person</h3>
+      <div class="section-grid">
         <label>Username<input bind:value={nu.username} required /></label>
         <label>Display name<input bind:value={nu.display_name} /></label>
-        <label>Initial password<input type="password" autocomplete="new-password" minlength="8" bind:value={nu.password} required /></label>
+        <label>First password <span class="hint">at least 8 characters</span><input type="password" autocomplete="new-password" minlength="8" bind:value={nu.password} required /></label>
       </div>
-      <div class="row"><label class="inline"><input type="checkbox" bind:checked={nu.is_admin} /> administrator</label><button class="primary">Create user</button></div>
+      <div class="row"><label class="inline" style="margin:0"><input type="checkbox" bind:checked={nu.is_admin} /> Administrator</label><button class="primary">Add person</button></div>
     </form>
-  </div>
+  </section>
 </div>
 
 <style>
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 14px; }
-  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; color: var(--muted); font-size: 0.85rem; }
-  .tile span { display: block; font-size: 1.5rem; font-weight: 700; color: var(--text); }
-  .pill { background: var(--surface-2); border-radius: 99px; padding: 2px 10px; font-size: 0.85rem; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 12px; }
+  .facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 24px; margin: 8px 0 0; }
+  .facts dt { color: var(--ink-2); }
+  .facts dd { margin: 0; font-weight: 600; }
 </style>

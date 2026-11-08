@@ -205,7 +205,7 @@ func (s *Server) fileContent(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	defer rd.Close()
-	ServeContent(w, r, rd, f.Name, f.MIME, f.MD5, f.ModifiedAt, r.URL.Query().Get("inline") == "1")
+	ServeContent(w, r, rd, f.Name, f.MIME, f.MD5, f.ModifiedAt, s.disposition(r))
 	return nil
 }
 
@@ -247,7 +247,7 @@ func (s *Server) documentContent(w http.ResponseWriter, r *http.Request) error {
 	if q.Get("variant") == "searchable" {
 		name = strings.TrimSuffix(name, ".pdf") + ".searchable.pdf"
 	}
-	ServeContent(w, r, f, name, ci.MIME, ci.MD5, ci.ModTime, q.Get("inline") == "1")
+	ServeContent(w, r, f, name, ci.MIME, ci.MD5, ci.ModTime, s.disposition(r))
 	return nil
 }
 

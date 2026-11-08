@@ -24,6 +24,9 @@ type SearchHit struct {
 	FileInfo
 	Rank    float32 `json:"rank"`
 	Snippet string  `json:"snippet,omitempty"`
+	// Page is the 1-based page of the first highlighted term (PDF text keeps
+	// pdftotext form feeds as page breaks); nil without a content match.
+	Page *int `json:"page,omitempty"`
 }
 
 // SearchResult is a page of hits.
@@ -136,7 +139,64 @@ func (s *Service) Search(ctx context.Context, p *Principal, q SearchQuery) (*Sea
 		res.Total = total
 		res.Hits = append(res.Hits, h)
 	}
-	return res, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	return res, s.fillHitPages(ctx, res.Hits)
+}
+
+// firstHighlight returns the first term ts_headline marked in a snippet.
+func firstHighlight(snippet string) string {
+	i := strings.Index(snippet, "<<")
+	if i < 0 {
+		return ""
+	}
+	rest := snippet[i+2:]
+	j := strings.Index(rest, ">>")
+	if j <= 0 {
+		return ""
+	}
+	return rest[:j]
+}
+
+// fillHitPages sets SearchHit.Page by locating the first highlighted term in
+// the extracted text and counting the form feeds before it.
+func (s *Service) fillHitPages(ctx context.Context, hits []SearchHit) error {
+	var idx []int
+	var shas [][]byte
+	var terms []string
+	for i := range hits {
+		if t := firstHighlight(hits[i].Snippet); t != "" {
+			idx = append(idx, i)
+			shas = append(shas, hits[i].SHA256[:])
+			terms = append(terms, t)
+		}
+	}
+	if len(idx) == 0 {
+		return nil
+	}
+	rows, err := s.DB.Query(ctx, `
+		SELECT x.ord, 1 + length(p.pre) - length(replace(p.pre, E'\f', ''))
+		FROM unnest($1::bytea[], $2::text[]) WITH ORDINALITY AS x(sha, term, ord)
+		JOIN blob_texts bt ON bt.sha256 = x.sha
+		CROSS JOIN LATERAL (SELECT strpos(bt.content, x.term) AS pos) f
+		CROSS JOIN LATERAL (SELECT left(bt.content, f.pos - 1) AS pre) p
+		WHERE f.pos > 0`, shas, terms)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ord int64
+		var page int
+		if err := rows.Scan(&ord, &page); err != nil {
+			return err
+		}
+		pg := page
+		hits[idx[ord-1]].Page = &pg
+	}
+	return rows.Err()
 }
 
 // Stats summarizes the installation (admin dashboard).

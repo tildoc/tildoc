@@ -2,6 +2,7 @@
   import { get, post, put, del, patch } from '#lib/api.js';
   import { session, refreshSpaces, toast, errorToast } from '#lib/state.svelte.js';
   import Confirm from '#lib/components/Confirm.svelte';
+  import Icon from '#lib/components/Icon.svelte';
 
   let teams = $state([]);
   let current = $state(null);
@@ -75,7 +76,7 @@
     try {
       await post('/spaces', { name, team_id: current.id });
       await refreshSpaces();
-      toast('Team space created', 'success');
+      toast('Created the team space', 'success');
     } catch (e) {
       errorToast(e);
     }
@@ -94,55 +95,71 @@
 </script>
 
 <div class="page">
-  <h1>Teams</h1>
+  <header>
+    <h1>Teams</h1>
+    <p>A team shares spaces. Roles decide what each member may do in the team’s spaces.</p>
+  </header>
   <div class="layout">
-    <div class="card list">
+    <div class="list sheet">
       {#each teams as t (t.id)}
-        <button class:active={current?.id === t.id} onclick={() => (current = t)}>{t.name}<small class="muted">{t.role || 'admin view'}</small></button>
-      {:else}<p class="muted">You are not a member of any team.</p>{/each}
-      <form onsubmit={createTeam} class="row" style="margin-top:10px">
-        <input placeholder="New team name" bind:value={newTeam} required style="flex:1" />
+        <button class:active={current?.id === t.id} onclick={() => (current = t)}>{t.name}<small class="muted">{t.role || 'administrator view'}</small></button>
+      {:else}<p class="muted pad">You are not in any team yet.</p>{/each}
+      <form onsubmit={createTeam} class="row newteam">
+        <input placeholder="New team name" bind:value={newTeam} required aria-label="New team name" style="flex:1" />
         <button class="primary">Create</button>
       </form>
     </div>
     {#if current}
-      <div class="card detail">
+      <div class="detail">
         <div class="row" style="justify-content:space-between">
-          <h2 style="margin:0">{current.name}</h2>
-          {#if current.role === 'owner'}<button class="small" onclick={() => (confirm = { kind: 'team' })}>Delete team</button>{/if}
+          <h2 class="tname">{current.name}</h2>
+          {#if current.role === 'owner'}<button class="small ghost" onclick={() => (confirm = { kind: 'team' })}>Delete team</button>{/if}
         </div>
-        <h2>Members</h2>
-        <table class="plain">
-          <thead><tr><th>User</th><th>Role</th><th></th></tr></thead>
-          <tbody>
-            {#each members as m (m.user_id)}
-              <tr>
-                <td>{m.display_name} <small class="muted">@{m.username}</small></td>
-                <td>
-                  {#if canManage}
-                    <select value={m.role} onchange={(e) => setRole(m, e.target.value)} style="width:auto">
-                      {#each ['owner', 'admin', 'member', 'viewer'] as r}<option value={r}>{r}</option>{/each}
-                    </select>
-                  {:else}{m.role}{/if}
-                </td>
-                <td class="row end">{#if canManage || m.user_id === session.user.id}<button class="small" onclick={() => (confirm = { kind: 'member', m })}>{m.user_id === session.user.id ? 'Leave' : 'Remove'}</button>{/if}</td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-        {#if canManage}
-          <form class="row" style="margin-top:10px" onsubmit={add}>
-            <input list="users" placeholder="username" bind:value={addUser} required style="flex:1;min-width:140px" />
-            <datalist id="users">{#each users.filter((u) => !members.some((m) => m.user_id === u.id)) as u}<option value={u.username}>{u.display_name}</option>{/each}</datalist>
-            <select bind:value={addRole} style="width:auto">{#each ['viewer', 'member', 'admin', 'owner'] as r}<option value={r}>{r}</option>{/each}</select>
-            <button class="primary">Add member</button>
-          </form>
-          <p class="muted small">viewer: read · member: upload, edit, move · admin: + delete, manage members · owner: + manage owners, delete team</p>
-        {/if}
-        <h2>Team spaces</h2>
-        <ul>{#each teamSpaces as s}<li><a href={`/f/${s.root_folder_id}`}>{s.name}</a> <small class="muted mono">{s.slug}</small></li>{:else}<li class="muted">None yet</li>{/each}</ul>
-        {#if canManage}<button onclick={createSpace}>New team space</button>{/if}
+        <section class="section">
+          <h2>Members</h2>
+          <div class="table-wrap">
+            <table class="plain">
+              <thead><tr><th>Person</th><th>Role</th><th></th></tr></thead>
+              <tbody>
+                {#each members as m (m.user_id)}
+                  <tr>
+                    <td>{m.display_name} <small class="muted">@{m.username}</small></td>
+                    <td>
+                      {#if canManage}
+                        <select value={m.role} onchange={(e) => setRole(m, e.target.value)} style="width:auto" aria-label="Role of {m.username}">
+                          {#each ['owner', 'admin', 'member', 'viewer'] as r}<option value={r}>{r}</option>{/each}
+                        </select>
+                      {:else}{m.role}{/if}
+                    </td>
+                    <td class="actions">{#if canManage || m.user_id === session.user.id}<button class="small ghost" onclick={() => (confirm = { kind: 'member', m })}>{m.user_id === session.user.id ? 'Leave' : 'Remove'}</button>{/if}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+          {#if canManage}
+            <form class="row" style="margin-top:12px" onsubmit={add}>
+              <input list="users" placeholder="Username" bind:value={addUser} required style="flex:1;min-width:140px" aria-label="Username" />
+              <datalist id="users">{#each users.filter((u) => !members.some((m) => m.user_id === u.id)) as u}<option value={u.username}>{u.display_name}</option>{/each}</datalist>
+              <select bind:value={addRole} style="width:auto" aria-label="Role">{#each ['viewer', 'member', 'admin', 'owner'] as r}<option value={r}>{r}</option>{/each}</select>
+              <button class="primary">Add member</button>
+            </form>
+            <dl class="roles">
+              <dt>viewer</dt><dd>reads documents</dd>
+              <dt>member</dt><dd>also uploads, edits and moves</dd>
+              <dt>admin</dt><dd>also deletes and manages members</dd>
+              <dt>owner</dt><dd>also manages owners and can delete the team</dd>
+            </dl>
+          {/if}
+        </section>
+        <section class="section">
+          <h2>Team spaces</h2>
+          <ul class="spaces">{#each teamSpaces as s}<li><a href={`/f/${s.root_folder_id}`}>{s.name}</a> <small class="muted mono">{s.slug}</small></li>{:else}<li class="muted">No spaces yet.</li>{/each}</ul>
+          {#if canManage}<button onclick={createSpace}><Icon name="plus" size={16} /> New team space</button>{/if}
+        </section>
       </div>
+    {:else if teams.length}
+      <p class="muted">Pick a team to see its members and spaces.</p>
     {/if}
   </div>
 </div>
@@ -151,15 +168,22 @@
   <Confirm title="Remove member" danger confirm="Remove" message={`Remove ${confirm.m.username} from ${current.name}?`}
     onconfirm={() => removeMember(confirm.m)} onclose={() => (confirm = null)} />
 {:else if confirm?.kind === 'team'}
-  <Confirm title="Delete team" danger confirm="Delete" message={`Delete team ${current.name}? Only possible when its spaces contain no documents.`}
+  <Confirm title="Delete team" danger confirm="Delete" message={`Delete the team ${current.name}? This only works when its spaces contain no documents.`}
     onconfirm={deleteTeam} onclose={() => (confirm = null)} />
 {/if}
 
 <style>
-  .layout { display: grid; grid-template-columns: 280px 1fr; gap: 14px; align-items: start; }
-  .list { display: flex; flex-direction: column; gap: 4px; }
-  .list > button { justify-content: space-between; border: 0; }
-  .list > button.active { background: var(--accent-soft); color: var(--accent-text); }
-  .small { font-size: 0.8rem; }
+  .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 28px; align-items: start; max-width: 1100px; }
+  .list { display: flex; flex-direction: column; padding: 6px; }
+  .list > button { justify-content: space-between; border: 0; background: none; padding: 6px 10px; }
+  .list > button.active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+  .pad { padding: 8px 10px; margin: 0; }
+  .newteam { padding: 8px 4px 2px; border-top: 1px solid var(--line-soft); margin-top: 6px; }
+  .tname { font-family: var(--font-read); font-weight: 560; font-size: var(--t-lg); }
+  .detail .section { margin-top: 14px; }
+  .roles { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font-size: var(--t-sm); color: var(--ink-2); margin: 14px 0 0; }
+  .roles dt { font-weight: 600; color: var(--ink); }
+  .roles dd { margin: 0; }
+  .spaces { padding-left: 18px; margin: 0 0 12px; }
   @media (max-width: 800px) { .layout { grid-template-columns: 1fr; } }
 </style>

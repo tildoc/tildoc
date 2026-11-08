@@ -224,6 +224,177 @@ flowchart LR
 - [x] README: setup, Arch/Dolphin client setup (webdavs, sftp, rclone + fuse3 systemd user unit)
 - [x] Full-stack smoke test via compose
 
+### Phase 8 — Frontend Rework
+
+**Goal:** a modern, distinctive UI and a document viewer that scales from the
+quick side preview up to reading a whole PDF full-window, with page
+navigation, zoom, thumbnails and in-document search.
+
+#### Design direction: "light table"
+
+The subject is a personal or team archive of letters, invoices, contracts and
+scans. The documents are the content and the UI is the table they lie on.
+Only document pages are bright white paper. The chrome sits on a calm, tinted
+board, and the viewer puts the pages on a dark stage, like a light box. The
+design takes one risk: the **highlighter**. Search hits are marked in
+highlighter yellow everywhere: in result snippets, the text layer of a PDF
+page, extracted text, and thumbnails of pages that have hits. Everything else
+stays quiet.
+
+| Token | Light | Dark | Use |
+|-------|-------|------|-----|
+| `--board` | `#DCE1DA` | `#1B2024` | app background (grey-green archive board) |
+| `--surface` | `#F4F6F2` | `#242B30` | lists, panels, dialogs |
+| `--paper` | `#FFFFFF` | `#FFFFFF` | document pages only |
+| `--ink` | `#1D2A35` | `#E4E9EC` | text (blue-black ink, not tinted black) |
+| `--accent` | `#1F4E79` | `#86AED8` | selection, primary actions (Prussian blue) |
+| `--highlight` | `#F2E35B` | `#E2CF45` | search hits (the bold element) |
+| `--manila` | `#C49A4A` | `#D3AC5E` | folder icons (functional, not decoration) |
+| `--stage` | `#2A3137` | `#15191C` | viewer background |
+
+- **Type:** *Atkinson Hyperlegible Next* (UI, variable 400–700, tabular figures
+  for sizes and dates) plus *Literata* (reading: document titles in the panel
+  and viewer, extracted and plain text). Both are OFL and **self-hosted** under
+  `web/static/fonts` (no font CDN: privacy and CSP). Scale on 15 px with ratio
+  1.2: 12.5 / 15 / 18 / 21.6 / 26. Sentence case throughout, no all-caps labels.
+- **Structure means something:** no identical card grid. Settings and admin are
+  headed sections divided by rules. Radius has a hierarchy: 4 px for controls,
+  8 px for panels, 0 for document pages (paper has square corners). Shadows
+  only under paper.
+- **Motion:** one orchestrated moment. Opening a document morphs the preview
+  page into the viewer (View Transitions API, off under
+  `prefers-reduced-motion`). No entrance animations or hover lifts.
+- **Copy:** separate labelled fields instead of `PDF · 2 MB · v3` meta strings;
+  actions named by outcome ("Move to folder", "Restore version 2"); empty
+  states tell the user what to do next ("Drop files here or press U to upload").
+
+#### Shell and file browser
+
+```
+┌────────┬──────────────────────────────────────────────┬─────────────────────┐
+│ Spaces │  Finance / Invoices / 2026     [search ⌘K]   │  Peek panel         │
+│ ▸ Home │ ┌──────────────────────────────────────────┐ │  ┌───────────────┐  │
+│ ▾ Team │ │ ▢ Name            Modified   Size  Links │ │  │   page 1      │  │
+│   ▸ …  │ │ ▣ invoice-03.pdf  2 Nov      212 KB  2   │◀┼──│   (paper)     │  │
+│        │ │ ▢ contract.pdf    28 Oct     1.4 MB  1   │ │  │   scrolls     │  │
+│ Trash  │ │ ▢ notes.txt       12 Oct     4 KB    1   │ │  └───────────────┘  │
+│ Teams  │ └──────────────────────────────────────────┘ │  Open  Download  ⋯  │
+│ ⚙      │   drop zone overlay on drag                  │  Info · Versions …  │
+└────────┴──────────────────────────────────────────────┴─────────────────────┘
+```
+
+- The left rail holds spaces with the folder tree, then trash, teams and
+  settings. It collapses to icons below 1100 px and becomes a drawer on
+  mobile.
+- File list: a dense table (36 px rows), checkbox multi-select, keyboard
+  navigation (↑↓, Enter opens, Space peeks, Del, F2 rename, U upload),
+  breadcrumb with drop targets, and a full-area drop overlay showing the
+  target folder.
+- Peek panel (replaces DocumentPanel):
+  - **resizable** from 320 px to 60 % of the window (width saved per browser);
+  - preview pages rendered with pdf.js, so the whole PDF already scrolls here;
+  - tabs below the preview for Info, Versions, Links and Text.
+- ⌘K / Ctrl+K quick search: a palette that jumps to documents and folders.
+- Left aligned throughout. Only login and setup are centred, as a single
+  column.
+
+#### Document viewer (the core of this phase)
+
+Three levels, one component: **row → peek panel → viewer**. The viewer is its
+own route, `/view/[linkId]?page=&q=&v=`:
+- it can be bookmarked and deep-linked;
+- the browser back button or Esc closes it and returns to the folder, with the
+  selection kept.
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ✕  contract.pdf   ‹ prev  next ›     ◂ 3 / 12 ▸   − 110 % +  Fit ▾   Find  ⓘ │
+├──────┬───────────────────────────────────────────────────────┬───────────────┤
+│ ▭ 1  │                                                       │ Info drawer   │
+│ ▭ 2  │            ┌──────────────────────────┐               │ Original /    │
+│ ▣ 3 ●│            │                          │  dark stage   │ Searchable    │
+│ ▭ 4  │            │   page 3   ▇▇ highlight  │               │ Versions      │
+│ ▭ 5 ●│            │                          │               │ Links (2)     │
+│ …    │            └──────────────────────────┘               │ Text          │
+│thumbs│            continuous scroll, lazy pages              │ Download      │
+└──────┴───────────────────────────────────────────────────────┴───────────────┘
+  ● = page contains search hits
+```
+
+- **PDF:**
+  - pages scroll continuously and only the visible pages ±2 are rendered;
+    canvases are released again, so large PDFs stay light;
+  - a text layer allows selecting and copying text;
+  - **Find** (Ctrl+F inside the viewer) highlights hits and steps through them
+    with Enter / Shift+Enter;
+  - thumbnails, with markers on pages that have hits;
+  - zoom: fit width, fit page, 50–400 %, Ctrl+wheel and pinch;
+  - view-only rotation;
+  - page input; Original vs Searchable (OCR) toggle; version switcher.
+- **Images:** fit or 1:1, zoom and pan, the same stage.
+- **Text:** a reading column ≤ 75ch in Literata, monospace for code and
+  structured types, find with highlights.
+- **Other types:** a large file sheet with type, size, versions and links, plus
+  Download.
+- **Navigation:** `[` / `]` move to the previous or next document in the
+  folder. Esc closes.
+- **Arriving from search:** the server returns the **page of the first hit**
+  (pdftotext keeps `\f` page breaks), so the viewer opens on that page with the
+  terms highlighted.
+- **Mobile:** full screen; thumbnails and the info drawer become bottom sheets.
+- **Print and "open in browser":** download only. See the security note below.
+
+#### Other screens
+
+Search becomes a result list with highlighted snippets, page numbers, a
+space/folder/type filter and a row click into the viewer. Trash, Spaces,
+Teams, Settings (access keys, SSH keys, connection help), Admin, Login and
+Setup are restyled with the new tokens, copy and section structure. Toasts,
+modals and the folder picker are redone.
+
+#### Technical notes
+
+- **Dependency:** `pdfjs-dist` 6.4 (Mozilla, Apache-2.0), pinned. It is the only new
+  runtime dependency. It is loaded lazily, so the worker loads only when a PDF
+  is shown. PDF scripting and XFA are off (the QuickJS engine is not even
+  shipped); the CSP forbids JS eval. Links inside PDFs open with
+  `noopener,noreferrer` after a confirm prompt, internal links jump to the page.
+  Assets (cmaps, standard fonts, WASM decoders, fonts) are copied from the
+  pinned npm packages by `web/scripts/vendor-assets.mjs` into the gitignored
+  `web/static/vendor/` before `dev` and `build`.
+- **Viewer preference:** `users.prefs` (jsonb, `pdf_viewer`: `pdfjs` default |
+  `native`), set in *Settings and access → Opening documents*. `native` shows
+  PDFs in an iframe with the browser's viewer; only for users with that
+  preference does `?inline=1&viewer=native` drop the sandbox CSP (checked
+  server-side).
+- **CSP (UI):**
+  - add `worker-src 'self'`;
+  - add `'wasm-unsafe-eval'` to `script-src` (pdf.js v5 decodes
+    JPX/JBIG2 images via WASM);
+  - `script-src` stays hash-based.
+- **Security fix:** inline PDF responses get `CSP: sandbox` too. Today they are
+  the one inline type served without it. Since pdf.js fetches the bytes and
+  renders them to canvas on the UI origin, the browser's own PDF viewer is no
+  longer needed. Entry for HISTORY.md.
+- **Server additions:**
+  - search results include `page`;
+  - a `pages` count in the document DTO (already in `blob_processing`);
+  - no new endpoints; byte ranges already work, so pdf.js streams large PDFs.
+- **No UI libraries:** components stay in plain Svelte 5 and plain CSS, with
+  tokens in `app.css`.
+
+#### Steps
+
+- [x] 8.1 Tokens, self-hosted fonts, base controls (buttons, inputs, tables, tabs, dialogs, toasts), light and dark themes
+- [x] 8.2 Shell: rail with folder tree, header with breadcrumb and quick search, responsive drawer
+- [x] 8.3 File browser: table, keyboard navigation, selection, drop overlay, empty states
+- [x] 8.4 Viewer core: pdf.js loader, lazy page virtualisation, text layer, zoom/fit, page navigation
+- [x] 8.5 Viewer features: thumbnails, find with highlights, OCR/version toggle, info drawer, prev/next, image and text modes, mobile sheets
+- [x] 8.6 Peek panel on the viewer component (resizable), view-transition open
+- [x] 8.7 Server: search hit page, `pages` in DTO, CSP update, sandbox for inline PDF + HISTORY.md
+- [x] 8.8 Search, trash, spaces, teams, settings, admin, login/setup restyle
+- [x] 8.9 Tests: extend `test/ui/smoke.mjs` (multi-page fixture; open viewer, page jump, find count, OCR toggle, Esc restores selection, mobile, dark, **no CSP/console errors**); Go tests for hit page; screenshot review pass; commit "Phase 8"
+
 ---
 
 ## Decisions
@@ -247,6 +418,9 @@ flowchart LR
 | 15 | Scope | Phases 0–6 incl. OCR |
 | 16 | Repo | git, one commit per phase; tests via Docker; no AWS SDK |
 | 17 | Write via multi-linked doc | Copy-on-write fork |
+| 18 | PDF viewer | pdf.js (`pdfjs-dist`) by default; browser viewer selectable per user |
+| 19 | UI fonts | Atkinson Hyperlegible Next + Literata, self-hosted |
+| 20 | Access key secrets | 40 alphanumeric chars (no leading `-` that CLIs parse as a flag) |
 
 ## Open Questions
 

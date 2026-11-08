@@ -9,3 +9,4 @@ test/ui/node_modules
 test/ui/screenshots
 deploy/.env
 deploy/nginx/certs
+web/static/vendor

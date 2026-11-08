@@ -1,19 +1,20 @@
 <script>
   import '../app.css';
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
+  import { goto, onNavigate } from '$app/navigation';
   import { page } from '$app/state';
   import { get, post } from '#lib/api.js';
-  import { session, ui, loadSession, errorToast, toast } from '#lib/state.svelte.js';
+  import { session, ui, loadSession, errorToast, applyTheme } from '#lib/state.svelte.js';
   import Icon from '#lib/components/Icon.svelte';
   import FolderTree from '#lib/components/FolderTree.svelte';
+  import QuickSearch from '#lib/components/QuickSearch.svelte';
   import { moveKeys } from '#lib/actions.js';
 
   let { children } = $props();
-  let q = $state('');
   const publicRoutes = ['/login', '/setup'];
 
   onMount(async () => {
+    applyTheme();
     try {
       const s = await get('/setup', { noRedirect: true });
       if (s.needs_setup) {
@@ -26,16 +27,17 @@
     if (!session.user && !publicRoutes.includes(page.url.pathname)) goto('/login');
   });
 
-  $effect(() => {
-    if (page.url.pathname === '/search') q = page.url.searchParams.get('q') ?? '';
+  // the one orchestrated motion: opening a document grows the preview into the viewer
+  onNavigate((nav) => {
+    if (!document.startViewTransition || !nav.to?.url.pathname.startsWith('/view/') || nav.from?.url.pathname.startsWith('/view/')) return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    return new Promise((resolve) => {
+      document.startViewTransition(async () => {
+        resolve();
+        await nav.complete;
+      });
+    });
   });
-
-  function search(e) {
-    e.preventDefault();
-    const params = new URLSearchParams({ q });
-    if (page.url.pathname.startsWith('/f/')) params.set('folder', page.params.id);
-    goto(`/search?${params}`);
-  }
 
   async function logout() {
     await post('/auth/logout').catch(() => {});
@@ -45,6 +47,8 @@
 
   let currentFolder = $derived(page.url.pathname.startsWith('/f/') ? page.params.id : null);
   let isPublic = $derived(publicRoutes.includes(page.url.pathname));
+  let isViewer = $derived(page.url.pathname.startsWith('/view/'));
+  let path = $derived(page.url.pathname);
 
   async function dropOnTree(keys, folderId) {
     try {
@@ -53,51 +57,78 @@
       errorToast(e);
     }
   }
+
+  function keydown(e) {
+    if (e.defaultPrevented) return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && session.user && !isPublic) {
+      e.preventDefault();
+      ui.palette = !ui.palette;
+    }
+  }
+
+  const nav = [
+    ['/search', 'search', 'All documents'],
+    ['/trash', 'trash', 'Trash'],
+    ['/spaces', 'space', 'Spaces'],
+    ['/teams', 'users', 'Teams'],
+    ['/settings', 'settings', 'Settings and access']
+  ];
 </script>
 
+<svelte:window onkeydown={keydown} />
+
 {#if !session.ready}
-  <div class="splash">tildoc</div>
+  <div class="splash" aria-busy="true"></div>
 {:else if isPublic || !session.user}
+  {@render children()}
+{:else if isViewer}
   {@render children()}
 {:else}
   <div class="shell" class:open={ui.sidebarOpen}>
-    <header class="top">
-      <button class="icon burger" onclick={() => (ui.sidebarOpen = !ui.sidebarOpen)} aria-label="Menu"><Icon name="menu" /></button>
-      <a class="brand" href="/"><img src="/favicon.svg" alt="" width="24" /> tildoc</a>
-      <form class="search" onsubmit={search}>
-        <Icon name="search" size={16} />
-        <input placeholder="Search names and content…" bind:value={q} aria-label="Search" />
-      </form>
-      <div class="user">
-        <span class="muted">{session.user.display_name || session.user.username}</span>
-        <button class="icon" onclick={logout} title="Log out" aria-label="Log out"><Icon name="logout" /></button>
-      </div>
+    <header class="mobilebar">
+      <button class="icon" onclick={() => (ui.sidebarOpen = !ui.sidebarOpen)} aria-label="Menu" aria-expanded={ui.sidebarOpen}><Icon name="menu" /></button>
+      <a class="brand" href="/">tildoc</a>
+      <button class="icon" onclick={() => (ui.palette = true)} aria-label="Search"><Icon name="search" /></button>
     </header>
-    <nav class="side" onclick={(e) => e.target.closest('a,button.lbl') && (ui.sidebarOpen = false)} role="presentation">
-      <div class="label">Spaces</div>
-      <ul class="tree" role="tree">
+
+    <nav class="rail" aria-label="Spaces and settings" onclick={(e) => e.target.closest('a,button.lbl') && (ui.sidebarOpen = false)} role="presentation">
+      <a class="brand" href="/"><img src="/favicon.svg" alt="" width="22" height="22" />tildoc</a>
+      <button class="searchbtn" onclick={() => (ui.palette = true)}>
+        <Icon name="search" size={16} /><span>Search</span><kbd>Ctrl K</kbd>
+      </button>
+
+      <h2 class="group">Spaces</h2>
+      <ul class="tree" role="tree" aria-label="Folders">
         {#each session.spaces as s (s.id)}
           <FolderTree space={s} current={currentFolder} ondropon={dropOnTree} />
         {/each}
       </ul>
-      <div class="label">Manage</div>
-      <a class="nav" class:active={page.url.pathname === '/trash'} href="/trash"><Icon name="trash" /> Trash</a>
-      <a class="nav" class:active={page.url.pathname === '/spaces'} href="/spaces"><Icon name="space" /> Spaces</a>
-      <a class="nav" class:active={page.url.pathname === '/teams'} href="/teams"><Icon name="users" /> Teams</a>
-      <a class="nav" class:active={page.url.pathname === '/settings'} href="/settings"><Icon name="settings" /> Settings & access</a>
-      {#if session.user.is_admin}<a class="nav" class:active={page.url.pathname === '/admin'} href="/admin"><Icon name="shield" /> Administration</a>{/if}
+
+      <div class="foot">
+        {#each nav as [href, icon, label] (href)}
+          <a class="nav" class:active={path === href} {href} aria-current={path === href ? 'page' : undefined}><Icon name={icon} size={17} /> {label}</a>
+        {/each}
+        {#if session.user.is_admin}<a class="nav" class:active={path === '/admin'} href="/admin"><Icon name="shield" size={17} /> Administration</a>{/if}
+        <div class="me">
+          <span class="who" title={session.user.username}>{session.user.display_name || session.user.username}</span>
+          <button class="icon" onclick={logout} title="Sign out" aria-label="Sign out"><Icon name="logout" size={17} /></button>
+        </div>
+      </div>
     </nav>
+    <div class="scrim" role="presentation" onclick={() => (ui.sidebarOpen = false)}></div>
     <main>{@render children()}</main>
   </div>
 {/if}
 
-<div class="toasts">
+{#if ui.palette && session.user}<QuickSearch onclose={() => (ui.palette = false)} />{/if}
+
+<div class="toasts" role="status" aria-live="polite">
   {#each ui.toasts as t (t.id)}<div class="toast {t.kind}">{t.message}</div>{/each}
 </div>
 
 {#if ui.uploads.length}
-  <div class="uploads">
-    <strong>Uploads</strong>
+  <div class="uploads" aria-label="Uploads">
+    <strong>Uploading</strong>
     {#each ui.uploads.slice(-8) as u (u.id)}
       <div class="up {u.state}">
         <span class="nm" title={u.name}>{u.name}</span>
@@ -105,46 +136,56 @@
         {#if u.note}<small>{u.note}</small>{/if}
       </div>
     {/each}
-    {#if ui.uploads.length > 8}<small class="muted">+{ui.uploads.length - 8} more</small>{/if}
+    {#if ui.uploads.length > 8}<small class="muted">and {ui.uploads.length - 8} more</small>{/if}
   </div>
 {/if}
 
 <style>
-  .splash { display: grid; place-items: center; height: 100vh; color: var(--muted); font-size: 1.4rem; }
-  .shell { display: grid; grid-template-columns: 270px 1fr; grid-template-rows: 56px 1fr; height: 100vh; }
-  .top { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
-  .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--text); font-size: 1.1rem; width: 238px; }
-  .search { flex: 1; max-width: 640px; display: flex; align-items: center; gap: 8px; background: var(--surface-2); border-radius: 10px; padding: 0 12px; border: 1px solid var(--border); color: var(--muted); }
-  .search input { border: 0; background: none; padding: 8px 0; outline: none; }
-  .user { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-  .burger { display: none; }
-  .side { background: var(--surface); border-right: 1px solid var(--border); overflow: auto; padding: 10px 10px 20px; }
-  .label { text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.06em; color: var(--muted); margin: 12px 8px 6px; }
-  .tree { list-style: none; margin: 0; padding: 0; }
-  .nav { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; color: var(--text); font-size: 0.92rem; }
-  .nav:hover { background: var(--hover); }
-  .nav.active { background: var(--accent-soft); color: var(--accent-text); }
+  .splash { height: 100vh; background: var(--board); }
+  .shell { display: grid; grid-template-columns: 264px 1fr; height: 100vh; }
+  .mobilebar { display: none; }
+  .rail { display: flex; flex-direction: column; min-height: 0; background: var(--surface); border-right: 1px solid var(--line); padding: 14px 10px 10px; }
+  .brand { display: flex; align-items: center; gap: 9px; font-family: var(--font-read); font-weight: 600; font-size: var(--t-md); color: var(--ink); padding: 2px 8px 12px; letter-spacing: -0.01em; }
+  .brand:hover { text-decoration: none; }
+  .searchbtn { justify-content: flex-start; width: 100%; color: var(--ink-2); background: var(--paper); margin-bottom: 14px; }
+  :global(:root[data-theme='dark']) .searchbtn { background: var(--board); }
+  @media (prefers-color-scheme: dark) { :global(:root:not([data-theme='light'])) .searchbtn { background: var(--board); } }
+  .searchbtn span { flex: 1; text-align: left; }
+  .group { font-size: var(--t-sm); font-weight: 600; color: var(--ink-2); margin: 4px 8px 6px; }
+  .tree { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; min-height: 80px; }
+  .foot { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; display: flex; flex-direction: column; gap: 1px; }
+  .nav { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: var(--r-control); color: var(--ink); font-size: var(--t-base); }
+  .nav:hover { background: var(--surface-2); text-decoration: none; }
+  .nav.active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+  .me { display: flex; align-items: center; gap: 6px; padding: 8px 0 0 10px; margin-top: 6px; border-top: 1px solid var(--line-soft); }
+  .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: var(--t-sm); }
   main { min-width: 0; min-height: 0; overflow: hidden; }
-  .toasts { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 100; width: min(520px, calc(100vw - 32px)); }
-  .toast { background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 10px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.25); font-size: 0.9rem; }
+  .scrim { display: none; }
+
+  .toasts { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 100; width: min(520px, calc(100vw - 32px)); pointer-events: none; }
+  .toast { background: var(--ink); color: var(--surface); padding: 10px 14px; border-radius: var(--r-panel); box-shadow: var(--pop-shadow); }
   .toast.error { background: var(--err); color: #fff; }
   .toast.success { background: var(--ok); color: #fff; }
-  .uploads { position: fixed; right: 16px; bottom: 16px; width: 320px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; z-index: 90; box-shadow: 0 10px 30px rgb(0 0 0 / 0.2); display: flex; flex-direction: column; gap: 6px; font-size: 0.82rem; }
+  .uploads { position: fixed; right: 16px; bottom: 16px; width: 320px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-panel); padding: 10px 12px; z-index: 90; box-shadow: var(--pop-shadow); display: flex; flex-direction: column; gap: 6px; font-size: var(--t-sm); }
   .up { display: grid; grid-template-columns: 1fr 80px; gap: 2px 8px; align-items: center; }
   .up .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .up small { grid-column: 1 / -1; color: var(--muted); }
+  .up small { grid-column: 1 / -1; color: var(--ink-2); }
   .up.error small { color: var(--err); }
-  .bar { height: 6px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
+  .bar { height: 5px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
   .bar span { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }
   .up.done .bar span { background: var(--ok); }
   .up.error .bar span { background: var(--err); }
-  @media (max-width: 900px) {
-    .shell { grid-template-columns: 1fr; }
-    .burger { display: inline-flex; }
-    .brand { width: auto; }
-    .brand { font-size: 0; gap: 0; }
-    .side { position: fixed; top: 56px; bottom: 0; left: 0; width: 280px; z-index: 40; transform: translateX(-100%); transition: transform 0.2s; box-shadow: 10px 0 30px rgb(0 0 0 / 0.2); }
-    .shell.open .side { transform: none; }
-    .user .muted { display: none; }
+
+  @media (max-width: 1100px) {
+    .shell { grid-template-columns: 228px 1fr; }
   }
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; grid-template-rows: 48px 1fr; }
+    .mobilebar { display: flex; align-items: center; gap: 6px; padding: 0 8px; background: var(--surface); border-bottom: 1px solid var(--line); }
+    .mobilebar .brand { flex: 1; padding: 0; }
+    .rail { position: fixed; top: 0; bottom: 0; left: 0; width: min(300px, 86vw); z-index: 41; transform: translateX(-100%); transition: transform 0.2s; box-shadow: var(--pop-shadow); }
+    .shell.open .rail { transform: none; }
+    .shell.open .scrim { display: block; position: fixed; inset: 0; background: var(--scrim); z-index: 40; }
+  }
+  @media (prefers-reduced-motion: reduce) { .rail { transition: none; } }
 </style>

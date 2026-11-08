@@ -294,3 +294,51 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 	expect(t, anon.do("POST", "/api/auth/login", map[string]string{"username": "admin", "password": "supersecret"}, nil), 403, "rate limited")
 }
+
+func TestPrefsAndPDFSandbox(t *testing.T) {
+	ts, _ := newServer(t)
+	c := newClient(t, ts.URL)
+	c.ok("POST", "/api/setup", map[string]string{"username": "admin", "password": "supersecret"}, nil)
+	var spaces []space
+	c.ok("GET", "/api/spaces", nil, &spaces)
+	var up upload
+	c.ok("PUT", "/api/folders/"+spaces[0].RootFolderID+"/files?path=a.pdf", "%PDF-1.4\n%%EOF\n", &up)
+
+	csp := func(q string) string {
+		t.Helper()
+		resp, err := c.http.Get(ts.URL + "/api/files/" + up.File.LinkID + "/content" + q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.Header.Get("Content-Security-Policy")
+	}
+	if !strings.Contains(csp("?inline=1"), "sandbox") {
+		t.Fatal("inline PDF must be sandboxed")
+	}
+	if !strings.Contains(csp("?inline=1&viewer=native"), "sandbox") {
+		t.Fatal("native viewer without preference must stay sandboxed")
+	}
+
+	var me struct {
+		Username string
+		Prefs    struct {
+			PDFViewer string `json:"pdf_viewer"`
+		}
+	}
+	c.ok("GET", "/api/me", nil, &me)
+	if me.Username != "admin" || me.Prefs.PDFViewer != "pdfjs" {
+		t.Fatalf("me %+v", me)
+	}
+	expect(t, c.do("PATCH", "/api/me", map[string]any{"prefs": map[string]string{"pdf_viewer": "acrobat"}}, nil), 400, "invalid viewer")
+	c.ok("PATCH", "/api/me", map[string]any{"prefs": map[string]string{"pdf_viewer": "native"}}, &me)
+	if me.Prefs.PDFViewer != "native" {
+		t.Fatalf("patched %+v", me)
+	}
+	if got := csp("?inline=1&viewer=native"); got != "" {
+		t.Fatalf("native viewer with preference: CSP %q", got)
+	}
+	if !strings.Contains(csp("?inline=1"), "sandbox") || !strings.Contains(csp(""), "sandbox") {
+		t.Fatal("other modes stay sandboxed")
+	}
+}

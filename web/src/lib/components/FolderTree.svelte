@@ -98,14 +98,20 @@
 <style>
   ul { list-style: none; margin: 0; padding: 0; }
   li { margin: 0; }
-  .row-node { display: flex; align-items: center; border-radius: 7px; }
-  .row-node:hover { background: var(--hover); }
-  .row-node.active { background: var(--accent-soft); color: var(--accent-text); }
-  .row-node.over { outline: 2px dashed var(--accent); }
-  .tw { width: 20px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: none; padding: 0; color: var(--muted); transition: transform 0.15s; flex: none; }
+  .row-node { display: flex; align-items: center; border-radius: var(--r-control); min-height: 30px; }
+  .row-node:hover { background: var(--surface-2); }
+  .row-node.active { background: var(--accent-soft); color: var(--accent-ink); }
+  .row-node.active .lbl { font-weight: 600; }
+  .row-node.over { outline: 2px dashed var(--accent); outline-offset: -2px; }
+  .tw { width: 20px; height: 26px; min-height: 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; background: none; padding: 0; color: var(--ink-2); transition: transform 0.15s; flex: none; }
+  .tw:hover:not(:disabled) { background: none; color: var(--ink); }
   .tw.openned { transform: rotate(90deg); }
-  .lbl { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; border: 0; background: none; padding: 4px 4px; text-align: left; color: inherit; font-size: 0.9rem; }
+  .lbl { flex: 1; min-width: 0; min-height: 0; justify-content: flex-start; display: flex; align-items: center; gap: 7px; border: 0; background: none; padding: 4px 4px; text-align: left; color: inherit; }
+  .lbl:hover:not(:disabled) { background: none; }
+  .lbl :global(svg) { flex: none; color: var(--manila); }
+  .top .lbl :global(svg) { color: var(--ink-2); }
   .lbl span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .top .lbl { font-weight: 600; }
-  .team { margin-left: auto; color: var(--muted); font-weight: normal; font-size: 0.72rem; }
+  .team { margin-left: auto; color: var(--ink-2); font-weight: 400; font-size: var(--t-sm); }
+  @media (prefers-reduced-motion: reduce) { .tw { transition: none; } }
 </style>

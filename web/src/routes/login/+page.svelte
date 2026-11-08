@@ -19,18 +19,21 @@
 </script>
 
 <div class="center">
-  <form class="card auth" onsubmit={submit}>
-    <h1><img src="/favicon.svg" alt="" width="28" /> tildoc</h1>
+  <form class="auth" onsubmit={submit}>
+    <p class="brand"><img src="/favicon.svg" alt="" width="26" height="26" />tildoc</p>
+    <h1>Sign in</h1>
     <label>Username<input autocomplete="username" bind:value={username} required /></label>
     <label>Password<input type="password" autocomplete="current-password" bind:value={password} required /></label>
-    {#if error}<p class="err">{error}</p>{/if}
+    {#if error}<p class="err" role="alert">{error}</p>{/if}
     <button class="primary" disabled={busy}>Sign in</button>
   </form>
 </div>
 
 <style>
   .center { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
-  .auth { width: min(360px, 100%); display: flex; flex-direction: column; }
-  h1 { display: flex; align-items: center; gap: 10px; }
-  .err { color: var(--err); margin: 0 0 10px; }
+  .auth { width: min(360px, 100%); display: flex; flex-direction: column; padding: 32px 32px 28px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-panel); }
+  .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-read); font-weight: 600; font-size: var(--t-md); margin: 0 0 22px; }
+  h1 { margin-bottom: 18px; }
+  .err { margin: 0 0 12px; }
+  button { margin-top: 4px; min-height: 38px; }
 </style>

@@ -180,27 +180,52 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// meResponse is the caller's own account including preferences.
+type meResponse struct {
+	*core.User
+	Prefs core.Prefs `json:"prefs"`
+}
+
+func (s *Server) meBody(r *http.Request, u *core.User) (meResponse, error) {
+	prefs, err := s.Svc.GetPrefs(r.Context(), u.ID)
+	return meResponse{User: u, Prefs: prefs}, err
+}
+
 func (s *Server) me(w http.ResponseWriter, r *http.Request) error {
 	u, err := s.Svc.GetUser(r.Context(), principal(r).UserID)
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, 200, u)
+	body, err := s.meBody(r, u)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, 200, body)
 }
 
 func (s *Server) updateMe(w http.ResponseWriter, r *http.Request) error {
 	var body struct {
-		DisplayName *string `json:"display_name"`
+		DisplayName *string           `json:"display_name"`
+		Prefs       *core.PrefsUpdate `json:"prefs"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		return err
 	}
 	p := principal(r)
+	if body.Prefs != nil {
+		if _, err := s.Svc.SetPrefs(r.Context(), p, *body.Prefs); err != nil {
+			return err
+		}
+	}
 	u, err := s.Svc.UpdateUser(r.Context(), p, p.UserID, core.UserUpdate{DisplayName: body.DisplayName})
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, 200, u)
+	resp, err := s.meBody(r, u)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, 200, resp)
 }
 
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) error {

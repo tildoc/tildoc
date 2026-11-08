@@ -50,6 +50,13 @@ server {
     location /_app/immutable/ {
         add_header Cache-Control "public, max-age=31536000, immutable";
         add_header Strict-Transport-Security "max-age=31536000" always;
+        # pdf.js runs as an ES module worker (.mjs), which needs a JS MIME type
+        location ~ \.mjs$ {
+            types { text/javascript mjs; }
+            add_header Cache-Control "public, max-age=31536000, immutable";
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Strict-Transport-Security "max-age=31536000" always;
+        }
     }
     location / {
         try_files $uri /index.html;

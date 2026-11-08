@@ -17,7 +17,7 @@
       const s = await post('/spaces', { name, slug, team_id: team });
       await refreshSpaces();
       name = slug = '';
-      toast(`Space ${s.slug} created`, 'success');
+      toast(`Created space ${s.slug}`, 'success');
     } catch (err) {
       errorToast(err);
     }
@@ -37,7 +37,7 @@
     try {
       await del(`/spaces/${s.id}`);
       await refreshSpaces();
-      toast('Space deleted', 'success');
+      toast('Deleted the space', 'success');
     } catch (e) {
       errorToast(e);
     }
@@ -45,36 +45,39 @@
 </script>
 
 <div class="page">
-  <h1>Spaces</h1>
-  <p class="muted">A space is a top-level container: personal, or owned by a team. Its slug is the S3 bucket name and the top folder in WebDAV/SFTP.</p>
-  <div class="card" style="padding:0;overflow:auto">
+  <header>
+    <h1>Spaces</h1>
+    <p>A space holds folders and documents, for you alone or for a team. Its short name is the S3 bucket and the top folder in WebDAV and SFTP.</p>
+  </header>
+  <div class="table-wrap">
     <table class="plain">
-      <thead><tr><th>Name</th><th>Slug</th><th>Owner</th><th>Your role</th><th>Created</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Short name</th><th>Belongs to</th><th>Your role</th><th>Created</th><th></th></tr></thead>
       <tbody>
         {#each session.spaces as s (s.id)}
           <tr>
             <td><button class="link" onclick={() => goto(`/f/${s.root_folder_id}`)}>{s.name}</button></td>
             <td class="mono">{s.slug}</td>
-            <td>{s.team_name ? `Team ${s.team_name}` : 'Personal'}</td>
+            <td>{s.team_name ? `Team ${s.team_name}` : 'Just you'}</td>
             <td>{s.role}</td>
             <td>{date(s.created_at)}</td>
-            <td class="row end">
+            <td class="actions">
               {#if s.perm >= 3}<button class="small" onclick={() => rename(s)}>Rename</button>{/if}
-              {#if s.perm >= 3}<button class="small" onclick={() => (confirm = s)}>Delete</button>{/if}
+              {#if s.perm >= 3}<button class="small ghost" onclick={() => (confirm = s)}>Delete</button>{/if}
             </td>
           </tr>
         {/each}
       </tbody>
     </table>
   </div>
-  <form class="card" onsubmit={create}>
-    <h2 style="margin-top:0">New space</h2>
-    <div class="grid">
+  <form class="section" style="margin-top:28px" onsubmit={create}>
+    <h2>New space</h2>
+    <p>Only empty spaces can be deleted later.</p>
+    <div class="section-grid">
       <label>Name<input bind:value={name} required /></label>
-      <label>Slug (optional, a-z 0-9 -)<input bind:value={slug} placeholder="derived from name" /></label>
-      <label>Owner
+      <label>Short name <span class="hint">optional; a–z, 0–9 and dashes</span><input bind:value={slug} placeholder="made from the name" /></label>
+      <label>Belongs to
         <select bind:value={team}>
-          <option value="">Personal (me)</option>
+          <option value="">Just me</option>
           {#each manageable as t}<option value={t.id}>Team {t.name}</option>{/each}
         </select>
       </label>
@@ -84,10 +87,7 @@
 </div>
 
 {#if confirm}
-  <Confirm title="Delete space" danger confirm="Delete" message={`Delete space “${confirm.name}”? Only empty spaces can be deleted.`}
+  <Confirm title="Delete space" danger confirm="Delete" message={`Delete the space “${confirm.name}”? This only works when it contains no documents.`}
     onconfirm={() => remove(confirm)} onclose={() => (confirm = null)} />
 {/if}
 
-<style>
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 12px; }
-</style>

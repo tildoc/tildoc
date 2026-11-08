@@ -35,7 +35,7 @@
         <button class:sel={selected === f.id} disabled={excluded(f)} style="padding-left:{8 + depth(f.path) * 16}px"
           onclick={() => (selected = f.id)} ondblclick={() => onpick(selected, space)}>
           <Icon name={f.path === '/' ? 'home' : 'folder'} size={16} />
-          {f.path === '/' ? '(root)' : f.name}
+          {f.path === '/' ? 'Top level' : f.name}
         </button>
       </li>
     {/each}
@@ -47,8 +47,11 @@
 </Modal>
 
 <style>
-  .picker { list-style: none; margin: 10px 0; padding: 4px; max-height: 50vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
-  .picker button { width: 100%; text-align: left; border: 0; background: none; display: flex; gap: 6px; align-items: center; border-radius: 6px; padding: 5px 8px; }
-  .picker button.sel { background: var(--accent-soft); color: var(--accent-text); }
+  .picker { list-style: none; margin: 4px 0 14px; padding: 4px; max-height: 50vh; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-control); background: var(--paper); }
+  :global(:root[data-theme='dark']) .picker { background: var(--board); }
+  @media (prefers-color-scheme: dark) { :global(:root:not([data-theme='light'])) .picker { background: var(--board); } }
+  .picker button { width: 100%; justify-content: flex-start; text-align: left; border: 0; background: none; display: flex; gap: 7px; align-items: center; border-radius: var(--r-control); padding: 4px 8px; min-height: 30px; }
+  .picker button :global(svg) { color: var(--manila); }
+  .picker button.sel { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
   .picker button:disabled { opacity: 0.4; }
 </style>

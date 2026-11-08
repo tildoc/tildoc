@@ -9,12 +9,15 @@ export default defineConfig({
   plugins: [
     sveltekit({
       adapter: adapter({ fallback: 'index.html' }),
-      // strict CSP; the inline bootstrap script is allowed via its hash
+      // strict CSP; the inline bootstrap script is allowed via its hash.
+      // pdf.js: module worker from 'self', WASM image decoders need 'wasm-unsafe-eval' (no JS eval).
       csp: {
         mode: 'hash',
         directives: {
           'default-src': ['self'],
-          'script-src': ['self'],
+          'script-src': ['self', 'wasm-unsafe-eval'],
+          'worker-src': ['self'],
+          'font-src': ['self'],
           'style-src': ['self', 'unsafe-inline'],
           'img-src': ['self', 'data:', 'blob:'],
           'frame-src': ['self'],

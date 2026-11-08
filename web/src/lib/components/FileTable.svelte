@@ -5,7 +5,7 @@
   import { iconFor, size, date } from '../format.js';
 
   // rows: [{key, kind: 'folder'|'file', name, ...}]
-  let { rows, view = 'folder', selected = $bindable([]), onopen, ondropon, sortable = true, emptyText = 'Empty' } = $props();
+  let { rows, view = 'folder', selected = $bindable([]), onopen, onpeek, ondropon, sortable = true, keyboard = true, empty } = $props();
 
   let cfg = $state(loadView(untrack(() => view)));
   let chooser = $state(false);
@@ -47,6 +47,53 @@
       selected = [row.key];
       anchor = i;
     }
+  }
+
+  // keyboard: arrows move, Shift extends, Enter opens, Space peeks
+  let cursor = $derived(selected.length ? sorted.findIndex((r) => r.key === selected[selected.length - 1]) : -1);
+  let tbody = $state();
+
+  function reveal(key) {
+    tbody?.querySelector(`[data-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest' });
+  }
+
+  function keydown(e) {
+    if (!keyboard || !sorted.length || e.altKey || e.defaultPrevented) return;
+    if (document.querySelector('[role="dialog"]')) return;
+    const tag = document.activeElement?.tagName;
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      selected = sorted.map((r) => r.key);
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) return;
+    let next = null;
+    if (e.key === 'ArrowDown') next = Math.min(sorted.length - 1, cursor + 1);
+    else if (e.key === 'ArrowUp') next = Math.max(0, cursor < 0 ? 0 : cursor - 1);
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = sorted.length - 1;
+    else if (e.key === 'Enter' && cursor >= 0 && (tag !== 'BUTTON' && tag !== 'A')) {
+      e.preventDefault();
+      onopen?.(sorted[cursor]);
+      return;
+    } else if (e.key === ' ' && cursor >= 0 && tag !== 'BUTTON') {
+      e.preventDefault();
+      onpeek?.(sorted[cursor]);
+      return;
+    }
+    if (next === null) return;
+    e.preventDefault();
+    const row = sorted[next];
+    if (e.shiftKey && anchor !== null) {
+      const a = Math.min(anchor, next), b = Math.max(anchor, next);
+      selected = sorted.slice(a, b + 1).map((r) => r.key);
+      selected = [...selected.filter((k) => k !== row.key), row.key];
+    } else {
+      selected = [row.key];
+      anchor = next;
+    }
+    reveal(row.key);
   }
 
   function toggle(row, i) {
@@ -94,11 +141,13 @@
   }
 </script>
 
+<svelte:window onkeydown={keydown} />
+
 <div class="wrap">
   <div class="tools">
-    <span class="count">{rows.length} item{rows.length === 1 ? '' : 's'}{selected.length ? ` · ${selected.length} selected` : ''}</span>
+    <span class="count">{rows.length} item{rows.length === 1 ? '' : 's'}{selected.length ? `, ${selected.length} selected` : ''}</span>
     <div class="chooser">
-      <button class="ghost small" onclick={() => (chooser = !chooser)} title="Choose columns"><Icon name="columns" size={16} /> Columns</button>
+      <button class="ghost small" onclick={() => (chooser = !chooser)} aria-expanded={chooser}><Icon name="columns" size={15} /> Columns</button>
       {#if chooser}
         <div class="menu" role="menu">
           {#each [...cfg.columns, ...Object.keys(COLUMNS).filter((c) => !cfg.columns.includes(c))] as c (c)}
@@ -127,9 +176,9 @@
           {/each}
         </tr>
       </thead>
-      <tbody>
+      <tbody bind:this={tbody}>
         {#each sorted as row, i (row.key)}
-          <tr class:sel={selected.includes(row.key)} class:over={dragOver === row.key} draggable="true"
+          <tr data-key={row.key} aria-selected={selected.includes(row.key)} class:sel={selected.includes(row.key)} class:over={dragOver === row.key} draggable="true"
             onclick={(e) => click(e, row, i)} ondblclick={() => onopen?.(row)}
             ondragstart={(e) => dragstart(e, row)} ondragover={(e) => dragover(e, row)} ondragleave={() => (dragOver = null)} ondrop={(e) => drop(e, row)}>
             <td class="check"><input type="checkbox" checked={selected.includes(row.key)} onclick={(e) => e.stopPropagation()} onchange={() => toggle(row, i)} aria-label="Select" /></td>
@@ -139,19 +188,19 @@
                   <span class="ic {iconFor(row)}"><Icon name={iconFor(row)} /></span>
                   <span class="nm">
                     <button class="link" onclick={(e) => { e.stopPropagation(); onopen?.(row); }}>{row.name}</button>
-                    <small class="mobile-meta">{row.kind === 'folder' ? 'Folder' : `${size(row.size)} · ${date(row.modified_at)}`}</small>
+                    <small class="mobile-meta">{row.kind === 'folder' ? 'Folder' : `${size(row.size)}, ${date(row.modified_at)}`}</small>
                   </span>
-                  {#if row.link_count > 1}<span class="badge" title="Linked in {row.link_count} places"><Icon name="link" size={12} />{row.link_count}</span>{/if}
+                  {#if row.link_count > 1}<span class="badge" title="Appears in {row.link_count} places"><Icon name="link" size={12} />{row.link_count}</span>{/if}
                 </div></td>
               {:else}
                 <td class="c-{c} secondary" class:right={COLUMNS[c].align === 'right'} class:muted={c === 'path' || c === 'original'}>
-                  {#if c === 'status' && row.kind === 'file'}<span class="status {row.status}">{COLUMNS[c].value(row)}</span>{:else}{COLUMNS[c].value(row)}{/if}
+                  {#if c === 'status' && row.kind === 'file'}<span class="pill status {row.status}">{COLUMNS[c].value(row)}</span>{:else}{COLUMNS[c].value(row)}{/if}
                 </td>
               {/if}
             {/each}
           </tr>
         {:else}
-          <tr><td class="empty" colspan={cfg.columns.length + 1}>{emptyText}</td></tr>
+          <tr><td class="empty" colspan={cfg.columns.length + 1}>{#if empty}{@render empty()}{:else}Nothing here.{/if}</td></tr>
         {/each}
       </tbody>
     </table>
@@ -160,45 +209,45 @@
 
 <style>
   .wrap { display: flex; flex-direction: column; min-height: 0; flex: 1; }
-  .tools { display: flex; align-items: center; justify-content: space-between; padding: 4px 2px 8px; }
-  .count { color: var(--muted); font-size: 0.85rem; }
+  .tools { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 6px; }
+  .count { color: var(--ink-2); font-size: var(--t-sm); }
   .chooser { position: relative; }
-  .menu { position: absolute; right: 0; top: 110%; z-index: 20; background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-    box-shadow: 0 10px 30px rgb(0 0 0 / 0.2); padding: 8px; width: 240px; display: flex; flex-direction: column; gap: 2px; }
-  .opt { display: flex; justify-content: space-between; align-items: center; padding: 2px 4px; }
-  .opt label { display: flex; gap: 6px; align-items: center; margin: 0; font-weight: normal; }
-  .scroll { overflow: auto; flex: 1; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
-  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-  thead th { position: sticky; top: 0; background: var(--surface-2); z-index: 1; text-align: left; font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap; }
-  th, td { padding: 7px 10px; }
-  td { border-bottom: 1px solid var(--border-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
+  .menu { position: absolute; right: 0; top: 110%; z-index: 20; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-panel);
+    box-shadow: var(--pop-shadow); padding: 8px; width: 250px; display: flex; flex-direction: column; gap: 2px; }
+  .opt { display: flex; justify-content: space-between; align-items: center; padding: 0 4px; }
+  .opt label { display: flex; gap: 8px; align-items: center; margin: 0; font-weight: 400; font-size: var(--t-base); }
+  .opt button.icon { min-height: 26px; min-width: 26px; }
+  .scroll { overflow: auto; flex: 1; border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface); }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; text-align: left; font-weight: 600; border-bottom: 1px solid var(--line); white-space: nowrap; height: 36px; }
+  th, td { padding: 0 12px; }
+  td { height: 38px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
   .right { text-align: right; }
-  .check { width: 34px; padding-right: 0; }
-  .sort { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: inherit; cursor: pointer; }
+  .check { width: 36px; padding-right: 0; }
+  .sort { border: 0; background: none; padding: 0; min-height: 0; font: inherit; font-size: var(--t-sm); font-weight: 600; color: var(--ink-2); cursor: pointer; }
+  .sort:hover:not(:disabled) { background: none; color: var(--ink); }
   .arrow { margin-left: 4px; color: var(--accent); }
   tbody tr { cursor: default; user-select: none; }
-  tbody tr:hover { background: var(--hover); }
-  tr.sel { background: var(--accent-soft) !important; }
+  tbody tr:hover { background: var(--surface-2); }
+  tr.sel, tr.sel:hover { background: var(--accent-soft); }
+  tr.sel td.name .link { color: var(--accent-ink); }
   tr.over { outline: 2px dashed var(--accent); outline-offset: -2px; }
-  td.name { max-width: 520px; }
-  .namecell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  td.name { max-width: 560px; }
+  .namecell { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .nm { display: flex; flex-direction: column; min-width: 0; }
-  .nm .link { overflow: hidden; text-overflow: ellipsis; text-align: left; }
-  .ic { display: inline-flex; color: var(--muted); }
-  .ic.folder { color: var(--folder); }
-  .ic.pdf { color: #d0473b; }
-  .badge { display: inline-flex; align-items: center; gap: 2px; font-size: 0.72rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: 99px; padding: 0 6px; color: var(--muted); }
-  .muted { color: var(--muted); }
-  .status { font-size: 0.78rem; padding: 1px 7px; border-radius: 99px; background: var(--surface-2); }
-  .status.done { background: var(--ok-soft); color: var(--ok); }
-  .status.failed { background: var(--err-soft); color: var(--err); }
-  .status.ocr_pending, .status.pending, .status.processing { background: var(--warn-soft); color: var(--warn); }
-  .empty { text-align: center; color: var(--muted); padding: 40px; }
-  .mobile-meta { display: none; color: var(--muted); }
+  .nm .link { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ic { display: inline-flex; color: var(--ink-2); flex: none; }
+  .ic.folder { color: var(--manila); }
+  .ic.pdf { color: var(--err); }
+  .badge { display: inline-flex; align-items: center; gap: 3px; font-size: 0.75rem; border: 1px solid var(--line); border-radius: 99px; padding: 0 6px; color: var(--ink-2); flex: none; }
+  .muted { color: var(--ink-2); }
+  .secondary { color: var(--ink-2); font-size: var(--t-sm); }
+  .empty { height: auto; text-align: center; color: var(--ink-2); padding: 0; white-space: normal; }
+  .mobile-meta { display: none; color: var(--ink-2); }
   @media (max-width: 760px) {
     .secondary { display: none; }
     .mobile-meta { display: block; }
-    td { max-width: none; }
+    td { max-width: none; height: 46px; }
     td.name { max-width: calc(100vw - 90px); }
   }
 </style>

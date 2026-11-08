@@ -2,11 +2,11 @@
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { get, post, patch, del } from '#lib/api.js';
-  import { toast, errorToast, bumpTree, session } from '#lib/state.svelte.js';
+  import { toast, errorToast, bumpTree, session, stored, store } from '#lib/state.svelte.js';
   import { collectDrop, collectInput, uploadAll } from '#lib/upload.js';
   import { moveKeys, splitKeys } from '#lib/actions.js';
   import FileTable from '#lib/components/FileTable.svelte';
-  import DocumentPanel from '#lib/components/DocumentPanel.svelte';
+  import PeekPanel from '#lib/components/PeekPanel.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import Prompt from '#lib/components/Prompt.svelte';
   import Confirm from '#lib/components/Confirm.svelte';
@@ -17,6 +17,7 @@
   let selected = $state([]);
   let dialog = $state(null); // {kind, ...}
   let dragging = $state(false);
+  let peekOpen = $state(stored('peek', true));
   let fileInput, dirInput;
 
   let folderId = $derived(page.params.id);
@@ -59,11 +60,33 @@
   let canDelete = $derived(data?.space?.perm >= 3);
   let selRows = $derived(rows.filter((r) => selected.includes(r.key)));
   let single = $derived(selRows.length === 1 ? selRows[0] : null);
-  let panelFile = $derived(single?.kind === 'file' ? single : null);
+  let panelFile = $derived(peekOpen && single?.kind === 'file' ? single : null);
 
-  function open(row) {
-    if (row.kind === 'folder') goto(`/f/${row.id}`);
-    else selected = [row.key];
+  function open(row, opts = {}) {
+    if (row.kind === 'folder') {
+      goto(`/f/${row.id}`);
+      return;
+    }
+    selected = [row.key];
+    const q = new URLSearchParams();
+    if (opts.page > 1) q.set('page', opts.page);
+    if (opts.version) q.set('v', opts.version);
+    goto(`/view/${row.link_id}${q.size ? '?' + q : ''}`);
+  }
+
+  function peek(row) {
+    if (row.kind !== 'file') return;
+    if (peekOpen && single?.key === row.key) peekOpen = false;
+    else {
+      selected = [row.key];
+      peekOpen = true;
+    }
+    store('peek', peekOpen);
+  }
+
+  function closePeek() {
+    peekOpen = false;
+    store('peek', false);
   }
 
   async function mkdir(name) {
@@ -151,11 +174,12 @@
   }
 
   function keydown(e) {
-    if (dialog || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+    if (e.defaultPrevented || dialog || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
     if (e.key === 'Delete' && selected.length && canDelete) dialog = { kind: 'delete' };
     if (e.key === 'F2' && single && canWrite) dialog = { kind: 'rename' };
     if (e.key === 'Escape') selected = [];
     if (e.key === 'Backspace' && data?.folder.parent_id) goto(`/f/${data.folder.parent_id}`);
+    if (e.key.toLowerCase() === 'u' && !e.ctrlKey && !e.metaKey && canWrite) fileInput.click();
   }
 </script>
 
@@ -163,48 +187,66 @@
 
 <div class="browser" class:withpanel={panelFile}>
   <section class="main" aria-label="Folder contents"
-    ondragover={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); dragging = true; } }}
+    ondragover={(e) => { if (e.dataTransfer.types.includes('Files') && canWrite) { e.preventDefault(); dragging = true; } }}
     ondragleave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) dragging = false; }}
     ondrop={dropFiles}>
     {#if error}
-      <p class="err">{error}</p>
+      <div class="empty-state"><strong>This folder can't be opened</strong>{error}</div>
     {:else if data}
-      <div class="crumbs">
-        {#each data.breadcrumbs as c, i (c.id)}
-          {#if i > 0}<span class="sep">/</span>{/if}
-          <button class="link" class:cur={i === data.breadcrumbs.length - 1} onclick={() => goto(`/f/${c.id}`)}>
-            {i === 0 ? data.space.name : c.name}
-          </button>
-        {/each}
-        {#if !canWrite}<span class="ro">read-only</span>{/if}
-      </div>
+      <header class="head">
+        <nav class="crumbs" aria-label="Folder path">
+          {#each data.breadcrumbs.slice(0, -1) as c, i (c.id)}
+            <button class="link" onclick={() => goto(`/f/${c.id}`)}>{i === 0 ? data.space.name : c.name}</button><span class="sep" aria-hidden="true">/</span>
+          {/each}
+        </nav>
+        <div class="titlerow">
+          <h1>{data.breadcrumbs.length === 1 ? data.space.name : data.folder.name}</h1>
+          {#if !canWrite}<span class="pill">Read only</span>{/if}
+        </div>
+      </header>
 
-      <div class="toolbar">
+      <div class="toolbar" role="toolbar" aria-label="Folder actions">
         {#if canWrite}
-          <button class="primary" onclick={() => fileInput.click()}><Icon name="upload" size={16} /> Upload</button>
+          <button class="primary" onclick={() => fileInput.click()} title="Upload files (U)"><Icon name="upload" size={16} /> Upload</button>
           <button onclick={() => dirInput.click()}><Icon name="folder" size={16} /> Upload folder</button>
-          <button onclick={() => (dialog = { kind: 'mkdir' })}><Icon name="plus" size={16} /> New folder</button>
+          <button class="ghost" onclick={() => (dialog = { kind: 'mkdir' })}><Icon name="plus" size={16} /> New folder</button>
         {/if}
         {#if selected.length}
-          <span class="divider"></span>
-          {#if single?.kind === 'file'}<a class="btn" href={`/api/files/${single.link_id}/content`} download><Icon name="download" size={16} /> Download</a>{/if}
-          {#if canWrite && single}<button onclick={() => (dialog = { kind: 'rename' })}><Icon name="edit" size={16} /> Rename</button>{/if}
-          {#if canWrite}<button onclick={() => (dialog = { kind: 'pick', mode: 'move' })}><Icon name="move" size={16} /> Move</button>{/if}
-          <button onclick={() => (dialog = { kind: 'pick', mode: 'copy' })}><Icon name="copy" size={16} /> Copy</button>
-          {#if canWrite && single?.kind === 'file'}<button onclick={() => (dialog = { kind: 'pick', mode: 'link' })} title="Make the document additionally appear in another folder"><Icon name="link" size={16} /> Link to…</button>{/if}
-          {#if canWrite && selRows.some((r) => r.kind === 'file' && r.original_path !== r.path)}
-            <button onclick={restoreOriginal} title="Move back to where it was imported"><Icon name="restore" size={16} /> Original location</button>
+          <span class="divider" aria-hidden="true"></span>
+          {#if single?.kind === 'file'}
+            <button class="ghost" onclick={() => open(single)}><Icon name="open" size={16} /> Open</button>
+            <a class="btn ghost" href={`/api/files/${single.link_id}/content`} download><Icon name="download" size={16} /> Download</a>
           {/if}
-          {#if canDelete}<button onclick={() => (dialog = { kind: 'delete' })}><Icon name="trash" size={16} /> Delete</button>{/if}
+          {#if canWrite && single}<button class="ghost" onclick={() => (dialog = { kind: 'rename' })}><Icon name="edit" size={16} /> Rename</button>{/if}
+          {#if canWrite}<button class="ghost" onclick={() => (dialog = { kind: 'pick', mode: 'move' })}><Icon name="move" size={16} /> Move</button>{/if}
+          <button class="ghost" onclick={() => (dialog = { kind: 'pick', mode: 'copy' })}><Icon name="copy" size={16} /> Copy</button>
+          {#if canWrite && single?.kind === 'file'}<button class="ghost" onclick={() => (dialog = { kind: 'pick', mode: 'link' })} title="Show the same document in another folder too"><Icon name="link" size={16} /> Also show in…</button>{/if}
+          {#if canWrite && selRows.some((r) => r.kind === 'file' && r.original_path !== r.path)}
+            <button class="ghost" onclick={restoreOriginal} title="Move back to where it was imported"><Icon name="restore" size={16} /> Move to original place</button>
+          {/if}
+          {#if canDelete}<button class="ghost" onclick={() => (dialog = { kind: 'delete' })}><Icon name="trash" size={16} /> Delete</button>{/if}
+        {/if}
+        {#if single?.kind === 'file' && !peekOpen}
+          <button class="ghost peekbtn" onclick={() => peek(single)} title="Show preview (Space)"><Icon name="panel" size={16} /> Preview</button>
         {/if}
       </div>
 
-      <FileTable {rows} view="folder" bind:selected onopen={open}
-        ondropon={(keys, row) => canWrite && moveKeys(keys, row.id).catch(errorToast)}
-        emptyText={canWrite ? 'This folder is empty – drop files or folders here to upload them.' : 'This folder is empty.'} />
+      <FileTable {rows} view="folder" bind:selected onopen={open} onpeek={peek}
+        ondropon={(keys, row) => canWrite && moveKeys(keys, row.id).catch(errorToast)}>
+        {#snippet empty()}
+          <div class="empty-state">
+            <strong>This folder is empty</strong>
+            {#if canWrite}Drop files or whole folders here, or press <kbd>U</kbd> to upload. Folder structure is kept.{:else}Nothing has been added here yet.{/if}
+          </div>
+        {/snippet}
+      </FileTable>
 
       {#if dragging}
-        <div class="dropzone"><Icon name="upload" size={40} /><p>Drop files or folders to upload into <strong>{data.folder.path === '/' ? data.space.name : data.folder.name}</strong></p><small>Folder structure is preserved. Files already stored are only linked.</small></div>
+        <div class="dropzone" aria-hidden="true">
+          <Icon name="upload" size={36} />
+          <p>Drop to upload into <strong>{data.breadcrumbs.length === 1 ? data.space.name : data.folder.name}</strong></p>
+          <small>Folders keep their structure. Files that are already stored are only added as another place.</small>
+        </div>
       {/if}
     {/if}
     <input type="file" multiple hidden bind:this={fileInput} onchange={pickFiles} />
@@ -212,7 +254,7 @@
   </section>
 
   {#if panelFile}
-    <DocumentPanel file={panelFile} onclose={() => (selected = [])} onchanged={() => load(true)} />
+    <PeekPanel file={panelFile} onclose={closePeek} onopen={(o) => open(panelFile, o)} onchanged={() => load(true)} />
   {/if}
 </div>
 
@@ -232,17 +274,25 @@
 {/if}
 
 <style>
-  .browser { display: grid; grid-template-columns: 1fr; height: 100%; min-height: 0; }
-  .browser.withpanel { grid-template-columns: 1fr auto; }
-  .main { position: relative; display: flex; flex-direction: column; padding: 14px 18px; min-width: 0; min-height: 0; }
-  .crumbs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 1.05rem; margin-bottom: 10px; }
-  .crumbs .cur { font-weight: 600; }
-  .sep { color: var(--muted); }
-  .ro { font-size: 0.75rem; background: var(--surface-2); padding: 1px 8px; border-radius: 99px; color: var(--muted); }
-  .toolbar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
-  .divider { width: 1px; background: var(--border); margin: 0 4px; }
-  .dropzone { position: absolute; inset: 10px; border: 3px dashed var(--accent); border-radius: 14px; background: color-mix(in srgb, var(--surface) 88%, transparent);
-    display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--accent-text); pointer-events: none; z-index: 10; }
-  .err { color: var(--err); }
-  @media (max-width: 760px) { .main { padding: 10px 12px; } .toolbar button, .toolbar .btn { padding: 5px 9px; } }
+  .browser { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100%; min-height: 0; }
+  .browser.withpanel { grid-template-columns: minmax(0, 1fr) auto; }
+  .main { position: relative; display: flex; flex-direction: column; padding: 22px 28px 18px; min-width: 0; min-height: 0; }
+  .head { margin-bottom: 14px; }
+  .crumbs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--t-sm); color: var(--ink-2); min-height: 1.5em; }
+  .crumbs .link:hover { color: var(--ink); }
+  .sep { color: var(--line); }
+  .titlerow { display: flex; align-items: center; gap: 12px; }
+  .titlerow h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toolbar { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .toolbar > .primary { margin-right: 4px; }
+  .peekbtn { margin-left: auto; }
+  .divider { width: 1px; align-self: stretch; background: var(--line); margin: 4px 6px; }
+  .dropzone { position: absolute; inset: 12px; border: 2px dashed var(--accent); border-radius: var(--r-panel); background: color-mix(in srgb, var(--surface) 92%, transparent);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--accent-ink); pointer-events: none; z-index: 10; text-align: center; padding: 16px; }
+  .dropzone p { margin: 8px 0 0; font-size: var(--t-md); }
+  .dropzone small { color: var(--ink-2); }
+  @media (max-width: 760px) {
+    .main { padding: 14px 12px 10px; }
+    .toolbar button, .toolbar .btn { padding: 4px 8px; }
+  }
 </style>

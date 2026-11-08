@@ -268,3 +268,17 @@ func TestTeamsAndSpaces(t *testing.T) {
 	_, err = svc.GetSpace(ctx, alp, ts.ID)
 	wantKind(t, err, core.ErrNotFound)
 }
+
+func TestNewSecretAlphabet(t *testing.T) {
+	for i := 0; i < 2000; i++ {
+		s := core.NewSecretForTest()
+		if len(s) != 40 {
+			t.Fatalf("len %d", len(s))
+		}
+		for _, r := range s {
+			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
+				t.Fatalf("secret %q has %q", s, r)
+			}
+		}
+	}
+}

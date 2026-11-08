@@ -7,4 +7,4 @@
   });
 </script>
 
-<div class="page"><p class="muted">{session.spaces.length ? 'Opening…' : 'No spaces available.'}</p></div>
+<div class="page"><p class="muted">{session.spaces.length ? 'Opening your space…' : 'You have no spaces yet. Create one under Spaces.'}</p></div>

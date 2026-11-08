@@ -19,6 +19,17 @@ Arch Linux works natively.
 | **Provenance** | The path a file was imported at is kept forever. Files can be remapped freely and moved back with "Original location". |
 | **Trash** | Deleting a link removes only that link. A document goes to the trash with its last link and is purged after the retention period (default 30 days). |
 
+## Web UI
+
+Folders on the left, files in the middle, a resizable preview on the right in
+which the whole document scrolls. **Open** (Enter, double click) shows the
+document full-window: continuous pages, thumbnails, zoom, find in document
+with highlighted hits (Ctrl+F), original vs. OCR version, versions and places
+in a details drawer, `[`/`]` for the previous/next document in the folder,
+Esc to close. Ctrl+K searches everywhere; a hit opens on the right page with
+the terms highlighted. PDFs are rendered with pdf.js; the browser's built-in
+viewer can be chosen instead under *Settings and access → Opening documents*.
+
 Glossary: **Team** (users + roles owner/admin/member/viewer), **Space**
 (container, = S3 bucket, = top-level WebDAV/SFTP folder), **Folder**,
 **Document**, **Link**, **Version**, **Blob** (internal). See [PLAN.md](PLAN.md)
@@ -173,6 +184,7 @@ Changes made elsewhere show up in the mount after `--dir-cache-time`.
 ## Development
 
 Requirements: Go ≥ 1.27, Node ≥ 24, Docker. `pdftotext` (poppler) locally is optional.
+`npm run dev|build` first copies pdf.js assets and fonts into `web/static/vendor/` (generated).
 
 ```
 make test          # unit + integration tests (starts a PostgreSQL test container)
@@ -206,8 +218,12 @@ web/               SvelteKit UI (static SPA)   deploy/         compose, nginx te
   because SigV4 needs the plaintext secret server-side.
 - Failed logins (UI, WebDAV, SFTP, S3 signatures) are rate limited per IP and login.
 - File content is never rendered as active content on the UI origin: downloads are
-  attachments, inline preview only for PDF/text/images, `CSP: sandbox` + `nosniff`.
-  The UI ships a strict hash-based CSP.
+  attachments, inline content only for PDF/text/images, always with `CSP: sandbox`
+  + `nosniff`. PDFs are drawn by pdf.js with PDF scripting off. Exception: users
+  who choose the browser's built-in PDF viewer get unsandboxed inline PDFs (the
+  browser refuses to run its viewer in a sandbox); the server checks that
+  preference. The UI ships a strict hash-based CSP (`'wasm-unsafe-eval'` only for
+  pdf.js image decoders, no JS eval).
 - Deduplication is server-side only. There is no "do you have hash X" endpoint
   that could reveal other users' files.
 - **Backups** need all three: PostgreSQL (`pg_dump`), the `data` volume (blobs,

@@ -32,11 +32,21 @@ ENV
 step "compose up"
 "${DC[@]}" up -d --build --wait --wait-timeout 180 >/dev/null || fail "compose up"
 B="https://localhost:$HTTPS"
+# nginx has no healthcheck; it listens only after generating its certificate
+for i in $(seq 1 60); do curl -skf "$B/api/health" 2>/dev/null | grep -q ok && break; sleep 0.5; done
 curl -skf "$B/api/health" | grep -q ok || fail "health via nginx"
 
 step "UI via nginx (SPA fallback + CSP)"
 curl -skf "$B/f/whatever" | grep -q 'content-security-policy' || fail "SPA fallback/CSP"
 curl -skI "$B/" | grep -qi 'strict-transport-security' || fail "HSTS"
+
+step "pdf.js assets served with module/wasm MIME types, CSP allows worker + wasm"
+WJS=$("${DC[@]}" exec -T nginx sh -c 'ls /usr/share/nginx/html/_app/immutable/assets/ | grep pdf.worker' | tr -d '\r')
+[ -n "$WJS" ] || fail "pdf.js worker missing from the build"
+curl -skI "$B/_app/immutable/assets/$WJS" | grep -qi '^content-type: text/javascript' || fail "worker .mjs MIME"
+curl -skI "$B/vendor/pdfjs/wasm/openjpeg.wasm" | grep -qi '^content-type: application/wasm' || fail "wasm MIME"
+curl -skI "$B/vendor/fonts/literata-latin-wght-normal.woff2" | grep -qi '^content-type: font/woff2' || fail "font"
+curl -skf "$B/" | grep -q "wasm-unsafe-eval" || fail "CSP lacks wasm-unsafe-eval"
 
 step "setup + access key"
 curl -skf -X POST "$B/api/setup" -H 'Content-Type: application/json' -d '{"username":"admin","password":"supersecret"}' -c "$WORK/c" >/dev/null || fail setup
@@ -93,6 +103,8 @@ DOC=$(echo "$R" | sed -E 's/.*"document_id":"([^"]+)".*/\1/')
 curl -skf "$B/api/documents/$DOC" -H "Authorization: Bearer $TOKEN" | grep -q '"has_searchable":true' || fail "no searchable PDF"
 curl -skf -o "$WORK/searchable.pdf" "$B/api/documents/$DOC/content?variant=searchable" -H "Authorization: Bearer $TOKEN" || fail "download searchable"
 head -c 5 "$WORK/searchable.pdf" | grep -q '%PDF' || fail "searchable is not a PDF"
+curl -skI "$B/api/documents/$DOC/content?inline=1" -H "Authorization: Bearer $TOKEN" | grep -qi '^content-security-policy: sandbox' || fail "inline PDF not sandboxed"
+curl -skf "$B/api/search?q=RECEIPT" -H "Authorization: Bearer $TOKEN" | grep -q '"page":1' || fail "search hit page"
 curl -skf "$B/api/search?q=Altona" -H "Authorization: Bearer $TOKEN" | grep -q '"total":1' || fail "digital PDF text"
 
 printf '\n\033[1;32mCOMPOSE E2E PASSED\033[0m\n'
