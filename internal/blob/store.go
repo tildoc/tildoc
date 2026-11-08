@@ -261,3 +261,16 @@ func (l *Local) Walk(fn func(sha SHA256, mod time.Time) error) error {
 		return fn(sha, info.ModTime())
 	})
 }
+
+// MarshalText encodes the hash as hex (JSON friendly).
+func (s SHA256) MarshalText() ([]byte, error) { return []byte(s.Hex()), nil }
+
+// UnmarshalText decodes a hex hash.
+func (s *SHA256) UnmarshalText(b []byte) error {
+	v, err := ParseSHA256(string(b))
+	if err != nil {
+		return err
+	}
+	*s = v
+	return nil
+}

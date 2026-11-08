@@ -224,3 +224,15 @@ CREATE TABLE multipart_parts (
     created_at  timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (upload_id, part_number)
 );
+
+-- ---------------------------------------------------------------- helpers
+-- folder_path returns "" for a root folder and "/a/b" otherwise.
+CREATE FUNCTION folder_path(fid uuid) RETURNS text LANGUAGE sql STABLE AS $$
+    WITH RECURSIVE up(id, parent_id, name, depth) AS (
+        SELECT id, parent_id, name, 0 FROM folders WHERE id = fid
+        UNION ALL
+        SELECT f.id, f.parent_id, f.name, up.depth + 1 FROM folders f JOIN up ON f.id = up.parent_id
+    )
+    SELECT coalesce(string_agg('/' || name, '' ORDER BY depth DESC) FILTER (WHERE parent_id IS NOT NULL), '')
+    FROM up
+$$;

@@ -191,11 +191,11 @@ flowchart LR
 - [x] Tests
 
 ### Phase 3 — Core: Ingest, Folders, Links, Trash
-- [ ] Ingest with dedup / versioning / copy-on-write / provenance; job enqueue
-- [ ] Folder + link ops (mkdir, move, rename, copy, delete, restore, restore-original), cross-space moves
-- [ ] Trash purge + blob GC
-- [ ] VFS layer (path resolution, stat/list/open/put/mkdir/rename/copy/remove)
-- [ ] Tests
+- [x] Ingest with dedup / versioning / copy-on-write / provenance; job enqueue
+- [x] Folder + link ops (mkdir, move, rename, copy, delete, restore, restore-original), cross-space moves
+- [x] Trash purge + blob GC
+- [x] VFS layer (path resolution, stat/list/open/put/mkdir/rename/copy/remove)
+- [x] Tests
 
 ### Phase 4 — REST API & Search
 - [ ] Setup/login/me, users (admin), keys, teams, spaces, folders, documents, links, uploads (raw streaming PUT with relative path), downloads (original/searchable/version), trash, imports, bulk move, search (tsvector), admin jobs/reprocess
