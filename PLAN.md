@@ -209,8 +209,9 @@ flowchart LR
 - [x] Real-client E2E in Docker: aws-cli, rclone (s3, webdav, sftp backends)
 
 ### Phase 5 — Web UI
-- [ ] SvelteKit (Svelte 5, adapter-static, SPA), plain CSS, light/dark
-- [ ] Setup/login; space/folder tree; details list (sortable, customizable + persisted columns, responsive); search; drag & drop upload preserving folder structure; move/rename/delete/new folder/link; document panel (preview, versions, links, text, status, downloads, new version, reprocess); trash; settings (password, access keys, SSH keys, connection help incl. Dolphin/rclone); teams; admin (users, jobs)
+- [x] SvelteKit (Svelte 5, adapter-static, SPA), plain CSS, light/dark
+- [x] Setup/login; space/folder tree; details list (sortable, customizable + persisted columns, responsive); search; drag & drop upload preserving folder structure; move/rename/delete/new folder/link; document panel (preview, versions, links, text, status, downloads, new version, reprocess); trash; settings (password, access keys, SSH keys, connection help incl. Dolphin/rclone); teams; admin (users, jobs)
+- [x] UI smoke test (Chromium via playwright-core, `test/ui/run.sh`)
 
 ### Phase 6 — Worker & OCR
 - [x] Job runner (SKIP LOCKED, retries/backoff, stale-lock reclaim, NOTIFY)

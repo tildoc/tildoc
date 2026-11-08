@@ -1,0 +1,7 @@
+{
+  "name": "tildoc-ui-smoke",
+  "private": true,
+  "type": "module",
+  "scripts": { "smoke": "node smoke.mjs" },
+  "devDependencies": { "playwright-core": "1.65.0" }
+}
