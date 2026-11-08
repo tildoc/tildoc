@@ -103,7 +103,7 @@
   .handle { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; }
   .handle:hover, .handle:focus-visible { background: color-mix(in srgb, var(--accent) 35%, transparent); outline: none; }
   header { display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 16px; }
-  h2 { flex: 1; min-width: 0; font-family: var(--font-read); font-weight: 560; font-size: var(--t-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  h2 { flex: 1; min-width: 0; font-weight: 650; font-size: var(--t-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .preview { position: relative; min-height: 0; border-block: 1px solid var(--line); }
   .pageno { position: absolute; right: 12px; bottom: 10px; font-size: var(--t-sm); background: var(--surface); color: var(--ink-2); padding: 1px 8px; border-radius: 99px; box-shadow: 0 1px 3px rgb(0 0 0 / 0.15); pointer-events: none; }
   .bar { display: flex; gap: 8px; align-items: center; padding: 10px 16px; }

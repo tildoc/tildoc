@@ -116,6 +116,19 @@ await step('peek toggles with space', async () => {
   await page.locator('aside.peek').waitFor();
 });
 
+await step('row click previews, name opens', async () => {
+  await page.locator('aside.peek').getByRole('button', { name: 'Close preview' }).click();
+  await page.locator('aside.peek').waitFor({ state: 'detached' });
+  await row('Quartalsbericht.pdf').locator('td').nth(2).click();
+  await page.locator('aside.peek', { hasText: 'Quartalsbericht.pdf' }).waitFor();
+  await row('notes.txt').getByRole('button', { name: 'notes.txt' }).click();
+  await page.waitForURL('**/view/**');
+  await page.locator('.viewer .sheet-text', { hasText: 'Protokoll' }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.waitForURL('**/f/**');
+  await page.locator('tr.sel', { hasText: 'notes.txt' }).waitFor();
+});
+
 await step('viewer opens whole pdf', async () => {
   await row('Handbuch.pdf').click();
   await page.locator('aside.peek .pg canvas').first().waitFor();
@@ -157,7 +170,7 @@ await step('viewer details and next document', async () => {
   await page.keyboard.press(']');
   await page.waitForURL((u) => u.href !== before);
   await page.locator('.viewer h1', { hasText: 'notes-copy.txt' }).waitFor();
-  await page.locator('.sheet-text', { hasText: 'Protokoll' }).waitFor();
+  await page.locator('.viewer .sheet-text', { hasText: 'Protokoll' }).waitFor();
   await page.keyboard.press('i');
 });
 

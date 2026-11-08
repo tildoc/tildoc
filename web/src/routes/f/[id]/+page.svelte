@@ -84,6 +84,13 @@
     store('peek', peekOpen);
   }
 
+  // a plain click on a file row always shows its preview; the name opens the viewer
+  function showPeek(row) {
+    if (row.kind !== 'file' || peekOpen) return;
+    peekOpen = true;
+    store('peek', true);
+  }
+
   function closePeek() {
     peekOpen = false;
     store('peek', false);
@@ -231,7 +238,7 @@
         {/if}
       </div>
 
-      <FileTable {rows} view="folder" bind:selected onopen={open} onpeek={peek}
+      <FileTable {rows} view="folder" bind:selected onopen={open} onpeek={peek} onrowclick={showPeek}
         ondropon={(keys, row) => canWrite && moveKeys(keys, row.id).catch(errorToast)}>
         {#snippet empty()}
           <div class="empty-state">

@@ -130,20 +130,20 @@
 </div>
 
 <style>
-  .searchbar { display: flex; align-items: center; gap: 10px; max-width: 760px; padding: 4px 4px 4px 14px; border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface); color: var(--ink-2); }
+  .searchbar { display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 14px; border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface); color: var(--ink-2); }
   .searchbar input { border: 0; background: none; font-size: var(--t-md); outline: none; padding: 6px 0; }
   .searchbar:focus-within { border-color: var(--accent); }
   .filters { margin: 14px 0 6px; }
   .filters select { width: auto; }
   .total { margin-left: 4px; }
-  .results { list-style: none; margin: 8px 0 0; padding: 0; max-width: 860px; }
+  .results { list-style: none; margin: 8px 0 0; padding: 0; }
   .results li { display: flex; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--line); }
   .ic { color: var(--ink-2); padding-top: 3px; flex: none; }
   .ic.pdf { color: var(--err); }
   .body { min-width: 0; flex: 1; }
-  .name { font-family: var(--font-read); font-size: var(--t-md); font-weight: 560; color: var(--ink); overflow-wrap: anywhere; }
+  .name { font-size: var(--t-md); font-weight: 650; color: var(--ink); overflow-wrap: anywhere; }
   .name:hover { color: var(--accent); }
-  .snip { margin: 4px 0 6px; font-family: var(--font-read); line-height: 1.6; color: var(--ink); }
+  .snip { margin: 4px 0 6px; line-height: 1.6; color: var(--ink); }
   .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: var(--t-sm); color: var(--ink-2); }
   .where { color: var(--ink-2); overflow-wrap: anywhere; }
   .pager { margin-top: 18px; }

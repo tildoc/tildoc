@@ -85,7 +85,7 @@
   .other.peek { background: var(--surface-2); padding: 12px; }
   .filesheet { background: var(--paper); color: #1d2a35; box-shadow: var(--paper-shadow); padding: 32px 36px; max-width: 360px; width: 100%;
     display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
-  .filesheet strong { font-family: var(--font-read); font-size: var(--t-md); font-weight: 560; overflow-wrap: anywhere; }
+  .filesheet strong { font-size: var(--t-md); font-weight: 650; overflow-wrap: anywhere; }
   .filesheet span, .filesheet p { color: #56636b; font-size: var(--t-sm); margin: 0; }
   .filesheet .btn { margin-top: 12px; }
   .peek .filesheet { padding: 20px; }

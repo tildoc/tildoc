@@ -165,5 +165,5 @@
   .list li:last-child { border-bottom: 0; }
   .list li.viewing { box-shadow: inset 3px 0 0 var(--accent); padding-left: 10px; }
   .vhead { display: flex; align-items: center; gap: 8px; }
-  .text { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-read); font-size: var(--t-sm); line-height: 1.6; margin: 0; }
+  .text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--t-sm); line-height: 1.6; margin: 0; }
 </style>

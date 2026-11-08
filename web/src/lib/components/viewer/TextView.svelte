@@ -62,7 +62,7 @@
   .sheet-text {
     background: var(--paper); color: #1d2a35; box-shadow: var(--paper-shadow);
     max-width: 75ch; margin: 0 auto; padding: 48px 56px; min-height: 100%;
-    font-family: var(--font-read); font-size: 1.0667rem; line-height: 1.65;
+    font-size: 1.0667rem; line-height: 1.65;
     white-space: pre-wrap; overflow-wrap: anywhere;
   }
   .peek .sheet-text { padding: 20px 22px; font-size: var(--t-sm); }

@@ -22,7 +22,8 @@ Arch Linux works natively.
 ## Web UI
 
 Folders on the left, files in the middle, a resizable preview on the right in
-which the whole document scrolls. **Open** (Enter, double click) shows the
+which the whole document scrolls. Clicking a row shows the preview (Space
+toggles it). Clicking the file name (or Enter, double click) shows the
 document full-window: continuous pages, thumbnails, zoom, find in document
 with highlighted hits (Ctrl+F), original vs. OCR version, versions and places
 in a details drawer, `[`/`]` for the previous/next document in the folder,

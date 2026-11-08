@@ -1,4 +1,5 @@
-/* tildoc "light table": documents are paper on a calm board; search hits use a highlighter. */
+/* tildoc "light table": documents are paper on a calm board; search hits use a highlighter.
+   One typeface throughout: Atkinson Hyperlegible Next. */
 
 @font-face {
   font-family: 'Atkinson Hyperlegible Next';
@@ -22,29 +23,6 @@
   font-display: swap;
   font-weight: 200 800;
   src: url('/vendor/fonts/atkinson-hyperlegible-next-latin-wght-italic.woff2') format('woff2-variations');
-}
-@font-face {
-  font-family: 'Literata';
-  font-style: normal;
-  font-display: swap;
-  font-weight: 200 900;
-  src: url('/vendor/fonts/literata-latin-wght-normal.woff2') format('woff2-variations');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-@font-face {
-  font-family: 'Literata';
-  font-style: normal;
-  font-display: swap;
-  font-weight: 200 900;
-  src: url('/vendor/fonts/literata-latin-ext-wght-normal.woff2') format('woff2-variations');
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
-}
-@font-face {
-  font-family: 'Literata';
-  font-style: italic;
-  font-display: swap;
-  font-weight: 200 900;
-  src: url('/vendor/fonts/literata-latin-wght-italic.woff2') format('woff2-variations');
 }
 
 :root {
@@ -78,7 +56,6 @@
   --pop-shadow: 0 12px 32px rgb(20 28 34 / 0.22);
 
   --font-ui: 'Atkinson Hyperlegible Next', system-ui, sans-serif;
-  --font-read: 'Literata', Georgia, serif;
   --font-mono: ui-monospace, 'JetBrains Mono', 'DejaVu Sans Mono', monospace;
 
   /* type scale: 15px, ratio 1.2 */
@@ -167,7 +144,7 @@ body {
 }
 
 h1, h2, h3 { font-weight: 650; line-height: 1.25; margin: 0; }
-h1 { font-size: var(--t-xl); font-family: var(--font-read); font-weight: 560; letter-spacing: -0.01em; }
+h1 { font-size: var(--t-xl); font-weight: 700; letter-spacing: -0.01em; }
 h2 { font-size: var(--t-md); }
 h3 { font-size: var(--t-base); }
 p { margin: 0 0 0.75em; max-width: 72ch; }
@@ -232,6 +209,7 @@ textarea { resize: vertical; }
 label { display: flex; flex-direction: column; gap: 4px; font-size: var(--t-sm); font-weight: 600; margin-bottom: 12px; }
 label.inline { flex-direction: row; align-items: center; gap: 8px; font-weight: 400; font-size: var(--t-base); }
 .hint { font-weight: 400; color: var(--ink-2); }
+label > .hint { font-size: var(--t-sm); margin-top: -1px; }
 
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .row.end { justify-content: flex-end; }
@@ -244,10 +222,9 @@ mark, .hl { background: var(--highlight); color: inherit; border-radius: 2px; pa
 .page { padding: 28px 32px 48px; overflow: auto; height: 100%; }
 .page > header { margin-bottom: 24px; }
 .page > header p { margin: 8px 0 0; color: var(--ink-2); }
-.page-narrow { max-width: 980px; }
 
 /* a section is a headed block divided by a rule, not a floating card */
-.section { border-top: 1px solid var(--line); padding: 20px 0 8px; margin: 0 0 8px; max-width: 980px; }
+.section { border-top: 1px solid var(--line); padding: 20px 0 8px; margin: 0 0 8px; }
 .section > h2 { margin-bottom: 4px; }
 .section > h2 + p, .section > .lead { color: var(--ink-2); margin: 0 0 16px; }
 .section-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 24px; }

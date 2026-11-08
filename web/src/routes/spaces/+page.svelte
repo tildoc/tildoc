@@ -74,7 +74,7 @@
     <p>Only empty spaces can be deleted later.</p>
     <div class="section-grid">
       <label>Name<input bind:value={name} required /></label>
-      <label>Short name <span class="hint">optional; a–z, 0–9 and dashes</span><input bind:value={slug} placeholder="made from the name" /></label>
+      <label>Short name<input bind:value={slug} placeholder="made from the name" /><span class="hint">Optional. Lowercase letters, digits and dashes.</span></label>
       <label>Belongs to
         <select bind:value={team}>
           <option value="">Just me</option>

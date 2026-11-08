@@ -1,6 +1,6 @@
 // Copies runtime assets from pinned npm packages into static/ (gitignored):
 // pdf.js resources (cmaps, standard fonts, wasm decoders, ICC profiles) and
-// the self-hosted UI fonts. Runs before `vite dev` and `vite build`.
+// the self-hosted UI font. Runs before `vite dev` and `vite build`.
 import { cpSync, mkdirSync, rmSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,8 +23,7 @@ for (const f of readdirSync(join(pdfjs, 'wasm'))) {
 cpSync(join(pdfjs, 'LICENSE'), join(out, 'pdfjs', 'LICENSE'));
 
 const fonts = {
-  'atkinson-hyperlegible-next': ['latin-wght-normal', 'latin-ext-wght-normal', 'latin-wght-italic'],
-  literata: ['latin-wght-normal', 'latin-ext-wght-normal', 'latin-wght-italic']
+  'atkinson-hyperlegible-next': ['latin-wght-normal', 'latin-ext-wght-normal', 'latin-wght-italic']
 };
 for (const [fam, files] of Object.entries(fonts)) {
   const src = join(nm, '@fontsource-variable', fam);

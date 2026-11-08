@@ -173,13 +173,13 @@
 {/if}
 
 <style>
-  .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 28px; align-items: start; max-width: 1100px; }
+  .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 28px; align-items: start; }
   .list { display: flex; flex-direction: column; padding: 6px; }
   .list > button { justify-content: space-between; border: 0; background: none; padding: 6px 10px; }
   .list > button.active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
   .pad { padding: 8px 10px; margin: 0; }
   .newteam { padding: 8px 4px 2px; border-top: 1px solid var(--line-soft); margin-top: 6px; }
-  .tname { font-family: var(--font-read); font-weight: 560; font-size: var(--t-lg); }
+  .tname { font-weight: 650; font-size: var(--t-lg); }
   .detail .section { margin-top: 14px; }
   .roles { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font-size: var(--t-sm); color: var(--ink-2); margin: 14px 0 0; }
   .roles dt { font-weight: 600; color: var(--ink); }

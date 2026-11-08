@@ -296,7 +296,7 @@
   .bar :global(button.icon.on) { color: var(--stage-ink); background: rgb(255 255 255 / 0.12); }
   .left { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 0; }
   .title { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
-  h1 { font-size: var(--t-md); font-weight: 560; color: var(--stage-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  h1 { font-size: var(--t-md); font-weight: 650; color: var(--stage-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .where { font-size: var(--t-sm); color: var(--stage-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mid { display: flex; align-items: center; gap: 14px; flex: none; }
   .right { display: flex; align-items: center; gap: 4px; flex: 1 1 0; justify-content: flex-end; }

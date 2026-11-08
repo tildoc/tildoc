@@ -252,10 +252,10 @@ stays quiet.
 | `--manila` | `#C49A4A` | `#D3AC5E` | folder icons (functional, not decoration) |
 | `--stage` | `#2A3137` | `#15191C` | viewer background |
 
-- **Type:** *Atkinson Hyperlegible Next* (UI, variable 400–700, tabular figures
-  for sizes and dates) plus *Literata* (reading: document titles in the panel
-  and viewer, extracted and plain text). Both are OFL and **self-hosted** under
-  `web/static/fonts` (no font CDN: privacy and CSP). Scale on 15 px with ratio
+- **Type:** *Atkinson Hyperlegible Next* everywhere (variable weights,
+  tabular figures for sizes and dates). OFL, **self-hosted** under
+  `web/static/vendor/fonts` (no font CDN: privacy and CSP). Literata was tried
+  for titles and reading text and dropped at the user's request. Scale on 15 px with ratio
   1.2: 12.5 / 15 / 18 / 21.6 / 26. Sentence case throughout, no all-caps labels.
 - **Structure means something:** no identical card grid. Settings and admin are
   headed sections divided by rules. Radius has a hierarchy: 4 px for controls,
@@ -332,7 +332,7 @@ own route, `/view/[linkId]?page=&q=&v=`:
   - view-only rotation;
   - page input; Original vs Searchable (OCR) toggle; version switcher.
 - **Images:** fit or 1:1, zoom and pan, the same stage.
-- **Text:** a reading column ≤ 75ch in Literata, monospace for code and
+- **Text:** a reading column ≤ 75ch, monospace for code and
   structured types, find with highlights.
 - **Other types:** a large file sheet with type, size, versions and links, plus
   Download.
@@ -394,6 +394,7 @@ modals and the folder picker are redone.
 - [x] 8.7 Server: search hit page, `pages` in DTO, CSP update, sandbox for inline PDF + HISTORY.md
 - [x] 8.8 Search, trash, spaces, teams, settings, admin, login/setup restyle
 - [x] 8.9 Tests: extend `test/ui/smoke.mjs` (multi-page fixture; open viewer, page jump, find count, OCR toggle, Esc restores selection, mobile, dark, **no CSP/console errors**); Go tests for hit page; screenshot review pass; commit "Phase 8"
+- [x] 8.10 Follow-up: one typeface, hints below inputs, full-width subpages, row click shows the preview and the file name opens the viewer
 
 ---
 
@@ -419,7 +420,7 @@ modals and the folder picker are redone.
 | 16 | Repo | git, one commit per phase; tests via Docker; no AWS SDK |
 | 17 | Write via multi-linked doc | Copy-on-write fork |
 | 18 | PDF viewer | pdf.js (`pdfjs-dist`) by default; browser viewer selectable per user |
-| 19 | UI fonts | Atkinson Hyperlegible Next + Literata, self-hosted |
+| 19 | UI font | Atkinson Hyperlegible Next only, self-hosted |
 | 20 | Access key secrets | 40 alphanumeric chars (no leading `-` that CLIs parse as a flag) |
 
 ## Open Questions

@@ -100,7 +100,8 @@ When the user requests a programming task, **do not start coding immediately.**
   via package.json `imports`), Svelte 5 runes, plain CSS, no UI libraries.
   Only runtime dependency: `pdfjs-dist` (lazy loaded). Design tokens live in
   `web/src/app.css` ("light table": paper only for documents, highlighter
-  yellow for search hits, Atkinson Hyperlegible Next + Literata). Viewer code:
+  yellow for search hits, Atkinson Hyperlegible Next as the only typeface;
+  subpages use the full width; form hints go below the input). Viewer code:
   `web/src/lib/components/viewer/` (DocView picks PdfView / ImageView /
   TextView / native iframe). `web/static/vendor/` is generated, never edit it.
 - **Window key handlers** must ignore `e.defaultPrevented` events; dialogs and

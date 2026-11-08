@@ -123,7 +123,7 @@ directory_markers = true` : '');
       </form>
       <form onsubmit={changePw}>
         <label>Current password<input type="password" autocomplete="current-password" bind:value={oldPw} required /></label>
-        <label>New password <span class="hint">at least 8 characters</span><input type="password" autocomplete="new-password" minlength="8" bind:value={newPw} required /></label>
+        <label>New password<input type="password" autocomplete="new-password" minlength="8" bind:value={newPw} required /><span class="hint">At least 8 characters.</span></label>
         <button>Change password</button>
       </form>
     </div>
@@ -194,7 +194,7 @@ directory_markers = true` : '');
       </table>
     </div>
     <form class="sshform" onsubmit={addSSH}>
-      <label>Public key <span class="hint">the contents of ~/.ssh/id_ed25519.pub</span><textarea rows="2" bind:value={sshKey} required></textarea></label>
+      <label>Public key<textarea rows="2" bind:value={sshKey} required></textarea><span class="hint">The contents of ~/.ssh/id_ed25519.pub.</span></label>
       <div class="row"><input placeholder="Label (optional)" bind:value={sshLabel} aria-label="Label" style="flex:1" /><button class="primary">Add key</button></div>
     </form>
   </section>
@@ -227,7 +227,7 @@ directory_markers = true` : '');
 
 <style>
   .sub { margin: 18px 0 6px; }
-  .choices { display: flex; flex-direction: column; gap: 8px; max-width: 760px; }
+  .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; }
   .choice { flex-direction: row; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface); margin: 0; font-weight: 400; font-size: var(--t-base); cursor: pointer; }
   .choice.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
   .choice input { margin-top: 4px; }
@@ -236,8 +236,8 @@ directory_markers = true` : '');
   .choice strong { display: inline; }
   .hint { font-size: var(--t-sm); }
   .newkey { margin-top: 12px; }
-  .newkey input:first-child { flex: 1; min-width: 180px; }
+  .newkey > input:first-child { flex: 1; min-width: 180px; }
   .newkey select { width: auto; }
   .newkey .inline { margin: 0; }
-  .sshform { margin-top: 12px; max-width: 760px; }
+  .sshform { margin-top: 12px; }
 </style>

@@ -121,7 +121,7 @@
       <div class="section-grid">
         <label>Username<input bind:value={nu.username} required /></label>
         <label>Display name<input bind:value={nu.display_name} /></label>
-        <label>First password <span class="hint">at least 8 characters</span><input type="password" autocomplete="new-password" minlength="8" bind:value={nu.password} required /></label>
+        <label>First password<input type="password" autocomplete="new-password" minlength="8" bind:value={nu.password} required /><span class="hint">At least 8 characters.</span></label>
       </div>
       <div class="row"><label class="inline" style="margin:0"><input type="checkbox" bind:checked={nu.is_admin} /> Administrator</label><button class="primary">Add person</button></div>
     </form>

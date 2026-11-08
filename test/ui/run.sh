@@ -10,7 +10,7 @@ sleep 1
 scripts/dev-db.sh
 docker exec tildoc-dev-pg psql -U postgres -c "DROP DATABASE IF EXISTS tildoc WITH (FORCE)" -c "CREATE DATABASE tildoc" >/dev/null
 rm -rf .data/store
-scripts/dev.sh >.data/dev.log 2>&1 &
+TILDOC_SFTP_ADDR=off scripts/dev.sh >.data/dev.log 2>&1 &  # no SFTP: avoids clashing with a running stack
 SRV=$!
 trap 'kill $SRV 2>/dev/null; for pid in $(ss -ltnp 2>/dev/null | grep -E ":8080 " | grep -oE "pid=[0-9]+" | cut -d= -f2); do kill $pid; done' EXIT
 for i in $(seq 1 120); do curl -sf localhost:8080/api/health >/dev/null && break; sleep 0.5; done

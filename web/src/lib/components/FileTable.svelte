@@ -5,7 +5,7 @@
   import { iconFor, size, date } from '../format.js';
 
   // rows: [{key, kind: 'folder'|'file', name, ...}]
-  let { rows, view = 'folder', selected = $bindable([]), onopen, onpeek, ondropon, sortable = true, keyboard = true, empty } = $props();
+  let { rows, view = 'folder', selected = $bindable([]), onopen, onpeek, onrowclick, ondropon, sortable = true, keyboard = true, empty } = $props();
 
   let cfg = $state(loadView(untrack(() => view)));
   let chooser = $state(false);
@@ -46,6 +46,7 @@
     } else {
       selected = [row.key];
       anchor = i;
+      onrowclick?.(row);
     }
   }
 
@@ -187,7 +188,7 @@
                 <td class="name"><div class="namecell">
                   <span class="ic {iconFor(row)}"><Icon name={iconFor(row)} /></span>
                   <span class="nm">
-                    <button class="link" onclick={(e) => { e.stopPropagation(); onopen?.(row); }}>{row.name}</button>
+                    <button class="link" title={row.kind === 'folder' ? 'Open folder' : 'Open document'} onclick={(e) => { e.stopPropagation(); onopen?.(row); }}>{row.name}</button>
                     <small class="mobile-meta">{row.kind === 'folder' ? 'Folder' : `${size(row.size)}, ${date(row.modified_at)}`}</small>
                   </span>
                   {#if row.link_count > 1}<span class="badge" title="Appears in {row.link_count} places"><Icon name="link" size={12} />{row.link_count}</span>{/if}

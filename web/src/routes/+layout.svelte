@@ -145,7 +145,7 @@
   .shell { display: grid; grid-template-columns: 264px 1fr; height: 100vh; }
   .mobilebar { display: none; }
   .rail { display: flex; flex-direction: column; min-height: 0; background: var(--surface); border-right: 1px solid var(--line); padding: 14px 10px 10px; }
-  .brand { display: flex; align-items: center; gap: 9px; font-family: var(--font-read); font-weight: 600; font-size: var(--t-md); color: var(--ink); padding: 2px 8px 12px; letter-spacing: -0.01em; }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: var(--t-md); color: var(--ink); padding: 2px 8px 12px; letter-spacing: -0.01em; }
   .brand:hover { text-decoration: none; }
   .searchbtn { justify-content: flex-start; width: 100%; color: var(--ink-2); background: var(--paper); margin-bottom: 14px; }
   :global(:root[data-theme='dark']) .searchbtn { background: var(--board); }
