@@ -396,6 +396,105 @@ modals and the folder picker are redone.
 - [x] 8.9 Tests: extend `test/ui/smoke.mjs` (multi-page fixture; open viewer, page jump, find count, OCR toggle, Esc restores selection, mobile, dark, **no CSP/console errors**); Go tests for hit page; screenshot review pass; commit "Phase 8"
 - [x] 8.10 Follow-up: one typeface, hints below inputs, full-width subpages, row click shows the preview and the file name opens the viewer
 
+### Phase 9 — Data Model Cleanup (proposed, awaiting confirmation)
+
+**Goal:** move invariants from Go into the schema, remove redundancy, fold
+everything into `0001_init.sql` (development mode, dev databases are
+recreated).
+
+- [ ] 9.1 Space integrity in the DB: `links.space_id` plus composite FKs
+  `(folder_id, space_id) → folders(id, space_id)` and
+  `(document_id, space_id) → documents(id, space_id)`; `folders.parent_id`
+  likewise `(parent_id, space_id)`. A link can then never point across spaces.
+- [ ] 9.2 One namespace per folder: replace `folders` + `links` placement by a
+  single `entries` table (`id, space_id, parent_id, name, kind folder|file,
+  document_id`) with `UNIQUE (parent_id, name)`, so a file and a folder can
+  never share a name (today only the Go lock in `child()` prevents it).
+- [ ] 9.3 No duplicated document head: drop `documents.current_sha256`; keep
+  `current_version` with a deferrable FK `(id, current_version) →
+  document_versions`. The content hash then lives only in `document_versions`.
+- [ ] 9.4 Trash state in one place: a document is in the trash exactly when it
+  has no live link. Keep `documents.deleted_at` (purge clock) but enforce
+  the invariant with a constraint trigger, or derive it.
+- [ ] 9.5 Value rules as CHECKs: names (non-empty, no `/`, no control chars,
+  ≤ 255 bytes), slug and username patterns, closed value sets for
+  `imports.protocol`, `document_versions.source`, `blob_texts.method`,
+  `blob_processing.kind`, `blob_derivatives.kind`, `jobs.kind`.
+- [ ] 9.6 Preferences as typed columns: `users.pdf_viewer text NOT NULL DEFAULT
+  'pdfjs' CHECK (...)` instead of the `prefs` jsonb (folded into 0001,
+  0002 removed).
+- [ ] 9.7 Tests: schema-level tests that try to violate each invariant directly
+  in SQL; full suites green.
+- [ ] 9.8 Dedup on cross-space moves: moving a document into a space that
+  already holds the same content currently leaves two documents with equal
+  content there (violates decision 10). Merge rule needed (see open questions).
+- [ ] 9.9 Per-document processing view: `blob_processing` is shared by all
+  spaces, so a second uploader of the same bytes sees "Indexed"/OCR done at
+  once (reveals that the file existed on the server), and "Extract text
+  again" by one user resets the status for everybody.
+
+Verified by tests (`internal/core/storage_test.go`):
+- Moving between spaces only remaps references: same document id, link id and
+  history; blob files on disk untouched (inode + mtime), no new blob rows, no
+  reprocessing; access (incl. search and text) follows the new space; multi-
+  placed documents split copy-on-write; folder trees move the same way.
+- Content and its text index are stored once per server; search (text, names,
+  space/folder filters), document/content/text access, links to foreign
+  documents and trash are all limited to readable spaces, also for server
+  admins; purging one owner keeps the bytes for the other, GC removes them
+  once unreferenced.
+
+### Phase 10 — Tags and Collections (proposed)
+
+**Tags** (central vocabulary per server instance):
+
+```mermaid
+erDiagram
+  tags ||--o{ document_tags : ""
+  documents ||--o{ document_tags : ""
+  tags { uuid id text name "unique, case-insensitive" text color text description }
+  document_tags { uuid document_id uuid tag_id uuid added_by timestamptz added_at }
+```
+
+- Tags attach to the **document** (all its places show them; forks copy them).
+- Vocabulary managed centrally (admins create/rename/merge/delete); users
+  with write access to a space assign existing tags to its documents.
+- Search: `tag:steuer-2025` filter, tag facets, tag column in file lists.
+- Protocols: S3 object tagging (`?tagging`), WebDAV property `tildoc:tags`.
+
+**Collections** (virtual grouping across spaces):
+
+```mermaid
+erDiagram
+  collections ||--o{ collection_items : ""
+  documents ||--o{ collection_items : ""
+  collections { uuid id text name uuid owner_user_id uuid owner_team_id text rule }
+  collection_items { uuid collection_id uuid document_id uuid added_by timestamptz added_at }
+```
+
+- References **documents**, not paths: moving or renaming a file keeps it in
+  the collection; deleting removes it.
+- A collection never grants access: each viewer sees only the items in
+  spaces they can read (a personal + team "Steuer 2025" collection shows team
+  members only the team items).
+- Optional rule (smart collection), e.g. all documents tagged `steuer-2025`.
+- UI: "Collections" in the rail, "Add to collection" on files, viewer
+  prev/next within a collection. Protocol view (read-only
+  `/@collections/<name>/` in WebDAV/SFTP) later.
+
+### Phase 11 — Export / Import (later)
+
+- Export a space or collection as a streamed archive: files in their folder
+  structure (usable without tildoc) + `tildoc-manifest.json` (format
+  version, documents, all versions, places, original paths, tags,
+  collection membership, optional extracted text/OCR PDFs).
+- Import into a new or existing space: dedup applies, ids are remapped,
+  tags matched by name (created only by admins or on confirmation).
+- Data model requirement now: everything exportable has stable ids and no
+  meaning hidden in derived data.
+
+Open questions: see below.
+
 ---
 
 ## Decisions
@@ -425,4 +524,22 @@ modals and the folder picker are redone.
 
 ## Open Questions
 
-None.
+Phase 9:
+1. 9.2 (single `entries` table) is the largest change: it touches every
+   query in `core` that lists, moves or resolves paths. Do it now, or only
+   9.1/9.3–9.6 and keep the name collision rule in Go?
+2. 9.4: enforce `documents.deleted_at` with a trigger (keeps fast trash
+   queries) or derive it from links (no redundancy, slower)?
+3. 9.8: moving a document into a space that already has the same content:
+   (a) merge — the moved place becomes another place of the existing
+   document, the moved document's older versions are appended to its
+   history; (b) merge and drop the moved document's history; (c) keep two
+   documents (allow duplicates after moves).
+4. 9.9: hide the shared processing state per space (status shown per
+   document, reprocess only affects the caller's view) or accept the
+   side channel, which is common to all deduplicating stores?
+
+Phase 10:
+5. Tags: may users create new tags, or only admins (users pick from the list)?
+6. Collections: personal only at first, or also team-owned collections?
+7. Should collections appear as folders in WebDAV/SFTP (read-only)?

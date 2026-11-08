@@ -83,6 +83,15 @@ When the user requests a programming task, **do not start coding immediately.**
 
 
 
+- **Priorities: Security first, a clean Data Model second.** The schema is the
+  foundation everything else builds on; keep it normalized, explicit and
+  consistent (constraints in the database, not only in Go; no redundant or
+  ambiguous columns; names follow the Terminology below). While in
+  Development Mode there are no deployments to migrate: breaking schema
+  changes are fine and preferred over workarounds. Fold changes into
+  `internal/db/migrations/0001_init.sql` instead of stacking migrations
+  until the first real release (dev databases are recreated, see
+  `test/ui/run.sh`). Still warn the user before a breaking change.
 - **Terminology (binding, see Glossary in PLAN.md):** Space (formerly "Silo"),
   Team (formerly "Organization"), Folder, Document, Link (a document's
   placement: folder + name, 1..N per document), Version, Blob (internal,
