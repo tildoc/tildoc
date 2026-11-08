@@ -2,7 +2,10 @@
 package api
 
 import (
+	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,6 +20,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tildoc/tildoc/internal/auth"
@@ -39,11 +43,17 @@ type Server struct {
 	Limiter *auth.Limiter
 	// Extra handlers mounted on the same listener (e.g. WebDAV at /dav/).
 	Mounts map[string]http.Handler
+	// Events feeds GET /api/events; run it with Events.Run.
+	Events *core.EventHub
+
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
 // New creates the API server.
 func New(svc *core.Service, cfg *config.Config, log *slog.Logger) *Server {
-	return &Server{Svc: svc, Cfg: cfg, Log: log, Limiter: auth.NewLimiter(10, 15*time.Minute), Mounts: map[string]http.Handler{}}
+	return &Server{Svc: svc, Cfg: cfg, Log: log, Limiter: auth.NewLimiter(10, 15*time.Minute), Mounts: map[string]http.Handler{},
+		Events: svc.NewEventHub(), stop: make(chan struct{})}
 }
 
 type ctxKey int
@@ -136,6 +146,7 @@ type handlerFunc func(w http.ResponseWriter, r *http.Request) error
 // public wraps a handler that needs no authentication.
 func (s *Server) public(h handlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w = conditional(w, r)
 		if err := h(w, r); err != nil {
 			s.writeError(w, r, err)
 		}
@@ -155,6 +166,7 @@ func (s *Server) authed(h handlerFunc) http.Handler {
 			return
 		}
 		ctx := context.WithValue(r.Context(), principalKey, p)
+		w = conditional(w, r)
 		if err := h(w, r.WithContext(ctx)); err != nil {
 			s.writeError(w, r, err)
 		}
@@ -185,6 +197,8 @@ func StatusFor(err error) (int, string) {
 		return http.StatusBadRequest, "invalid"
 	case core.ErrTooLarge:
 		return http.StatusRequestEntityTooLarge, "too_large"
+	case core.ErrTooMany:
+		return http.StatusTooManyRequests, "too_many"
 	}
 	return http.StatusInternalServerError, "internal"
 }
@@ -205,11 +219,85 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	writeJSON(w, status, apiError{Error: msg, Code: code})
 }
 
+// writeJSON writes v. Successful GET responses get an ETag (304 when the
+// client sends it back in If-None-Match) and gzip when accepted. They stay
+// no-store: authenticated data never lands in the browser's disk cache; the
+// UI keeps its own in-memory cache and sends If-None-Match itself.
 func writeJSON(w http.ResponseWriter, status int, v any) error {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
+	body, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	body = append(body, '\n')
+	h := w.Header()
+	h.Set("Content-Type", "application/json; charset=utf-8")
+	h.Set("Cache-Control", "no-store")
+	if cw, ok := w.(*condWriter); ok && status == http.StatusOK {
+		sum := sha256.Sum256(body)
+		etag := `W/"` + base64.RawURLEncoding.EncodeToString(sum[:18]) + `"`
+		h.Set("ETag", etag)
+		h.Set("Vary", "Accept-Encoding")
+		if etagMatch(cw.r.Header.Get("If-None-Match"), etag) {
+			h.Del("Content-Type")
+			w.WriteHeader(http.StatusNotModified)
+			return nil
+		}
+		if len(body) > 1024 && acceptsGzip(cw.r) {
+			h.Set("Content-Encoding", "gzip")
+			w.WriteHeader(status)
+			gz := gzipPool.Get().(*gzip.Writer)
+			defer gzipPool.Put(gz)
+			gz.Reset(w)
+			if _, err := gz.Write(body); err != nil {
+				return nil // client gone; headers are out
+			}
+			gz.Close()
+			return nil
+		}
+	}
 	w.WriteHeader(status)
-	return json.NewEncoder(w).Encode(v)
+	w.Write(body)
+	return nil
+}
+
+// condWriter marks GET/HEAD responses that may use ETag and compression.
+type condWriter struct {
+	http.ResponseWriter
+	r *http.Request
+}
+
+func (c *condWriter) Unwrap() http.ResponseWriter { return c.ResponseWriter }
+
+func conditional(w http.ResponseWriter, r *http.Request) http.ResponseWriter {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return &condWriter{w, r}
+	}
+	return w
+}
+
+var gzipPool = sync.Pool{New: func() any {
+	gz, _ := gzip.NewWriterLevel(io.Discard, gzip.DefaultCompression)
+	return gz
+}}
+
+func acceptsGzip(r *http.Request) bool {
+	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
+		name, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+		if strings.EqualFold(strings.TrimSpace(name), "gzip") {
+			return !strings.Contains(strings.ReplaceAll(params, " ", ""), "q=0") || strings.Contains(params, "q=0.")
+		}
+	}
+	return false
+}
+
+func etagMatch(header, etag string) bool {
+	for _, t := range strings.Split(header, ",") {
+		t = strings.TrimSpace(t)
+		if t == "*" || strings.TrimPrefix(t, "W/") == strings.TrimPrefix(etag, "W/") {
+			return true
+		}
+	}
+	return false
 }
 
 func readJSON(r *http.Request, v any) error {
@@ -333,6 +421,42 @@ func (s *Server) uiHandler() http.Handler {
 		if strings.HasPrefix(p, "/_app/immutable/") {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		}
+		if servePrecompressed(w, r, root, p) {
+			return
+		}
 		fs.ServeHTTP(w, r)
 	})
+}
+
+// servePrecompressed serves the .br or .gz file the build produced next to
+// a static file (adapter-static precompress), if the client accepts it.
+func servePrecompressed(w http.ResponseWriter, r *http.Request, root, p string) bool {
+	ae := r.Header.Get("Accept-Encoding")
+	for _, enc := range []struct{ name, ext string }{{"br", ".br"}, {"gzip", ".gz"}} {
+		if !strings.Contains(ae, enc.name) {
+			continue
+		}
+		f, err := os.Open(filepath.Join(root, filepath.FromSlash(p)+enc.ext))
+		if err != nil {
+			continue
+		}
+		defer f.Close()
+		st, err := f.Stat()
+		if err != nil || st.IsDir() {
+			return false
+		}
+		ctype := mime.TypeByExtension(path.Ext(p))
+		if ctype == "" {
+			ctype = "application/octet-stream"
+		}
+		h := w.Header()
+		h.Set("Content-Type", ctype)
+		h.Set("Content-Encoding", enc.name)
+		h.Add("Vary", "Accept-Encoding")
+		http.ServeContent(w, r, "", st.ModTime(), f)
+		return true
+	}
+	h := w.Header()
+	h.Add("Vary", "Accept-Encoding")
+	return false
 }

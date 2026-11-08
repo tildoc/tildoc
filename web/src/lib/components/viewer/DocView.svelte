@@ -6,10 +6,11 @@
   import TextView from './TextView.svelte';
   import Icon from '../Icon.svelte';
   import { prefs } from '../../state.svelte.js';
-  import { size as fmtSize, shortType } from '../../format.js';
+  import { size as fmtSize, shortType, textVariant } from '../../format.js';
 
   let {
     file, // {document_id, name, mime, size}
+    doc = null, // the document (optional): enables the fast in-document search
     variant = 'original',
     version = 0,
     mode = 'full',
@@ -44,6 +45,14 @@
     return `${base}?${q}`;
   });
 
+  // The server's extracted text (pages separated by form feeds) lets the PDF
+  // find pre-select pages; only valid for the variant the text came from.
+  const textPath = $derived(
+    doc && doc.status === 'done' && (!version || version === doc.version) && variant === textVariant(doc)
+      ? `/documents/${doc.id}/text`
+      : ''
+  );
+
   export const capabilities = () => ({
     find: kind === 'pdf' || kind === 'text',
     zoom: kind === 'pdf' || kind === 'image',
@@ -58,7 +67,7 @@
 
 {#if kind === 'pdf'}
   {#key url}
-    <PdfView bind:this={inner} {url} {mode} {query} {thumbs} {initialPage} {transitionName}
+    <PdfView bind:this={inner} {url} {textPath} {mode} {query} {thumbs} {initialPage} {transitionName}
       bind:page bind:numPages bind:zoom bind:scale bind:matchCount bind:current bind:searching />
   {/key}
 {:else if kind === 'native'}

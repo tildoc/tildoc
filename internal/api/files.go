@@ -151,7 +151,18 @@ func (s *Server) getFile(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, 200, f)
+	if r.URL.Query().Get("include") != "document" {
+		return writeJSON(w, 200, f)
+	}
+	// the viewer needs both: one round trip instead of two
+	d, err := s.Svc.GetDocument(r.Context(), principal(r), f.DocumentID)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, 200, struct {
+		*core.FileInfo
+		Document *core.Document `json:"document"`
+	}{f, d})
 }
 
 func (s *Server) moveFile(w http.ResponseWriter, r *http.Request) error {

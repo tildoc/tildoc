@@ -1,11 +1,14 @@
 // Global client state (Svelte 5 runes).
-import { get, patch, setUnauthorizedHandler } from './api.js';
+import { get, patch, setUnauthorizedHandler, clearCache } from './api.js';
+import { startEvents, stopEvents, onEvent } from './events.svelte.js';
 
 export const session = $state({ user: null, ready: false, spaces: [], info: null, teams: [], collections: [], tags: [] });
-export const ui = $state({ toasts: [], uploads: [], sidebarOpen: false, treeVersion: 0, palette: false, returnTo: null });
+export const ui = $state({ toasts: [], uploads: [], sidebarOpen: false, treeVersion: 0, palette: false, returnTo: null, currentSpace: null });
 
 setUnauthorizedHandler(() => {
   session.user = null;
+  stopEvents();
+  clearCache();
 });
 
 let toastId = 0;
@@ -22,17 +25,39 @@ export function errorToast(e) {
   toast(e?.message || String(e), 'error', 7000);
 }
 
+// loadSession fetches everything the shell needs in parallel (one round
+// trip instead of four) and starts the live event stream.
 export async function loadSession() {
-  try {
-    session.user = await get('/me', { noRedirect: true });
-    await refreshSpaces();
-    await refreshCollections();
-    session.info ??= await get('/info');
-  } catch {
+  const nr = { noRedirect: true };
+  const [me, spaces, colls, info] = await Promise.allSettled([
+    get('/me', nr),
+    get('/spaces', nr),
+    get('/collections', nr),
+    session.info ? Promise.resolve(session.info) : get('/info', nr)
+  ]);
+  if (me.status === 'fulfilled') {
+    session.user = me.value;
+    session.spaces = spaces.status === 'fulfilled' ? spaces.value : [];
+    session.collections = colls.status === 'fulfilled' ? colls.value : [];
+    startEvents();
+  } else {
     session.user = null;
   }
+  if (info.status === 'fulfilled') session.info = info.value;
   session.ready = true;
 }
+
+// endSession forgets everything of the signed-out user.
+export function endSession() {
+  session.user = null;
+  stopEvents();
+  clearCache();
+}
+
+// folder trees reload when folders change anywhere (other tabs, WebDAV, ...)
+onEvent((ev) => {
+  if ((ev.type === 'space' && ev.tree) || ev.type === 'resync') bumpTree();
+});
 
 export async function refreshSpaces() {
   session.spaces = await get('/spaces');

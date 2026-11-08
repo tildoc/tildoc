@@ -1,6 +1,8 @@
-// Keeps views in sync with background processing: while something shown is
-// still queued or processing, refresh it with backoff (2 s → 15 s). Paused
-// while the tab is hidden, refreshed at once when it becomes visible again.
+// Fallback for live updates: while something shown is still queued or
+// processing and the event stream is down, refresh with backoff
+// (2 s → 15 s). Paused while the tab is hidden, refreshed at once when it
+// becomes visible again.
+import { live } from './events.svelte.js';
 
 const BUSY = new Set(['pending', 'processing']);
 
@@ -9,7 +11,7 @@ export const isBusy = (status) => BUSY.has(status);
 // watchBusy must be called during component initialisation. busy() is
 // reactive (e.g. "any row is busy"); refresh() reloads the data quietly.
 export function watchBusy(busy, refresh) {
-  const active = $derived(!!busy()); // only re-run the effect when the boolean flips
+  const active = $derived(!!busy() && !live.connected); // re-run only when this flips
   $effect(() => {
     if (!active) return;
     let delay = 2000;

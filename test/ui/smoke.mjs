@@ -38,9 +38,11 @@ let stepNo = 0;
 const browser = await chromium.launch({ executablePath: CHROME, headless: true });
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
 const page = await ctx.newPage();
-page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+page.on('pageerror', (e) => errors.push(`pageerror (step ${stepNo}): ${e.message}\n${e.stack ?? ''}`));
 page.on('console', (m) => m.type() === 'error' && !m.text().includes('401') && errors.push(`console: ${m.text()}`));
 page.setDefaultTimeout(10000);
+const requests = [];
+page.on('request', (r) => requests.push(r.url()));
 
 async function step(name, fn) {
   stepNo++;
@@ -83,9 +85,10 @@ await step('upload files', async () => {
   await page.locator('input[type=file][multiple]').setInputFiles([join(FIX, 'Quartalsbericht.pdf'), join(FIX, 'notes.txt'), join(FIX, 'Handbuch.pdf')]);
   await toast('3 uploaded');
   await row('Quartalsbericht.pdf').waitFor();
-  // the list follows background processing without a reload
+  // the list follows background processing without a reload (live events)
   for (const n of ['Quartalsbericht.pdf', 'notes.txt', 'Handbuch.pdf'])
     await row(n).locator('.pill.status.done').waitFor({ timeout: 30000 });
+  if (!requests.some((u) => u.includes('/api/events'))) throw new Error('no live event stream');
 });
 
 await step('dedup upload', async () => {
@@ -203,8 +206,11 @@ await step('viewer page jump and zoom', async () => {
 
 await step('viewer find highlights', async () => {
   await page.keyboard.press('Control+f');
+  const before = requests.length;
   await page.getByPlaceholder('Find in document').fill('zebra');
   await page.locator('.find .count', { hasText: '1 of 1' }).waitFor();
+  // pages were pre-selected with the server's text
+  if (!requests.slice(before).some((u) => /\/api\/documents\/[^/]+\/text/.test(u))) throw new Error('find did not use the server text');
   await page.locator('.textLayer .hl.current', { hasText: /zebra/i }).waitFor();
   await page.locator('.thumb .hitmark').first().waitFor();
   await page.waitForFunction(() => document.querySelector('.pager input').value === '4');
@@ -446,6 +452,80 @@ await step('dark viewer', async () => {
   await page.locator('aside.peek').getByRole('button', { name: 'Open' }).click();
   await page.waitForURL('**/view/**');
   await page.locator('.viewer .stage .pg canvas').first().waitFor();
+});
+
+// ---------------------------------------------------------------- live and large
+const api = async (method, path, data) => {
+  const r = await page.request.fetch(BASE + '/api' + path, {
+    method, data, headers: { 'X-Tildoc-CSRF': '1', 'Content-Type': typeof data === 'string' ? 'application/octet-stream' : 'application/json' }
+  });
+  if (!r.ok()) throw new Error(`${method} ${path}: ${r.status()} ${await r.text()}`);
+  return r.status() === 204 ? null : r.json();
+};
+const home = async () => {
+  const spaces = await api('GET', '/spaces');
+  return spaces.find((x) => x.slug === 'admin') ?? spaces[0];
+};
+
+await step('live update from another client', async () => {
+  const sp = await home();
+  const f = await api('POST', '/folders', { parent_id: sp.root_folder_id, name: 'Live' });
+  await page.goto(`${BASE}/f/${f.id}`);
+  await page.locator('.empty-state', { hasText: 'This folder is empty' }).waitFor();
+  // e.g. WebDAV, S3 or a colleague: the open folder shows it without a reload
+  await api('PUT', `/folders/${f.id}/files?path=arrived.txt`, 'arrived from elsewhere');
+  await row('arrived.txt').waitFor();
+  await row('arrived.txt').locator('.pill.status.done').waitFor({ timeout: 30000 });
+  // folders created elsewhere appear in the tree
+  await api('POST', '/folders', { parent_id: f.id, name: 'Sub from DAV' });
+  await row('Sub from DAV').waitFor();
+  await page.locator('nav.rail .row-node', { hasText: 'Live' }).locator('button.tw').click();
+  await page.locator('nav.rail .lbl', { hasText: 'Sub from DAV' }).waitFor();
+});
+
+await step('large folder renders only visible rows', async () => {
+  const sp = await home();
+  const f = await api('POST', '/folders', { parent_id: sp.root_folder_id, name: 'Many' });
+  for (let i = 0; i < 300; i++) await api('PUT', `/folders/${f.id}/files?path=many-${String(i).padStart(3, '0')}.txt`, `file ${i}`);
+  await page.goto(`${BASE}/f/${f.id}`);
+  await page.locator('.tools .count', { hasText: '300 items' }).waitFor();
+  const rendered = await page.locator('tbody tr[data-key]').count();
+  if (rendered >= 150) throw new Error(`rendered ${rendered} rows for 300 files`);
+  // keyboard End reveals the last row, which was not rendered before
+  await page.locator('tbody tr[data-key]').first().click();
+  await page.keyboard.press('End');
+  await page.locator('tbody tr.sel').waitFor();
+  const last = await page.locator('tbody tr.sel .link').textContent();
+  if (!/many-(000|299)\.txt/.test(last)) throw new Error(`End selected ${last}`);
+  if (!(await page.locator('tbody tr.sel').isVisible())) throw new Error('last row not visible');
+  // the scroll height stays that of all rows
+  const h = await page.evaluate(() => document.querySelector('.scroll').scrollHeight);
+  if (h < 300 * 30) throw new Error(`scroll height ${h}`);
+});
+
+await step('revisit renders from cache', async () => {
+  await page.goto(BASE + '/');
+  await row('Handbuch.pdf').waitFor();
+  const folderId = new URL(page.url()).pathname.split('/')[2];
+  await row('Handbuch.pdf').locator('button.link').click();
+  await page.waitForURL('**/view/**');
+  // file and document came in one request when the viewer opened
+  if (!requests.some((u) => u.includes('include=document'))) throw new Error('viewer did not use include=document');
+  // back: the folder shows from the cache even while the API is slow, and
+  // the revalidation is answered with 304 Not Modified
+  const statuses = [];
+  const onResp = (r) => r.url().includes(`/api/folders/${folderId}`) && statuses.push(r.status());
+  page.on('response', onResp);
+  await page.route(`**/api/folders/${folderId}`, async (route) => {
+    await new Promise((r) => setTimeout(r, 3000));
+    await route.continue();
+  });
+  await page.goBack();
+  await row('Handbuch.pdf').waitFor({ timeout: 1500 });
+  await page.unroute(`**/api/folders/${folderId}`);
+  for (let i = 0; i < 50 && !statuses.length; i++) await page.waitForTimeout(100);
+  page.off('response', onResp);
+  if (!statuses.includes(304)) throw new Error(`revalidation statuses ${statuses}`);
 });
 
 await browser.close();

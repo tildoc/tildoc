@@ -20,20 +20,21 @@
     if (open) load();
   });
 
-  // auto-expand the space containing the current folder
+  // auto-expand the space containing the current folder; the folder page
+  // tells which space that is, so only that one tree is fetched
   $effect(() => {
-    if (current && tree.length === 0 && !open) {
-      get(`/spaces/${space.id}/tree`).then((t) => {
-        if (t.some((f) => f.id === current)) {
-          tree = t;
-          open = true;
-          expandTo(current);
-        }
-      });
-    } else if (current && tree.some((f) => f.id === current)) {
+    if (!current || ui.currentSpace !== space.id) return;
+    if (tree.some((f) => f.id === current)) {
+      open = true;
       expandTo(current);
+    } else if (!open) {
+      open = true; // loads the tree; this effect runs again when it arrives
+    } else if (tree.length && refetchedFor !== current) {
+      refetchedFor = current; // a folder created elsewhere: reload once
+      load();
     }
   });
+  let refetchedFor = null;
 
   function expandTo(id) {
     let f = tree.find((x) => x.id === id);

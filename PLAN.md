@@ -739,6 +739,60 @@ flowchart LR
    X25519? Proposed: yes, `age.ParseRecipients` handles both; README
    recommends generating PQ keys (`age-keygen -pq`).
 
+### Phase 15 — UI performance and live updates
+
+**Goal:** the UI loads less, waits less and shows changes made elsewhere
+(worker, WebDAV/S3/SFTP, other people) without polling or reloading.
+
+```mermaid
+flowchart LR
+  W[worker / any adapter] -->|UPDATE blob_processing,<br/>entries, documents, transfers| PG[(PostgreSQL)]
+  PG -->|trigger: pg_notify tildoc_events<br/>deduplicated per transaction| HUB[core.EventHub<br/>LISTEN, resolve blob → documents]
+  HUB -->|filtered by readable spaces / owner| SSE[GET /api/events<br/>Server-Sent Events]
+  SSE --> UI[events.svelte.js] --> V[folder, collection, viewer,<br/>tree, transfers: quiet reload]
+  UI -.->|disconnected| P[watchBusy polling fallback]
+```
+
+- **Events:** triggers on `blob_processing`, `entries`, `documents`,
+  `document_versions`, `document_tags`, `transfers` send small payloads
+  (`{"t":"space","id":…}`, `{"t":"blob","sha":…}`, `{"t":"transfer",…}`);
+  identical payloads in one transaction are delivered once, so bulk uploads
+  do not flood. The hub resolves blobs to `(space, document)` and sends each
+  subscriber only events of spaces it can read (cached 30 s) and its own
+  transfers. Connections live at most 5 min (re-auth + fresh grants on
+  reconnect), heartbeat 25 s, max 8 per user. After a reconnect the UI
+  refreshes everything once (missed events).
+- **Transport:** JSON GET responses get a strong `ETag` (SHA-256 of the body)
+  and `304` on `If-None-Match`, gzip when accepted and > 1 KiB; they stay
+  `no-store` (no authenticated data in the browser's disk cache): the
+  in-memory client cache sends `If-None-Match` itself. Static UI is
+  precompressed at build (`.br`, `.gz`); Go and nginx (`gzip_static`) serve
+  the variants, nginx gzips proxied JSON too.
+- **Client cache:** stale-while-revalidate for folders, collections,
+  documents (max 100 entries): back-navigation renders instantly, then
+  revalidates (mostly a `304`).
+- **Fewer round trips:** session data (`/me`, `/spaces`, `/collections`,
+  `/info`) in parallel; `GET /files/{id}?include=document`; the folder
+  tree only fetches the space of the current folder.
+- **In-document search:** pages are pre-selected with the server's
+  extracted text (pages separated by form feeds); pdf.js only extracts text
+  of candidate pages. Falls back to a full scan when the page count does not
+  match or no text exists.
+- **Large folders:** the file table renders only visible rows (> 200 rows).
+  Server-side paging and sorting: later.
+- **Preloading:** viewer code on hover of a file name, pdf.js when the peek
+  panel opens.
+
+#### Steps
+
+- [x] 15.1 Schema: notify triggers; `core.EventHub` (LISTEN with reconnect, blob → documents, permission filter); `GET /api/events` (SSE)
+- [x] 15.2 JSON middleware: ETag/304, gzip; `include=document`
+- [x] 15.3 Static compression: adapter `precompress`, Go serves `.br`/`.gz`, nginx `gzip_static` + JSON gzip
+- [x] 15.4 UI: events client (polling fallback, resync), cache with ETag, parallel session load, viewer start, folder tree
+- [x] 15.5 UI: find via server text, virtual file table, preloading
+- [x] 15.6 Tests: events (filtering, dedup, transfer owner), ETag/gzip, compression headers, UI smoke (live status without polling, large folder, find), compose (SSE through nginx)
+- [x] 15.7 Docs: README (events, nginx), AGENTS.md
+
 Open questions: see below.
 
 ---
@@ -780,6 +834,8 @@ Open questions: see below.
 | 31 | Ids | UUIDv7 for every entity (jobs and multipart uploads included); exceptions: S3 key ids, session token hashes, blob SHA-256 |
 | 32 | OCR preference | server-wide `existing` (default) or `tildoc`; foreign OCR is always kept, tildoc OCR is added |
 | 33 | Permissions | capabilities + roles; spaces can be shared with users and teams (`space_grants`) |
+| 34 | Live updates | PostgreSQL triggers + LISTEN/NOTIFY, Server-Sent Events filtered per subscriber; polling only as fallback |
+| 35 | HTTP caching | JSON `no-store` + ETag revalidated by the in-memory UI cache (no authenticated data in the browser disk cache) |
 
 ## Open Questions
 

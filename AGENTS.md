@@ -121,3 +121,13 @@ When the user requests a programming task, **do not start coding immediately.**
   keep imports going through the normal ingest rules.
 - **Window key handlers** must ignore `e.defaultPrevented` events; dialogs and
   inputs that handle a key call `preventDefault()`.
+- **Live updates:** schema triggers `pg_notify('tildoc_events', …)` (see end
+  of `0001_init.sql`); `core.EventHub` filters per subscriber; `/api/events`
+  is SSE. New tables whose changes the UI shows get a trigger, never a new
+  polling loop. UI views use `watchLive` (`events.svelte.js`) and keep
+  `watchBusy` (`poll.svelte.js`) only as fallback.
+- **API responses:** `writeJSON` adds ETag/gzip for GET; JSON stays
+  `no-store`. Revisited views load with `cachedData` + `revalidate`
+  (`api.js`). Navigate to the viewer with `openView` (`nav.js`).
+- **Large lists:** `FileTable` renders a window of rows above 200 rows;
+  rows must keep one fixed height.

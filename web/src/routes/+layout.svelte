@@ -4,7 +4,7 @@
   import { goto, onNavigate } from '$app/navigation';
   import { page } from '$app/state';
   import { get, post } from '#lib/api.js';
-  import { session, ui, loadSession, errorToast, applyTheme } from '#lib/state.svelte.js';
+  import { session, ui, loadSession, endSession, errorToast, applyTheme } from '#lib/state.svelte.js';
   import Icon from '#lib/components/Icon.svelte';
   import FolderTree from '#lib/components/FolderTree.svelte';
   import QuickSearch from '#lib/components/QuickSearch.svelte';
@@ -17,15 +17,12 @@
 
   onMount(async () => {
     applyTheme();
-    try {
-      const s = await get('/setup', { noRedirect: true });
-      if (s.needs_setup) {
-        session.ready = true;
-        goto('/setup');
-        return;
-      }
-    } catch {}
-    await loadSession();
+    // setup check and session load in parallel: one round trip on start
+    const [s] = await Promise.all([get('/setup', { noRedirect: true }).catch(() => ({})), loadSession()]);
+    if (s.needs_setup) {
+      goto('/setup');
+      return;
+    }
     if (!session.user && !publicRoutes.includes(page.url.pathname)) goto('/login');
   });
 
@@ -34,16 +31,19 @@
     if (!document.startViewTransition || !nav.to?.url.pathname.startsWith('/view/') || nav.from?.url.pathname.startsWith('/view/')) return;
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     return new Promise((resolve) => {
-      document.startViewTransition(async () => {
+      // going back before the viewer finished opening aborts the navigation:
+      // the transition then just ends (its promises must not reject unhandled)
+      const vt = document.startViewTransition(async () => {
         resolve();
-        await nav.complete;
+        await nav.complete.catch(() => {});
       });
+      for (const p of [vt.updateCallbackDone, vt.ready, vt.finished]) p.catch(() => {});
     });
   });
 
   async function logout() {
     await post('/auth/logout').catch(() => {});
-    session.user = null;
+    endSession();
     goto('/login');
   }
 

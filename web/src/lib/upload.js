@@ -1,6 +1,7 @@
 // Drag & drop / file input upload preserving the dropped folder structure.
 import { get, post, uploadFile } from './api.js';
 import { ui, toast, bumpTree } from './state.svelte.js';
+import { live, onEvent } from './events.svelte.js';
 
 function readEntries(reader) {
   return new Promise((res, rej) => reader.readEntries(res, rej));
@@ -125,12 +126,47 @@ export function uploadTransfer(file, params, onProgress) {
   });
 }
 
-// waitTransfer polls a transfer until it is done or failed.
+// waitTransfer follows a transfer until it is done or failed: progress
+// comes from live events; the API is asked at the start, at the end, and
+// every second only while the event stream is down (15 s otherwise, as a
+// safety net).
 export async function waitTransfer(id, onUpdate) {
-  for (;;) {
-    const t = await get(`/transfers/${id}`);
-    onUpdate?.(t);
-    if (t.status === 'done' || t.status === 'failed') return t;
-    await new Promise((r) => setTimeout(r, 1000));
-  }
+  let t = await get(`/transfers/${id}`);
+  onUpdate?.(t);
+  if (t.status === 'done' || t.status === 'failed') return t;
+  return new Promise((resolve, reject) => {
+    let timer;
+    let off = () => {};
+    let finished = false;
+    const finish = async () => {
+      if (finished) return;
+      finished = true;
+      off();
+      clearTimeout(timer);
+      try {
+        t = await get(`/transfers/${id}`);
+        onUpdate?.(t);
+        resolve(t);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    const poll = async () => {
+      try {
+        t = await get(`/transfers/${id}`);
+        if (finished) return;
+        onUpdate?.(t);
+        if (t.status === 'done' || t.status === 'failed') return finish();
+      } catch {}
+      timer = setTimeout(poll, live.connected ? 15000 : 1000);
+    };
+    off = onEvent((ev) => {
+      if (ev.type === 'resync') return void (clearTimeout(timer), poll());
+      if (ev.type !== 'transfer' || ev.transfer_id !== id) return;
+      if (ev.status === 'done' || ev.status === 'failed') return void finish();
+      t = { ...t, status: ev.status, progress: ev.progress ?? t.progress };
+      onUpdate?.(t);
+    });
+    timer = setTimeout(poll, 1500); // also covers an event that came before we listened
+  });
 }

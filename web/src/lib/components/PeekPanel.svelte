@@ -1,14 +1,16 @@
 <script>
   // Side preview of the selected file: the whole document scrolls here, details
   // below. Resizable; "Open" morphs it into the full viewer.
-  import { untrack } from 'svelte';
+  import { untrack, onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import DocView from './viewer/DocView.svelte';
   import DocDetails from './DocDetails.svelte';
-  import { get } from '../api.js';
-  import { errorToast, stored, store } from '../state.svelte.js';
+  import { cachedData, revalidate } from '../api.js';
+  import { errorToast, stored, store, prefs } from '../state.svelte.js';
   import { defaultVariant } from '../format.js';
   import { watchBusy, isBusy } from '../poll.svelte.js';
+  import { watchLive } from '../events.svelte.js';
+  import { warmup } from '../viewer/pdfjs.js';
 
   let { file, onclose, onopen, onchanged, query = '' } = $props();
   let doc = $state(null);
@@ -19,9 +21,11 @@
 
   async function load(quiet = false) {
     const id = file.document_id;
+    const path = `/documents/${id}`;
+    if (!doc) doc = cachedData(path) ?? null;
     try {
-      const d = await get(`/documents/${id}`);
-      if (id === file.document_id) doc = d;
+      const { data: d, changed } = await revalidate(path);
+      if (id === file.document_id && (changed || !doc)) doc = d;
     } catch (e) {
       if (!quiet) errorToast(e);
     }
@@ -41,6 +45,12 @@
   });
 
   watchBusy(() => isBusy(doc?.status), () => load(true));
+  watchLive((ev) => ev.type === 'space' && !!doc && ev.documents?.includes(doc.id), () => load(true));
+
+  // most previews are PDFs: start pdf.js while the document's data loads
+  onMount(() => {
+    if (prefs().pdf_viewer !== 'native') warmup().catch(() => {});
+  });
 
   const maxW = () => Math.round(window.innerWidth * 0.6);
   const clampW = (w) => Math.max(320, Math.min(maxW(), w));
@@ -83,7 +93,7 @@
 
   <div class="preview">
     {#if doc}
-      <DocView file={{ ...file, mime: doc.mime, size: doc.size }} {variant} version={viewVersion} mode="peek" {query}
+      <DocView file={{ ...file, mime: doc.mime, size: doc.size }} {doc} {variant} version={viewVersion} mode="peek" {query}
         transitionName={opening ? 'doc-page' : ''} bind:page bind:numPages bind:zoom />
       {#if numPages > 1}<span class="pageno">Page {page} of {numPages}</span>{/if}
     {/if}

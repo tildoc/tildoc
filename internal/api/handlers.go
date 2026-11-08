@@ -98,6 +98,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("POST /api/bulk/restore-original", s.authed(s.bulkRestoreOriginal))
 
 	h("GET /api/search", s.authed(s.search))
+	h("GET /api/events", s.authed(s.events))
 
 	h("GET /api/trash", s.authed(s.listTrash))
 	h("DELETE /api/trash", s.authed(s.emptyTrash))

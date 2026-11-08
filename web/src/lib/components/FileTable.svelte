@@ -4,6 +4,7 @@
   import TagChips from './TagChips.svelte';
   import { COLUMNS, loadView, saveView } from '../columns.js';
   import { iconFor, size, date } from '../format.js';
+  import { preloadDoc, cancelPreload } from '../preload.js';
 
   // rows: [{key, kind: 'folder'|'file', name, ...}]
   let { rows, view = 'folder', selected = $bindable([]), onopen, onpeek, onrowclick, ondropon, sortable = true, keyboard = true, empty } = $props();
@@ -51,12 +52,53 @@
     }
   }
 
+  // Large lists render only the rows in view (plus a margin); spacer rows
+  // keep the scroll height. Rows have one fixed height, measured once.
+  const VIRTUAL_MIN = 200, OVERSCAN = 20;
+  let scroller = $state();
+  let scrollTop = $state(0), viewH = $state(800);
+  let rowH = $state(39), headH = $state(36);
+  let virtual = $derived(sorted.length >= VIRTUAL_MIN);
+  let first = $derived(virtual ? Math.max(0, Math.floor((scrollTop - headH) / rowH) - OVERSCAN) : 0);
+  let last = $derived(virtual ? Math.min(sorted.length, Math.ceil((scrollTop + viewH) / rowH) + OVERSCAN) : sorted.length);
+  let windowRows = $derived(virtual ? sorted.slice(first, last) : sorted);
+
+  $effect(() => {
+    if (!scroller) return;
+    const measure = () => {
+      viewH = scroller.clientHeight;
+      const tr = scroller.querySelector('tbody tr[data-key]');
+      if (tr?.offsetHeight) rowH = tr.offsetHeight;
+      const th = scroller.querySelector('thead');
+      if (th?.offsetHeight) headH = th.offsetHeight;
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(scroller);
+    return () => ro.disconnect();
+  });
+  $effect(() => {
+    // re-measure when the list switches to windowed rendering
+    if (virtual && scroller) {
+      const tr = scroller.querySelector('tbody tr[data-key]');
+      if (tr?.offsetHeight) rowH = tr.offsetHeight;
+    }
+  });
+
   // keyboard: arrows move, Shift extends, Enter opens, Space peeks
   let cursor = $derived(selected.length ? sorted.findIndex((r) => r.key === selected[selected.length - 1]) : -1);
   let tbody = $state();
 
   function reveal(key) {
-    tbody?.querySelector(`[data-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest' });
+    if (!virtual) {
+      tbody?.querySelector(`[data-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    const i = sorted.findIndex((r) => r.key === key);
+    if (i < 0 || !scroller) return;
+    const top = headH + i * rowH;
+    if (top < scroller.scrollTop + headH) scroller.scrollTop = top - headH;
+    else if (top + rowH > scroller.scrollTop + scroller.clientHeight) scroller.scrollTop = top + rowH - scroller.clientHeight;
   }
 
   function keydown(e) {
@@ -166,7 +208,7 @@
     </div>
   </div>
 
-  <div class="scroll">
+  <div class="scroll" bind:this={scroller} onscroll={() => (scrollTop = scroller.scrollTop)}>
     <table>
       <thead>
         <tr>
@@ -179,7 +221,9 @@
         </tr>
       </thead>
       <tbody bind:this={tbody}>
-        {#each sorted as row, i (row.key)}
+        {#if virtual && first > 0}<tr class="spacer" aria-hidden="true" style:height="{first * rowH}px"><td colspan={cfg.columns.length + 1}></td></tr>{/if}
+        {#each windowRows as row, j (row.key)}
+          {@const i = first + j}
           <tr data-key={row.key} aria-selected={selected.includes(row.key)} class:sel={selected.includes(row.key)} class:over={dragOver === row.key} draggable="true"
             onclick={(e) => click(e, row, i)} ondblclick={() => onopen?.(row)}
             ondragstart={(e) => dragstart(e, row)} ondragover={(e) => dragover(e, row)} ondragleave={() => (dragOver = null)} ondrop={(e) => drop(e, row)}>
@@ -189,7 +233,8 @@
                 <td class="name"><div class="namecell">
                   <span class="ic {iconFor(row)}"><Icon name={iconFor(row)} /></span>
                   <span class="nm">
-                    <button class="link" title={row.kind === 'folder' ? 'Open folder' : 'Open document'} onclick={(e) => { e.stopPropagation(); onopen?.(row); }}>{row.name}</button>
+                    <button class="link" title={row.kind === 'folder' ? 'Open folder' : 'Open document'} onclick={(e) => { e.stopPropagation(); onopen?.(row); }}
+                      onpointerenter={() => preloadDoc(row)} onpointerleave={cancelPreload} onfocus={() => preloadDoc(row)}>{row.name}</button>
                     <small class="mobile-meta">{row.kind === 'folder' ? 'Folder' : `${size(row.size)}, ${date(row.modified_at)}`}</small>
                   </span>
                   {#if row.link_count > 1}<span class="badge" title="Appears in {row.link_count} places"><Icon name="link" size={12} />{row.link_count}</span>{/if}
@@ -205,6 +250,7 @@
         {:else}
           <tr><td class="empty" colspan={cfg.columns.length + 1}>{#if empty}{@render empty()}{:else}Nothing here.{/if}</td></tr>
         {/each}
+        {#if virtual && last < sorted.length}<tr class="spacer" aria-hidden="true" style:height="{(sorted.length - last) * rowH}px"><td colspan={cfg.columns.length + 1}></td></tr>{/if}
       </tbody>
     </table>
   </div>
@@ -246,6 +292,7 @@
   .badge { display: inline-flex; align-items: center; gap: 3px; font-size: 0.75rem; border: 1px solid var(--line); border-radius: 99px; padding: 0 6px; color: var(--ink-2); flex: none; }
   .muted { color: var(--ink-2); }
   .secondary { color: var(--ink-2); font-size: var(--t-sm); }
+  .spacer td { height: auto; padding: 0; border: 0; }
   .empty { height: auto; text-align: center; color: var(--ink-2); padding: 0; white-space: normal; }
   .mobile-meta { display: none; color: var(--ink-2); }
   @media (max-width: 760px) {

@@ -44,6 +44,15 @@ server {
 
     root /usr/share/nginx/html;
 
+    # the UI build ships .gz next to every asset; API JSON is gzipped (and
+    # ETagged) by tildoc itself, so only static text types are listed
+    gzip_static on;
+    gzip on;
+    gzip_proxied any;
+    gzip_min_length 1024;
+    gzip_vary on;
+    gzip_types text/css text/javascript application/javascript image/svg+xml;
+
     location /api/ { proxy_pass http://${TILDOC_UPSTREAM}:8080; }
     location /dav  { proxy_pass http://${TILDOC_UPSTREAM}:8080; }
 

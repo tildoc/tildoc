@@ -41,12 +41,14 @@ curl -skf "$B/f/whatever" | grep -q 'content-security-policy' || fail "SPA fallb
 curl -skI "$B/" | grep -qi 'strict-transport-security' || fail "HSTS"
 
 step "pdf.js assets served with module/wasm MIME types, CSP allows worker + wasm"
-WJS=$("${DC[@]}" exec -T nginx sh -c 'ls /usr/share/nginx/html/_app/immutable/assets/ | grep pdf.worker' | tr -d '\r')
+WJS=$("${DC[@]}" exec -T nginx sh -c 'ls /usr/share/nginx/html/_app/immutable/assets/ | grep "pdf\.worker.*\.mjs$"' | tr -d '\r')
 [ -n "$WJS" ] || fail "pdf.js worker missing from the build"
 curl -skI "$B/_app/immutable/assets/$WJS" | grep -qi '^content-type: text/javascript' || fail "worker .mjs MIME"
 curl -skI "$B/vendor/pdfjs/wasm/openjpeg.wasm" | grep -qi '^content-type: application/wasm' || fail "wasm MIME"
 curl -skI "$B/vendor/fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2" | grep -qi '^content-type: font/woff2' || fail "font"
 curl -skf "$B/" | grep -q "wasm-unsafe-eval" || fail "CSP lacks wasm-unsafe-eval"
+curl -skI -H 'Accept-Encoding: gzip' "$B/_app/immutable/assets/$WJS" | grep -qi '^content-encoding: gzip' || fail "precompressed worker (gzip_static)"
+curl -skI -H 'Accept-Encoding: gzip' "$B/" | grep -qi '^content-encoding: gzip' || fail "precompressed index.html"
 
 step "setup + access key"
 curl -skf -X POST "$B/api/setup" -H 'Content-Type: application/json' -d '{"username":"admin","password":"supersecret"}' -c "$WORK/c" >/dev/null || fail setup
@@ -130,5 +132,22 @@ python3 -m zipfile -t "$WORK/admin.zip" >/dev/null || fail "zip export is not a 
 "${DC[@]}" exec -T worker sh -c 'tildoc backup verify /backups/*-full-*.dtbackup /backups/*-differential-*.dtbackup' | grep -q '"mode": "differential"' \
   || fail "backup verify"
 "${DC[@]}" exec -T server sh -c 'ls /backups/*.dtbackup' >/dev/null || fail "server does not see the backup volume"
+
+step "live events (SSE) and conditional JSON through nginx"
+AUTH=(-H "Authorization: Bearer $TOKEN")
+timeout 6 curl -skN "${AUTH[@]}" "$B/api/events" > "$WORK/sse" 2>/dev/null &
+SSE=$!
+sleep 1
+ROOTF=$(curl -skf "$B/api/spaces" "${AUTH[@]}" | sed -E 's/.*"root_folder_id":"([^"]+)".*/\1/')
+curl -skf -X PUT "$B/api/folders/$ROOTF/files?path=live-event.txt" "${AUTH[@]}" -H 'Content-Type: application/octet-stream' --data-binary 'live' >/dev/null || fail "upload for live event"
+wait $SSE || true
+grep -q '^event: ready' "$WORK/sse" || fail "SSE stream not opened through nginx"
+grep -q '^data: \[{"type":"space"' "$WORK/sse" || fail "no live event through nginx (buffering?)"
+H=$(curl -sk -D - -o /dev/null -H 'Accept-Encoding: gzip' "${AUTH[@]}" "$B/api/folders/$ROOTF")
+echo "$H" | grep -qi '^content-encoding: gzip' || fail "JSON not gzipped"
+ETAG=$(echo "$H" | grep -i '^etag:' | cut -d' ' -f2- | tr -d '\r')
+[ -n "$ETAG" ] || fail "no ETag"
+CODE=$(curl -sk -o /dev/null -w '%{http_code}' -H "If-None-Match: $ETAG" "${AUTH[@]}" "$B/api/folders/$ROOTF")
+[ "$CODE" = 304 ] || fail "revalidation returned $CODE, not 304"
 
 printf '\n\033[1;32mCOMPOSE E2E PASSED\033[0m\n'

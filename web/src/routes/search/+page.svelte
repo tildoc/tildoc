@@ -1,4 +1,6 @@
 <script>
+  import { openView } from '#lib/nav.js';
+  import { preloadDoc, cancelPreload } from '#lib/preload.js';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { get } from '#lib/api.js';
@@ -58,7 +60,7 @@
     const p = new URLSearchParams();
     if (q) p.set('q', q);
     if (h.page) p.set('page', h.page);
-    goto(`/view/${h.link_id}${p.size ? '?' + p : ''}`);
+    openView(`/view/${h.link_id}${p.size ? '?' + p : ''}`);
   }
 
   const slug = (id) => session.spaces.find((s) => s.id === id)?.slug ?? '';
@@ -119,7 +121,7 @@
           <li>
             <span class="ic {iconFor({ kind: 'file', mime: h.mime })}"><Icon name={iconFor({ kind: 'file', mime: h.mime })} size={20} /></span>
             <div class="body">
-              <button class="link name" onclick={() => open(h)}>{h.name}</button>
+              <button class="link name" onclick={() => open(h)} onpointerenter={() => preloadDoc(h)} onpointerleave={cancelPreload} onfocus={() => preloadDoc(h)}>{h.name}</button>
               {#if h.snippet}<p class="snip">{@html snippet(h.snippet)}</p>{/if}
               <div class="meta">
                 {#if h.page}<span class="pill">page {h.page}</span>{/if}

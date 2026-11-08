@@ -4,9 +4,11 @@
   import { onMount, tick, untrack } from 'svelte';
   import { openPDF, pdfjs, resolveDest } from '../../viewer/pdfjs.js';
   import { terms as parseTerms, findAll } from '../../viewer/find.js';
+  import { revalidate } from '../../api.js';
 
   let {
     url,
+    textPath = '', // API path of the server's text for this PDF (pages split by \f), optional
     mode = 'full', // full | peek
     page = $bindable(1),
     numPages = $bindable(0),
@@ -399,13 +401,16 @@
     searching = true;
     const all = [];
     const hits = {};
-    for (let n = 1; n <= pdf.numPages; n++) {
+    const pages = await candidatePages(ts);
+    if (gen !== findGen || !alive) return;
+    for (let i = 0; i < pages.length; i++) {
+      const n = pages[i];
       const t = await pageText(n);
       if (gen !== findGen || !alive) return;
       const ranges = findAll(t.joined, ts);
       if (ranges.length) hits[n] = ranges.length;
       for (const [start, end] of ranges) all.push({ page: n, start, end });
-      if (n % 25 === 0 || n === pdf.numPages) {
+      if (i % 25 === 24 || i === pages.length - 1) {
         matches = [...all];
         matchCount = all.length;
         pageHits = { ...hits };
@@ -417,6 +422,31 @@
       showMatch(startAt >= 0 ? startAt : 0);
     }
     for (const n of rendered.keys()) highlight(n);
+  }
+
+  // candidatePages narrows the search with the server's extracted text, so
+  // pdf.js only extracts (and range-loads) pages that can contain a hit.
+  // Whitespace is ignored on both sides (the extractors space text
+  // differently). Any doubt (no text, page count differs) means all pages.
+  let serverPages = null; // {path, pages: string[] | null}
+  const squash = (s) => s.normalize('NFKC').toLowerCase().replace(/\s+/g, '');
+  async function candidatePages(ts) {
+    const all = Array.from({ length: pdf.numPages }, (_, i) => i + 1);
+    if (!textPath) return all;
+    if (serverPages?.path !== textPath) {
+      let pages = null;
+      try {
+        const { data } = await revalidate(textPath);
+        const parts = (data.text ?? '').split('\f');
+        if (parts.length === pdf.numPages + 1 && !parts[parts.length - 1].trim()) parts.pop();
+        if (parts.length === pdf.numPages) pages = parts.map(squash);
+      } catch {}
+      serverPages = { path: textPath, pages };
+    }
+    const pages = serverPages.pages;
+    if (!pages) return all;
+    const sq = ts.map(squash).filter(Boolean);
+    return all.filter((n) => sq.some((t) => pages[n - 1].includes(t)));
   }
 
   export function findNext() {

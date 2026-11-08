@@ -8,7 +8,7 @@ const backend = process.env.TILDOC_BACKEND || 'http://127.0.0.1:8080';
 export default defineConfig({
   plugins: [
     sveltekit({
-      adapter: adapter({ fallback: 'index.html' }),
+      adapter: adapter({ fallback: 'index.html', precompress: true }),
       // strict CSP; the inline bootstrap script is allowed via its hash.
       // pdf.js: module worker from 'self', WASM image decoders need 'wasm-unsafe-eval' (no JS eval).
       csp: {

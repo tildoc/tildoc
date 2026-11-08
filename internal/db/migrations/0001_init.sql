@@ -462,3 +462,63 @@ CREATE TABLE backup_blobs (
     sha256    bytea NOT NULL CHECK (length(sha256) = 32),
     PRIMARY KEY (backup_id, sha256)
 );
+
+-- Live events for the web UI (internal/core/events.go). Payloads are small
+-- JSON objects on channel tildoc_events; PostgreSQL delivers identical
+-- payloads of one transaction only once. Receivers filter by permission.
+CREATE FUNCTION notify_space(sid uuid, doc uuid, tree boolean) RETURNS void LANGUAGE sql AS $$
+    SELECT pg_notify('tildoc_events', json_build_object('t', 'space', 'id', sid, 'doc', doc, 'tree', tree)::text)
+$$;
+
+CREATE FUNCTION entries_event() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP <> 'INSERT' THEN
+        PERFORM notify_space(OLD.space_id, OLD.document_id, OLD.kind = 'folder');
+    END IF;
+    IF TG_OP <> 'DELETE' THEN
+        PERFORM notify_space(NEW.space_id, NEW.document_id, NEW.kind = 'folder');
+    END IF;
+    RETURN NULL;
+END $$;
+CREATE TRIGGER entries_event AFTER INSERT OR UPDATE OR DELETE ON entries FOR EACH ROW EXECUTE FUNCTION entries_event();
+
+CREATE FUNCTION documents_event() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.space_id <> NEW.space_id THEN
+        PERFORM notify_space(OLD.space_id, OLD.id, false);
+    END IF;
+    PERFORM notify_space(NEW.space_id, NEW.id, false);
+    RETURN NULL;
+END $$;
+CREATE TRIGGER documents_event AFTER UPDATE ON documents FOR EACH ROW
+    WHEN (OLD.current_version IS DISTINCT FROM NEW.current_version OR OLD.deleted_at IS DISTINCT FROM NEW.deleted_at
+          OR OLD.space_id IS DISTINCT FROM NEW.space_id)
+    EXECUTE FUNCTION documents_event();
+
+CREATE FUNCTION document_tags_event() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    r record;
+BEGIN
+    SELECT id, space_id INTO r FROM documents WHERE id = CASE WHEN TG_OP = 'DELETE' THEN OLD.document_id ELSE NEW.document_id END;
+    IF FOUND THEN
+        PERFORM notify_space(r.space_id, r.id, false);
+    END IF;
+    RETURN NULL;
+END $$;
+CREATE TRIGGER document_tags_event AFTER INSERT OR DELETE ON document_tags FOR EACH ROW EXECUTE FUNCTION document_tags_event();
+
+CREATE FUNCTION blob_processing_event() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM pg_notify('tildoc_events', json_build_object('t', 'blob', 'sha', encode(NEW.sha256, 'hex'))::text);
+    RETURN NULL;
+END $$;
+CREATE TRIGGER blob_processing_event AFTER INSERT OR UPDATE OF status ON blob_processing FOR EACH ROW
+    EXECUTE FUNCTION blob_processing_event();
+
+CREATE FUNCTION transfers_event() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM pg_notify('tildoc_events', json_build_object('t', 'transfer', 'id', NEW.id, 'user', NEW.user_id,
+        'status', NEW.status, 'progress', NEW.progress)::text);
+    RETURN NULL;
+END $$;
+CREATE TRIGGER transfers_event AFTER INSERT OR UPDATE ON transfers FOR EACH ROW EXECUTE FUNCTION transfers_event();

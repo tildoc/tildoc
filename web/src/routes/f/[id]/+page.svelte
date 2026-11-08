@@ -1,8 +1,9 @@
 <script>
+  import { openView } from '#lib/nav.js';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { get, post, patch, del } from '#lib/api.js';
-  import { toast, errorToast, bumpTree, session, stored, store, refreshCollections } from '#lib/state.svelte.js';
+  import { post, patch, del, cachedData, revalidate } from '#lib/api.js';
+  import { toast, errorToast, bumpTree, session, ui, stored, store, refreshCollections } from '#lib/state.svelte.js';
   import { collectDrop, collectInput, uploadAll } from '#lib/upload.js';
   import { moveKeys, splitKeys } from '#lib/actions.js';
   import FileTable from '#lib/components/FileTable.svelte';
@@ -14,6 +15,7 @@
   import CollectionPicker from '#lib/components/CollectionPicker.svelte';
   import ImportDialog from '#lib/components/ImportDialog.svelte';
   import { watchBusy, isBusy } from '#lib/poll.svelte.js';
+  import { watchLive } from '#lib/events.svelte.js';
 
   let data = $state(null);
   let error = $state('');
@@ -25,18 +27,27 @@
 
   let folderId = $derived(page.params.id);
 
-  // quiet: background refresh (processing status); errors keep the current view
+  function show(d, keepSelection) {
+    data = d;
+    error = '';
+    ui.currentSpace = d.space.id;
+    const want = page.url.searchParams.get('sel');
+    if (want && !keepSelection) selected = [`l:${want}`];
+    else if (!keepSelection) selected = [];
+    else selected = selected.filter((k) => rows.some((r) => r.key === k));
+  }
+
+  // quiet: background refresh (live events, processing); errors keep the view.
+  // A revisited folder renders at once from the cache and is then revalidated.
   async function load(keepSelection = false, quiet = false) {
     const id = folderId;
+    const path = `/folders/${id}`;
+    const cached = !keepSelection && cachedData(path);
+    if (cached) show(cached, false);
     try {
-      const d = await get(`/folders/${id}`);
+      const { data: d, changed } = await revalidate(path);
       if (id !== folderId) return;
-      data = d;
-      error = '';
-      const want = page.url.searchParams.get('sel');
-      if (want && !keepSelection) selected = [`l:${want}`];
-      else if (!keepSelection) selected = [];
-      else selected = selected.filter((k) => rows.some((r) => r.key === k));
+      if (changed || !data) show(d, keepSelection || !!cached);
     } catch (e) {
       if (quiet) return;
       error = e.message;
@@ -45,6 +56,7 @@
   }
 
   watchBusy(() => data?.files.some((f) => isBusy(f.status)), () => load(true, true));
+  watchLive((ev) => ev.type === 'space' && ev.space_id === data?.space.id, () => load(true, true));
 
   $effect(() => {
     folderId;
@@ -80,7 +92,7 @@
     const q = new URLSearchParams();
     if (opts.page > 1) q.set('page', opts.page);
     if (opts.version) q.set('v', opts.version);
-    goto(`/view/${row.link_id}${q.size ? '?' + q : ''}`);
+    openView(`/view/${row.link_id}${q.size ? '?' + q : ''}`);
   }
 
   function peek(row) {

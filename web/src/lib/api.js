@@ -42,6 +42,57 @@ export async function api(method, path, body, opts = {}) {
 }
 
 export const get = (p, o) => api('GET', p, undefined, o);
+
+// ------------------------------------------------------------ cache
+// In-memory stale-while-revalidate cache for views that are revisited
+// (folders, collections, documents). Responses stay no-store on the HTTP
+// level; revalidation sends the ETag itself and gets a 304 when unchanged.
+
+const MAX_CACHED = 100;
+const cache = new Map(); // path -> {etag, data}
+
+// cachedData returns the last known response for path (or undefined).
+export function cachedData(path) {
+  return cache.get(path)?.data;
+}
+
+// revalidate fetches path; changed is false when the server answered 304
+// (data is then the cached object, so callers can skip re-rendering).
+export async function revalidate(path, opts = {}) {
+  const hit = cache.get(path);
+  const headers = { 'X-Tildoc-CSRF': '1' };
+  if (hit?.etag) headers['If-None-Match'] = hit.etag;
+  const res = await fetch('/api' + path, { headers, credentials: 'same-origin', cache: 'no-store' });
+  if (res.status === 304 && hit) {
+    cache.delete(path);
+    cache.set(path, hit); // most recently used last
+    return { data: hit.data, changed: false };
+  }
+  if (res.status === 401 && !opts.noRedirect) {
+    onUnauthorized();
+    goto('/login');
+  }
+  if (!res.ok) {
+    let err = {};
+    try {
+      err = await res.json();
+    } catch {}
+    if (res.status === 404 || res.status === 403) cache.delete(path);
+    throw new ApiError(res.status, err.error || res.statusText, err.code);
+  }
+  const data = await res.json();
+  const etag = res.headers.get('ETag');
+  cache.delete(path);
+  if (etag) {
+    cache.set(path, { etag, data });
+    while (cache.size > MAX_CACHED) cache.delete(cache.keys().next().value);
+  }
+  return { data, changed: true };
+}
+
+export function clearCache() {
+  cache.clear();
+}
 export const post = (p, b) => api('POST', p, b ?? {});
 export const patch = (p, b) => api('PATCH', p, b);
 export const put = (p, b) => api('PUT', p, b);

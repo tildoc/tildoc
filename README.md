@@ -31,6 +31,36 @@ Esc to close. Ctrl+K searches everywhere; a hit opens on the right page with
 the terms highlighted. PDFs are rendered with pdf.js; the browser's built-in
 viewer can be chosen instead under *Settings and access → Opening documents*.
 
+### Live updates and speed
+
+The UI stays current without reloading: processing status ("Queued" →
+"Indexed"), files and folders added through WebDAV, SFTP, S3 or by other
+people, tags, versions and import progress appear as they happen.
+
+```mermaid
+flowchart LR
+  A[worker, WebDAV, S3, SFTP, UI] -->|writes| PG[(PostgreSQL)]
+  PG -->|triggers: pg_notify| H[tildoc server<br/>event hub]
+  H -->|only spaces you can read| B[browser<br/>GET /api/events, SSE]
+  B -->|reload what changed,<br/>mostly 304 Not Modified| H
+```
+
+- Events carry only ids ("something in space X / document Y changed"); the
+  browser reloads through the normal API, so permissions are checked as
+  usual. Without the stream (proxy, network) the UI falls back to polling.
+- API JSON is gzipped and has an `ETag`; the UI keeps visited folders and
+  documents in memory, shows them at once and revalidates (`304`).
+  Responses stay `no-store`: nothing authenticated lands in the browser's
+  disk cache.
+- The UI build is precompressed (`.br`, `.gz`); tildoc and nginx serve the
+  compressed files. Large folders only render the visible rows. Find in a
+  PDF uses the server's extracted text to skip pages without hits, so only
+  those pages of a large scan are loaded. Hovering a file name preloads the
+  viewer and pdf.js.
+- Reverse proxies other than the bundled nginx must not buffer
+  `/api/events` (tildoc sends `X-Accel-Buffering: no`) and should allow
+  idle reads of at least 30 s (heartbeat every 25 s).
+
 ### Tags and collections
 
 **Tags** are one list for the whole server. Anyone can create a tag while
@@ -283,6 +313,10 @@ web/               SvelteKit UI (static SPA)   deploy/         compose, nginx te
   browser refuses to run its viewer in a sandbox); the server checks that
   preference. The UI ships a strict hash-based CSP (`'wasm-unsafe-eval'` only for
   pdf.js image decoders, no JS eval).
+- Live events (`GET /api/events`) carry only ids and are filtered per
+  subscriber by the spaces it can read (re-checked every 30 s, streams end
+  after 5 min and reconnect with a fresh authentication); max. 8 streams
+  per user.
 - Deduplication is server-side only. There is no "do you have hash X" endpoint
   that could reveal other users' files. Accepted limitation: text extraction
   and OCR results are shared per content, so uploading bytes that someone else

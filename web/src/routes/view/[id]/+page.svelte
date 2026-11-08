@@ -1,9 +1,10 @@
 <script>
   // Full-window document viewer: /view/<linkId>?page=&q=&v=
+  import { openView } from '#lib/nav.js';
   import { tick, untrack } from 'svelte';
   import { page as route } from '$app/state';
   import { goto, afterNavigate } from '$app/navigation';
-  import { get } from '#lib/api.js';
+  import { get, cachedData, revalidate } from '#lib/api.js';
   import { errorToast, session, stored, store } from '#lib/state.svelte.js';
   import { COLUMNS, loadView } from '#lib/columns.js';
   import { defaultVariant } from '#lib/format.js';
@@ -11,6 +12,7 @@
   import DocView from '#lib/components/viewer/DocView.svelte';
   import DocDetails from '#lib/components/DocDetails.svelte';
   import { watchBusy, isBusy } from '#lib/poll.svelte.js';
+  import { watchLive } from '#lib/events.svelte.js';
 
   let linkId = $derived(route.params.id);
   let file = $state(null);
@@ -50,14 +52,20 @@
     const q = sp.get('q') ?? '';
     findText = query = q;
     findOpen = !!q;
-    try {
-      const f = await get(`/files/${id}`);
-      const d = await get(`/documents/${f.document_id}`);
-      if (id !== linkId) return;
+    // file and document in one request; a revisited document renders from the cache
+    const path = `/files/${id}?include=document`;
+    const show = ({ document: d, ...f }) => {
       file = f;
       doc = d;
       variant = ['original', 'searchable', 'image_only'].includes(sp.get('variant')) ? sp.get('variant') : defaultVariant(d);
       loadSiblings(f);
+    };
+    const cached = cachedData(path);
+    if (cached) show(cached);
+    try {
+      const { data, changed } = await revalidate(path);
+      if (id !== linkId) return;
+      if (changed || !cached) show(data);
     } catch (e) {
       error = e.message;
     }
@@ -66,14 +74,15 @@
   async function reloadDoc(quiet = false) {
     const id = file.document_id;
     try {
-      const d = await get(`/documents/${id}`);
-      if (id === file?.document_id) doc = d;
+      const { data: d, changed } = await revalidate(`/documents/${id}`);
+      if (changed && id === file?.document_id) doc = d;
     } catch (e) {
       if (!quiet) errorToast(e);
     }
   }
 
   watchBusy(() => isBusy(doc?.status), () => reloadDoc(true));
+  watchLive((ev) => ev.type === 'space' && !!doc && ev.documents?.includes(doc.id), () => reloadDoc(true));
 
   async function loadSiblings(f) {
     if (siblings.some((s) => s.link_id === f.link_id)) return;
@@ -110,7 +119,7 @@
     if (query) q.set('q', query);
     const coll = route.url.searchParams.get('c');
     if (coll) q.set('c', coll);
-    goto(`/view/${s.link_id}${q.size ? '?' + q : ''}`, { replaceState: true, keepFocus: true });
+    openView(`/view/${s.link_id}${q.size ? '?' + q : ''}`, { replaceState: true, keepFocus: true });
   }
 
   function close() {
@@ -291,7 +300,7 @@
       <div class="msg"><strong>This document can't be opened</strong><span>{error}</span><button onclick={close}>Back</button></div>
     {:else if doc && file}
       {#key `${file.document_id}:${doc.version}`}
-        <DocView bind:this={view} file={{ ...file, mime: doc.mime, size: doc.size }} {variant} version={viewVersion} mode="full"
+        <DocView bind:this={view} file={{ ...file, mime: doc.mime, size: doc.size }} {doc} {variant} version={viewVersion} mode="full"
           {query} {thumbs} {initialPage} transitionName="doc-page"
           bind:page bind:numPages bind:zoom bind:scale bind:matchCount bind:current bind:searching />
       {/key}

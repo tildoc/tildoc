@@ -57,6 +57,12 @@ export function iconFor(row) {
 // defaultVariant picks which PDF to show: tildoc's OCR for scans, the
 // original for files that came with their own OCR unless the server prefers
 // tildoc's OCR.
+// textVariant names the PDF whose text the server uses for search: tildoc's
+// OCR when it is the search text, otherwise the original.
+export function textVariant(doc) {
+  return doc?.variants?.some((v) => v.kind === 'searchable_pdf' && v.search_text) ? 'searchable' : 'original';
+}
+
 export function defaultVariant(doc) {
   if (!doc?.has_searchable) return 'original';
   if (doc.foreign_ocr) return doc.ocr_preference === 'tildoc' ? 'searchable' : 'original';

@@ -1,7 +1,8 @@
 <script>
+  import { openView } from '#lib/nav.js';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { get, del } from '#lib/api.js';
+  import { del, cachedData, revalidate } from '#lib/api.js';
   import { session, toast, errorToast, refreshCollections, stored, store } from '#lib/state.svelte.js';
   import FileTable from '#lib/components/FileTable.svelte';
   import PeekPanel from '#lib/components/PeekPanel.svelte';
@@ -9,6 +10,7 @@
   import Confirm from '#lib/components/Confirm.svelte';
   import CollectionForm from '#lib/components/CollectionForm.svelte';
   import { watchBusy, isBusy } from '#lib/poll.svelte.js';
+  import { watchLive } from '#lib/events.svelte.js';
 
   let data = $state(null);
   let error = $state('');
@@ -18,15 +20,22 @@
 
   let id = $derived(page.params.id);
 
+  function show(d, keep) {
+    data = d;
+    error = '';
+    const want = page.url.searchParams.get('sel');
+    if (!keep) selected = want ? [`l:${want}`] : [];
+  }
+
   async function load(keep = false, quiet = false) {
     const cid = id;
+    const path = `/collections/${cid}`;
+    const cached = !keep && cachedData(path);
+    if (cached) show(cached, false);
     try {
-      const d = await get(`/collections/${cid}`);
+      const { data: d, changed } = await revalidate(path);
       if (cid !== id) return;
-      data = d;
-      error = '';
-      const want = page.url.searchParams.get('sel');
-      if (!keep) selected = want ? [`l:${want}`] : [];
+      if (changed || !data) show(d, keep || !!cached);
     } catch (e) {
       if (quiet) return;
       error = e.message;
@@ -35,6 +44,8 @@
   }
 
   watchBusy(() => data?.items?.some((i) => isBusy(i.status)), () => load(true, true));
+  // items come from several spaces; a rule collection can gain documents anywhere
+  watchLive((ev) => ev.type === 'space' && (!!data?.collection?.tag_id || data?.items?.some((i) => i.space_id === ev.space_id)), () => load(true, true));
 
   $effect(() => {
     id;
@@ -55,7 +66,7 @@
     const q = new URLSearchParams({ c: id });
     if (opts.page > 1) q.set('page', opts.page);
     if (opts.version) q.set('v', opts.version);
-    goto(`/view/${row.link_id}?${q}`);
+    openView(`/view/${row.link_id}?${q}`);
   }
 
   function peek(row) {

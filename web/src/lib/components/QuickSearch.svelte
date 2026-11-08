@@ -1,5 +1,6 @@
 <script>
   // Ctrl+K palette: type, pick a document, open it in the viewer.
+  import { openView } from '../nav.js';
   import { goto } from '$app/navigation';
   import Icon from './Icon.svelte';
   import { get } from '../api.js';
@@ -40,7 +41,7 @@
     onclose();
     const p = new URLSearchParams({ q: q.trim() });
     if (h.page) p.set('page', h.page);
-    goto(`/view/${h.link_id}?${p}`);
+    openView(`/view/${h.link_id}?${p}`);
   }
   function all() {
     onclose();

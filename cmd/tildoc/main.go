@@ -142,7 +142,9 @@ func run(ctx context.Context, cfg *config.Config, log *slog.Logger, serve, work 
 		fsys := vfs.New(svc)
 		apiSrv := api.New(svc, cfg, log)
 		apiSrv.Mounts[dav.Prefix+"/"] = dav.New(fsys, log, cfg.TrustedProxies)
+		go apiSrv.Events.Run(ctx)
 		httpSrv := &http.Server{Addr: cfg.HTTPAddr, Handler: apiSrv.Handler(), ReadHeaderTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute}
+		httpSrv.RegisterOnShutdown(apiSrv.StopStreams)
 		s3Srv := &http.Server{Addr: cfg.S3Addr, Handler: s3.New(svc, fsys, log, cfg.S3Region, cfg.TrustedProxies),
 			ReadHeaderTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute}
 		for _, hs := range []*http.Server{httpSrv, s3Srv} {

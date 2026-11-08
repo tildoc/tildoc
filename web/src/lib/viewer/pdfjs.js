@@ -12,10 +12,22 @@ export async function pdfjs() {
   return lib;
 }
 
+let worker;
+
+// warmup loads pdf.js and starts the one shared worker (parsing the 1 MB
+// worker script once instead of for every document). Safe to call often,
+// e.g. when the pointer rests on a PDF's name.
+export async function warmup() {
+  const l = await pdfjs();
+  if (!worker || worker.destroyed) worker = new l.PDFWorker({ name: 'tildoc-pdf' });
+  return worker;
+}
+
 export async function openPDF(url) {
   const { getDocument } = await pdfjs();
   return getDocument({
     url,
+    worker: await warmup(),
     withCredentials: true,
     enableXfa: false,
     disableAutoFetch: true,
