@@ -254,4 +254,3 @@ func (p *Processor) ocr(ctx context.Context, sha blob.SHA256, path, kind string,
 	}
 	return p.Svc.SetProcessing(ctx, sha, core.StatusDone, kind, &pages, "")
 }
-

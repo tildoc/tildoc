@@ -23,19 +23,19 @@ type Config struct {
 	S3Addr   string
 	SFTPAddr string
 
-	S3Region  string
-	PublicURL string // e.g. https://tildoc.example:8443 (for connection help)
-	S3PublicURL   string
+	S3Region       string
+	PublicURL      string // e.g. https://tildoc.example:8443 (for connection help)
+	S3PublicURL    string
 	SFTPPublicAddr string
 
 	CookieSecure   bool
 	TrustedProxies []netip.Prefix
 
-	TrashRetention    time.Duration
-	MaxUploadBytes    int64
-	ProvenanceWindow  time.Duration
-	MultipartMaxAge   time.Duration
-	SessionTTL        time.Duration
+	TrashRetention   time.Duration
+	MaxUploadBytes   int64
+	ProvenanceWindow time.Duration
+	MultipartMaxAge  time.Duration
+	SessionTTL       time.Duration
 
 	WorkerConcurrency int
 	OCREnabled        bool
@@ -51,19 +51,19 @@ type Config struct {
 // Load reads the configuration from the environment.
 func Load() (*Config, error) {
 	c := &Config{
-		DatabaseURL:       env("TILDOC_DATABASE_URL", ""),
-		DataDir:           env("TILDOC_DATA_DIR", "./data"),
-		HTTPAddr:          env("TILDOC_HTTP_ADDR", ":8080"),
-		S3Addr:            env("TILDOC_S3_ADDR", ":9000"),
-		SFTPAddr:          env("TILDOC_SFTP_ADDR", ":2222"),
-		S3Region:          env("TILDOC_S3_REGION", "us-east-1"),
-		PublicURL:         strings.TrimRight(env("TILDOC_PUBLIC_URL", "https://localhost:8443"), "/"),
-		S3PublicURL:       strings.TrimRight(env("TILDOC_S3_PUBLIC_URL", "https://localhost:9443"), "/"),
-		SFTPPublicAddr:    env("TILDOC_SFTP_PUBLIC_ADDR", "localhost:2222"),
-		OCRLangs:          env("TILDOC_OCR_LANGS", "deu+eng"),
-		PdftotextBin:      env("TILDOC_PDFTOTEXT_BIN", "pdftotext"),
-		OcrmypdfBin:       env("TILDOC_OCRMYPDF_BIN", "ocrmypdf"),
-		UIDir:             env("TILDOC_UI_DIR", ""),
+		DatabaseURL:    env("TILDOC_DATABASE_URL", ""),
+		DataDir:        env("TILDOC_DATA_DIR", "./data"),
+		HTTPAddr:       env("TILDOC_HTTP_ADDR", ":8080"),
+		S3Addr:         env("TILDOC_S3_ADDR", ":9000"),
+		SFTPAddr:       env("TILDOC_SFTP_ADDR", ":2222"),
+		S3Region:       env("TILDOC_S3_REGION", "us-east-1"),
+		PublicURL:      strings.TrimRight(env("TILDOC_PUBLIC_URL", "https://localhost:8443"), "/"),
+		S3PublicURL:    strings.TrimRight(env("TILDOC_S3_PUBLIC_URL", "https://localhost:9443"), "/"),
+		SFTPPublicAddr: env("TILDOC_SFTP_PUBLIC_ADDR", "localhost:2222"),
+		OCRLangs:       env("TILDOC_OCR_LANGS", "deu+eng"),
+		PdftotextBin:   env("TILDOC_PDFTOTEXT_BIN", "pdftotext"),
+		OcrmypdfBin:    env("TILDOC_OCRMYPDF_BIN", "ocrmypdf"),
+		UIDir:          env("TILDOC_UI_DIR", ""),
 	}
 	var errs []error
 	c.CookieSecure = boolEnv("TILDOC_COOKIE_SECURE", true, &errs)

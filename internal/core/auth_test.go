@@ -117,7 +117,6 @@ func TestSetupAndUsers(t *testing.T) {
 	wantKind(t, svc.DeleteUser(ctx, ap, admin.ID), core.ErrInvalid)
 }
 
-
 func TestAccessKeysAndSSH(t *testing.T) {
 	env := testutil.New(t)
 	ctx := context.Background()

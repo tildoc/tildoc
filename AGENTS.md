@@ -88,3 +88,13 @@ When the user requests a programming task, **do not start coding immediately.**
   placement: folder + name, 1..N per document), Version, Blob (internal,
   SHA-256 content), Import. Use these terms consistently in code, schema,
   API and docs.
+- **Architecture rules:** only `internal/core` accesses PostgreSQL and the blob
+  store. Protocol adapters (`api`, `s3`, `dav`, `sftpd`) go through `core`
+  (and `vfs` for path-based access). New document types = new case in
+  `internal/worker/processor.go`; derived data is keyed by blob SHA-256.
+- **Testing:** `make test` (Postgres via Docker), `make test-docker` (incl. OCR),
+  `make e2e` (aws-cli/rclone), `test/e2e/compose.sh` (full stack),
+  `test/ui/run.sh` (Chromium). Run the relevant ones after every larger change.
+- **Dev data** lives in `.data/` (gitignored; dot-dir so `go ./...` ignores it).
+- **UI stack:** SvelteKit 3 (config in `web/vite.config.js`, `#lib/` imports
+  via package.json `imports`), Svelte 5 runes, plain CSS, no UI libraries.

@@ -90,11 +90,11 @@ type listResult struct {
 		Size int64
 		ETag string
 	}
-	CommonPrefixes []struct{ Prefix string }
-	IsTruncated    bool
-	NextMarker     string
+	CommonPrefixes        []struct{ Prefix string }
+	IsTruncated           bool
+	NextMarker            string
 	NextContinuationToken string
-	KeyCount       int
+	KeyCount              int
 }
 
 func (c *s3client) list(path string) listResult {
@@ -127,7 +127,7 @@ func TestS3Basic(t *testing.T) {
 	}
 	c.must("HEAD", "/alice", nil, nil, 200)
 	c.must("HEAD", "/nope", nil, nil, 404)
-	c.must("PUT", "/alice", nil, nil, 200)       // existing own bucket
+	c.must("PUT", "/alice", nil, nil, 200)      // existing own bucket
 	c.must("PUT", "/new-bucket", nil, nil, 403) // creation via UI only
 
 	// put / get / head with metadata and range

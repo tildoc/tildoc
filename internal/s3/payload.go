@@ -333,4 +333,3 @@ func EncodeUnsignedTrailer(data []byte, chunkSize int) []byte {
 	out.WriteString("x-amz-checksum-crc32:" + encodeChecksum(h) + "\r\n\r\n")
 	return out.Bytes()
 }
-

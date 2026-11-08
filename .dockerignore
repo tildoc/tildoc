@@ -1,0 +1,11 @@
+.git
+data
+.data
+bin
+web/node_modules
+web/build
+web/.svelte-kit
+test/ui/node_modules
+test/ui/screenshots
+deploy/.env
+deploy/nginx/certs

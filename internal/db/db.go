@@ -5,8 +5,8 @@ package db
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"

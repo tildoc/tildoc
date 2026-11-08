@@ -570,8 +570,8 @@ func (w *writeFile) Write(p []byte) (int, error) {
 	w.size += int64(n)
 	return n, err
 }
-func (w *writeFile) Read([]byte) (int, error)          { return 0, io.EOF }
-func (w *writeFile) Seek(int64, int) (int64, error)    { return 0, nil }
+func (w *writeFile) Read([]byte) (int, error)           { return 0, io.EOF }
+func (w *writeFile) Seek(int64, int) (int64, error)     { return 0, nil }
 func (w *writeFile) Readdir(int) ([]fs.FileInfo, error) { return nil, os.ErrInvalid }
 func (w *writeFile) Stat() (fs.FileInfo, error) {
 	return info{&vfs.Node{Kind: vfs.KindFile, Name: path.Base(w.name), Path: w.name, Size: w.size, ModTime: time.Now()}}, nil

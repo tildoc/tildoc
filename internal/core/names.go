@@ -15,7 +15,7 @@ var (
 )
 
 // reservedSlugs cannot be used as space slugs.
-var reservedSlugs = map[string]bool{"api": true, "dav": true, "admin": true, "trash": true}
+var reservedSlugs = map[string]bool{"api": true, "dav": true}
 
 // NormalizeName validates a file or folder name and returns its NFC form.
 func NormalizeName(name string) (string, error) {

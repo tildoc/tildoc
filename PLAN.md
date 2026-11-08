@@ -220,9 +220,9 @@ flowchart LR
 - [x] Tests in Docker test image (poppler + ocrmypdf + tesseract deu/eng)
 
 ### Phase 7 — Deployment & Docs
-- [ ] Dockerfile (targets: server, worker incl. OCR tools, web), docker compose (postgres, server, worker, nginx), nginx template + cert generation
-- [ ] README: setup, Arch/Dolphin client setup (webdavs, sftp, rclone + fuse3 systemd user unit)
-- [ ] Full-stack smoke test via compose
+- [x] Dockerfile (targets: server, worker incl. OCR tools, web), docker compose (postgres, server, worker, nginx), nginx template + cert generation
+- [x] README: setup, Arch/Dolphin client setup (webdavs, sftp, rclone + fuse3 systemd user unit)
+- [x] Full-stack smoke test via compose
 
 ---
 

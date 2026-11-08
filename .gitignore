@@ -6,6 +6,7 @@ deploy/nginx/certs/
 
 # runtime data
 /data/
+/.data/
 /var/
 
 # build output

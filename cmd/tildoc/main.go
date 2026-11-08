@@ -23,6 +23,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/tildoc/tildoc/internal/api"
 	"github.com/tildoc/tildoc/internal/blob"
 	"github.com/tildoc/tildoc/internal/config"
@@ -43,6 +45,7 @@ commands:
   worker                run the background worker
   all                   serve + worker in one process
   migrate               apply database migrations
+  health                check the local HTTP server (container healthcheck)
   user create -username NAME [-admin] [-display NAME]   (password from stdin)
   user passwd -username NAME                             (password from stdin)
 
@@ -53,6 +56,9 @@ configuration: TILDOC_* environment variables, see deploy/.env.example`)
 func main() {
 	if len(os.Args) < 2 {
 		usage()
+	}
+	if os.Args[1] == "health" {
+		os.Exit(health())
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -145,7 +151,7 @@ func run(ctx context.Context, cfg *config.Config, log *slog.Logger, serve, work 
 				return err
 			}
 			sf := sftpd.New(fsys, log, key)
-			log.Info("listening (sftp)", "addr", cfg.SFTPAddr)
+			log.Info("listening (sftp)", "addr", cfg.SFTPAddr, "host_key", ssh.FingerprintSHA256(key.PublicKey()))
 			go func() { errc <- sf.Serve(l) }()
 			shutdown = append(shutdown, func(context.Context) error { return sf.Close() })
 		}
@@ -214,4 +220,27 @@ func userCmd(ctx context.Context, cfg *config.Config, log *slog.Logger, args []s
 		usage()
 	}
 	return nil
+}
+
+// health checks the local HTTP listener; used as container healthcheck.
+func health() int {
+	addr := os.Getenv("TILDOC_HTTP_ADDR")
+	if addr == "" {
+		addr = ":8080"
+	}
+	if strings.HasPrefix(addr, ":") {
+		addr = "127.0.0.1" + addr
+	}
+	c := &http.Client{Timeout: 4 * time.Second}
+	resp, err := c.Get("http://" + addr + "/api/health")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintln(os.Stderr, "status", resp.Status)
+		return 1
+	}
+	return 0
 }

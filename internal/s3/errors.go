@@ -25,7 +25,9 @@ func errAuthHeaderMalformed() *Error {
 	return &Error{Status: 400, Code: "AuthorizationHeaderMalformed", Message: "the authorization header is malformed"}
 }
 
-func errInvalidArg(msg string) *Error { return &Error{Status: 400, Code: "InvalidArgument", Message: msg} }
+func errInvalidArg(msg string) *Error {
+	return &Error{Status: 400, Code: "InvalidArgument", Message: msg}
+}
 
 func errNoSuchKey() *Error {
 	return &Error{Status: 404, Code: "NoSuchKey", Message: "the specified key does not exist"}
