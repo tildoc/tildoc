@@ -1,0 +1,20 @@
+# local configuration / secrets
+.env
+*.local
+deploy/.env
+deploy/nginx/certs/
+
+# runtime data
+/data/
+/var/
+
+# build output
+/bin/
+/web/node_modules/
+/web/build/
+/web/.svelte-kit/
+
+# editor
+.idea/
+.vscode/
+*.swp
