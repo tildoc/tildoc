@@ -797,6 +797,46 @@ Open questions: see below.
 
 ---
 
+## Open Topics
+
+Collected 2026-11-08; each becomes a phase or step when picked up.
+
+**Planned, not started**
+
+- [ ] **Phase 14 — `age` encryption** of exports and backups (plan above).
+  Open questions: backups without recipients (warn vs. refuse), exports
+  encrypted to a public key stored in the user's profile, post-quantum
+  recipients (`age1pq…`).
+
+**Scaling**
+
+- [ ] Server-side paging and sorting for folder listings (today the API
+  returns all rows; the UI only renders the visible window).
+- [ ] Bundle and backup manifests are built in memory; stream them for very
+  large installations.
+- [ ] Search and collection pages: paging works, but the result pages are
+  not live-updated (snapshot on load).
+
+**Live updates**
+
+- [ ] Collection membership changed by someone else (team collections,
+  `collection_items`) is not pushed; needs a trigger + event type.
+- [ ] Sidebar collection counts and the spaces list do not follow events
+  (new shares, renamed spaces appear after a reload).
+- [ ] Revoked access: a subscriber may receive ids of the space for up to
+  30 s (readable-space cache). Option: invalidate on `space_grants` /
+  `team_members` changes via an event.
+- [ ] Admin backup list still polls (2 s) while a backup runs; move to an
+  event like transfers.
+
+**Viewer and search**
+
+- [ ] In-document find skips pages whose server text lacks a term that
+  pdf.js would find (different extraction); consider per-page text from
+  pdf.js cached server-side, or a fallback scan when nothing is found.
+- [ ] Server-assisted find only for the current version; older versions
+  scan all pages (needs `GET /documents/{id}/text?version=`).
+
 ## Decisions
 
 | # | Topic | Decision |
