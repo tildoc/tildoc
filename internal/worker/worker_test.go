@@ -218,20 +218,20 @@ func TestScannedPDF(t *testing.T) {
 
 func TestJobRetryAndMaintenance(t *testing.T) {
 	f := newFx(t)
-	if err := core.Enqueue(f.ctx, f.env.Pool, "bogus", map[string]any{}, "", time.Time{}); err != nil {
+	if err := core.Enqueue(f.ctx, f.env.Pool, core.JobProcessBlob, map[string]any{"sha256": "not-a-hash"}, "", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	f.env.Pool.Exec(f.ctx, `UPDATE jobs SET max_attempts=2`)
 	f.w.RunOne(f.ctx)
 	var status string
 	var attempts int
-	f.env.Pool.QueryRow(f.ctx, `SELECT status, attempts FROM jobs WHERE kind='bogus'`).Scan(&status, &attempts)
+	f.env.Pool.QueryRow(f.ctx, `SELECT status, attempts FROM jobs WHERE kind='process_blob'`).Scan(&status, &attempts)
 	if status != "queued" || attempts != 1 {
 		t.Fatalf("after first failure: %s %d", status, attempts)
 	}
-	f.env.Pool.Exec(f.ctx, `UPDATE jobs SET run_after=now() WHERE kind='bogus'`)
+	f.env.Pool.Exec(f.ctx, `UPDATE jobs SET run_after=now() WHERE kind='process_blob'`)
 	f.w.RunOne(f.ctx)
-	f.env.Pool.QueryRow(f.ctx, `SELECT status, attempts FROM jobs WHERE kind='bogus'`).Scan(&status, &attempts)
+	f.env.Pool.QueryRow(f.ctx, `SELECT status, attempts FROM jobs WHERE kind='process_blob'`).Scan(&status, &attempts)
 	if status != "failed" || attempts != 2 {
 		t.Fatalf("after max attempts: %s %d", status, attempts)
 	}
@@ -251,8 +251,9 @@ func TestJobRetryAndMaintenance(t *testing.T) {
 		t.Fatalf("documents after purge: %d", docs)
 	}
 	// stale running job reclaimed
-	core.Enqueue(f.ctx, f.env.Pool, "bogus2", map[string]any{}, "", time.Time{})
-	f.env.Pool.Exec(f.ctx, `UPDATE jobs SET status='running', locked_at=now() - interval '2 hours' WHERE kind='bogus2'`)
+	f.env.Pool.Exec(f.ctx, `DELETE FROM jobs`)
+	core.Enqueue(f.ctx, f.env.Pool, core.JobGCBlobs, map[string]any{}, "", time.Time{})
+	f.env.Pool.Exec(f.ctx, `UPDATE jobs SET status='running', locked_at=now() - interval '2 hours' WHERE kind='gc_blobs'`)
 	if n, _ := f.env.Svc.ReclaimStaleJobs(f.ctx, time.Hour); n != 1 {
 		t.Fatalf("reclaim: %d", n)
 	}

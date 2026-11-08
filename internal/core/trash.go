@@ -36,8 +36,8 @@ func (s *Service) ListTrash(ctx context.Context, p *Principal, spaceID string) (
 	}
 	rows, err := s.DB.Query(ctx, `
 		SELECT d.id::text, d.space_id::text, coalesce(l.name,''), coalesce(l.deleted_path,''), b.size, b.mime, d.deleted_at
-		FROM documents d JOIN blobs b ON b.sha256=d.current_sha256
-		LEFT JOIN LATERAL (SELECT name, deleted_path FROM links WHERE document_id=d.id ORDER BY deleted_at DESC NULLS LAST LIMIT 1) l ON true
+		FROM document_heads d JOIN blobs b ON b.sha256=d.sha256
+		LEFT JOIN LATERAL (SELECT name, deleted_path FROM entries WHERE document_id=d.id ORDER BY deleted_at DESC NULLS LAST LIMIT 1) l ON true
 		WHERE d.deleted_at IS NOT NULL AND d.space_id = ANY($1::uuid[])
 		ORDER BY d.deleted_at DESC LIMIT 5000`, ids)
 	if err != nil {
@@ -71,8 +71,8 @@ func (s *Service) RestoreDocument(ctx context.Context, p *Principal, docID strin
 		return nil, err
 	}
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT id::text, coalesce(deleted_path,''), name FROM links
-			WHERE document_id=$1 AND deleted_at = (SELECT max(deleted_at) FROM links WHERE document_id=$1)`, docID)
+		rows, err := tx.Query(ctx, `SELECT id::text, coalesce(deleted_path,''), name FROM entries
+			WHERE document_id=$1 AND deleted_at = (SELECT max(deleted_at) FROM entries WHERE document_id=$1)`, docID)
 		if err != nil {
 			return err
 		}
@@ -103,7 +103,7 @@ func (s *Service) RestoreDocument(ctx context.Context, p *Principal, docID strin
 			if err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, `UPDATE links SET folder_id=$2, name=$3, deleted_at=NULL, deleted_path=NULL, updated_at=now()
+			if _, err := tx.Exec(ctx, `UPDATE entries SET parent_id=$2, name=$3, deleted_at=NULL, deleted_path=NULL, updated_at=now()
 				WHERE id=$1`, l.id, dir, name); err != nil {
 				return err
 			}
@@ -169,7 +169,7 @@ func (s *Service) GCBlobs(ctx context.Context, grace time.Duration) (int, error)
 			DELETE FROM blobs b
 			WHERE b.last_used_at < now() - make_interval(secs => $1)
 			  AND NOT EXISTS (SELECT 1 FROM document_versions v WHERE v.sha256 = b.sha256)
-			  AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.current_sha256 = b.sha256)
+			  
 			  AND NOT EXISTS (SELECT 1 FROM blob_derivatives x WHERE x.derived_sha256 = b.sha256)
 			RETURNING b.sha256`, grace.Seconds())
 		if err != nil {

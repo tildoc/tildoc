@@ -27,7 +27,8 @@ type FolderInfo struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// FileInfo describes a link together with the current state of its document.
+// FileInfo describes a link (a document's placement) together with the
+// current state of its document.
 type FileInfo struct {
 	LinkID       string            `json:"link_id"`
 	DocumentID   string            `json:"document_id"`
@@ -53,16 +54,15 @@ type FileInfo struct {
 func (f *FileInfo) ETag() string { return `"` + f.MD5 + `"` }
 
 const fileSelect = `
-SELECT l.id::text, l.document_id::text, d.space_id::text, l.folder_id::text, l.name,
-       folder_path(l.folder_id) || '/' || l.name,
+SELECT l.id::text, l.document_id::text, l.space_id::text, l.parent_id::text, l.name,
+       folder_path(l.parent_id) || '/' || l.name,
        b.size, b.sha256, b.md5, b.mime, d.current_version, coalesce(bp.status, 'pending'),
-       (SELECT count(*) FROM links x WHERE x.document_id = d.id AND x.deleted_at IS NULL),
-       l.created_at, d.updated_at, l.original_path, l.import_id::text, v.meta
-FROM links l
-JOIN documents d ON d.id = l.document_id
-JOIN blobs b ON b.sha256 = d.current_sha256
-JOIN document_versions v ON v.document_id = d.id AND v.version = d.current_version
-LEFT JOIN blob_processing bp ON bp.sha256 = d.current_sha256`
+       (SELECT count(*) FROM entries x WHERE x.document_id = d.id AND x.deleted_at IS NULL),
+       l.created_at, d.updated_at, l.original_path, l.import_id::text, d.meta
+FROM entries l
+JOIN document_heads d ON d.id = l.document_id
+JOIN blobs b ON b.sha256 = d.sha256
+LEFT JOIN blob_processing bp ON bp.sha256 = d.sha256`
 
 func scanFile(row pgx.Row) (*FileInfo, error) {
 	f := &FileInfo{}
@@ -129,7 +129,7 @@ func displayMIME(name, sniffed string) string {
 func (s *Service) folderInfo(ctx context.Context, q db.Querier, id string) (*FolderInfo, error) {
 	f := &FolderInfo{}
 	err := q.QueryRow(ctx, `SELECT id::text, space_id::text, parent_id::text, name, folder_path(id), created_at
-		FROM folders WHERE id=$1`, id).Scan(&f.ID, &f.SpaceID, &f.ParentID, &f.Name, &f.Path, &f.CreatedAt)
+		FROM entries WHERE id=$1 AND kind='folder'`, id).Scan(&f.ID, &f.SpaceID, &f.ParentID, &f.Name, &f.Path, &f.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errf(ErrNotFound, "folder not found")
 	}
@@ -149,10 +149,10 @@ func resolveFolder(ctx context.Context, q db.Querier, spaceID string, segs []str
 	var idx int
 	err := q.QueryRow(ctx, `
 		WITH RECURSIVE walk(id, idx) AS (
-			SELECT id, 1 FROM folders WHERE space_id = $1 AND parent_id IS NULL
+			SELECT id, 1 FROM entries WHERE space_id = $1 AND parent_id IS NULL AND kind = 'folder'
 			UNION ALL
 			SELECT f.id, w.idx + 1 FROM walk w
-			JOIN folders f ON f.parent_id = w.id AND f.name = ($2::text[])[w.idx]
+			JOIN entries f ON f.parent_id = w.id AND f.kind = 'folder' AND f.name = ($2::text[])[w.idx]
 			WHERE w.idx <= coalesce(array_length($2::text[], 1), 0)
 		) SELECT id::text, idx FROM walk ORDER BY idx DESC LIMIT 1`, spaceID, segs).Scan(&id, &idx)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -162,7 +162,7 @@ func resolveFolder(ctx context.Context, q db.Querier, spaceID string, segs []str
 }
 
 func lockFolder(ctx context.Context, tx pgx.Tx, id string) (spaceID string, err error) {
-	err = tx.QueryRow(ctx, `SELECT space_id::text FROM folders WHERE id=$1 FOR UPDATE`, id).Scan(&spaceID)
+	err = tx.QueryRow(ctx, `SELECT space_id::text FROM entries WHERE id=$1 AND kind='folder' FOR UPDATE`, id).Scan(&spaceID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", errf(ErrNotFound, "folder not found")
 	}
@@ -179,7 +179,7 @@ func lockFolders(ctx context.Context, tx pgx.Tx, ids ...string) error {
 			uniq = append(uniq, id)
 		}
 	}
-	rows, err := tx.Query(ctx, `SELECT id FROM folders WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`, uniq)
+	rows, err := tx.Query(ctx, `SELECT id FROM entries WHERE id = ANY($1::uuid[]) AND kind='folder' ORDER BY id FOR UPDATE`, uniq)
 	if err != nil {
 		return err
 	}
@@ -196,10 +196,18 @@ func lockFolders(ctx context.Context, tx pgx.Tx, ids ...string) error {
 
 // child returns what occupies name inside folder: a folder id, a live link id, or nothing.
 func child(ctx context.Context, q db.Querier, folderID, name string) (folder, link string, err error) {
-	err = q.QueryRow(ctx, `SELECT coalesce((SELECT id::text FROM folders WHERE parent_id=$1 AND name=$2), ''),
-		coalesce((SELECT id::text FROM links WHERE folder_id=$1 AND name=$2 AND deleted_at IS NULL), '')`,
-		folderID, name).Scan(&folder, &link)
-	return
+	var id, kind string
+	err = q.QueryRow(ctx, `SELECT id::text, kind FROM entries WHERE parent_id=$1 AND name=$2 AND deleted_at IS NULL`,
+		folderID, name).Scan(&id, &kind)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return "", "", nil
+	case err != nil:
+		return "", "", err
+	case kind == "folder":
+		return id, "", nil
+	}
+	return "", id, nil
 }
 
 // GetFolder returns a folder (read permission).
@@ -248,7 +256,7 @@ func (s *Service) fileByPath(ctx context.Context, q db.Querier, spaceID string, 
 	if n != len(segs)-1 {
 		return nil, errf(ErrNotFound, "file not found")
 	}
-	return scanFile(q.QueryRow(ctx, fileSelect+` WHERE l.folder_id=$1 AND l.name=$2 AND l.deleted_at IS NULL`,
+	return scanFile(q.QueryRow(ctx, fileSelect+` WHERE l.parent_id=$1 AND l.name=$2 AND l.deleted_at IS NULL`,
 		fid, segs[len(segs)-1]))
 }
 
@@ -271,7 +279,7 @@ func (s *Service) ListFolder(ctx context.Context, p *Principal, folderID string)
 		return nil, nil, nil, err
 	}
 	rows, err := s.DB.Query(ctx, `SELECT id::text, space_id::text, parent_id::text, name, created_at
-		FROM folders WHERE parent_id=$1 ORDER BY name`, folderID)
+		FROM entries WHERE parent_id=$1 AND kind='folder' ORDER BY name`, folderID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -286,7 +294,7 @@ func (s *Service) ListFolder(ctx context.Context, p *Principal, folderID string)
 		folders = append(folders, c)
 	}
 	rows.Close()
-	files, err := scanFiles(s.DB.Query(ctx, fileSelect+` WHERE l.folder_id=$1 AND l.deleted_at IS NULL ORDER BY l.name`, folderID))
+	files, err := scanFiles(s.DB.Query(ctx, fileSelect+` WHERE l.parent_id=$1 AND l.deleted_at IS NULL ORDER BY l.name`, folderID))
 	return f, folders, files, err
 }
 
@@ -297,9 +305,9 @@ func (s *Service) ListFolderTree(ctx context.Context, p *Principal, spaceID stri
 	}
 	rows, err := s.DB.Query(ctx, `
 		WITH RECURSIVE t(id, parent_id, name, path, created_at) AS (
-			SELECT id, parent_id, name, ''::text, created_at FROM folders WHERE space_id=$1 AND parent_id IS NULL
+			SELECT id, parent_id, name, ''::text, created_at FROM entries WHERE space_id=$1 AND parent_id IS NULL AND kind='folder'
 			UNION ALL
-			SELECT f.id, f.parent_id, f.name, t.path || '/' || f.name, f.created_at FROM folders f JOIN t ON f.parent_id = t.id
+			SELECT f.id, f.parent_id, f.name, t.path || '/' || f.name, f.created_at FROM entries f JOIN t ON f.parent_id = t.id AND f.kind='folder'
 		) SELECT id::text, parent_id::text, name, path, created_at FROM t ORDER BY path COLLATE "C"`, spaceID)
 	if err != nil {
 		return nil, err
@@ -336,8 +344,8 @@ func (s *Service) mkdirTx(ctx context.Context, tx pgx.Tx, p *Principal, parentID
 		return "", errf(ErrConflict, "a file named %q exists", name)
 	}
 	var id string
-	err = tx.QueryRow(ctx, `INSERT INTO folders(space_id, parent_id, name, created_by)
-		SELECT space_id, id, $2, $3::uuid FROM folders WHERE id=$1 RETURNING id::text`,
+	err = tx.QueryRow(ctx, `INSERT INTO entries(space_id, kind, parent_id, name, created_by)
+		SELECT space_id, 'folder', id, $2, $3::uuid FROM entries WHERE id=$1 AND kind='folder' RETURNING id::text`,
 		parentID, name, p.userRef()).Scan(&id)
 	return id, err
 }
@@ -404,8 +412,8 @@ func isAncestor(ctx context.Context, q db.Querier, anc, folder string) (bool, er
 	var found bool
 	err := q.QueryRow(ctx, `
 		WITH RECURSIVE up(id, parent_id) AS (
-			SELECT id, parent_id FROM folders WHERE id=$2
-			UNION ALL SELECT f.id, f.parent_id FROM folders f JOIN up ON f.id = up.parent_id
+			SELECT id, parent_id FROM entries WHERE id=$2
+			UNION ALL SELECT f.id, f.parent_id FROM entries f JOIN up ON f.id = up.parent_id
 		) SELECT EXISTS(SELECT 1 FROM up WHERE id=$1)`, anc, folder).Scan(&found)
 	return found, err
 }
@@ -465,7 +473,7 @@ func (s *Service) MoveFolder(ctx context.Context, p *Principal, folderID, dstPar
 			return errf(ErrConflict, "%q already exists in target folder", newName)
 		}
 		if !cross {
-			_, err = tx.Exec(ctx, `UPDATE folders SET parent_id=$2, name=$3 WHERE id=$1`, folderID, dstParentID, newName)
+			_, err = tx.Exec(ctx, `UPDATE entries SET parent_id=$2, name=$3, updated_at=now() WHERE id=$1 AND kind='folder'`, folderID, dstParentID, newName)
 			return err
 		}
 		resultID, err = s.moveTreeCrossSpaceTx(ctx, tx, p, folderID, dstParentID, newName)
@@ -482,7 +490,7 @@ func (s *Service) moveTreeCrossSpaceTx(ctx context.Context, tx pgx.Tx, p *Princi
 	if err != nil {
 		return "", err
 	}
-	links, err := tx.Query(ctx, `SELECT id::text FROM links WHERE folder_id=$1 AND deleted_at IS NULL`, srcID)
+	links, err := tx.Query(ctx, `SELECT id::text FROM entries WHERE parent_id=$1 AND kind='link' AND deleted_at IS NULL`, srcID)
 	if err != nil {
 		return "", err
 	}
@@ -498,7 +506,7 @@ func (s *Service) moveTreeCrossSpaceTx(ctx context.Context, tx pgx.Tx, p *Princi
 			return "", err
 		}
 	}
-	subs, err := tx.Query(ctx, `SELECT id::text, name FROM folders WHERE parent_id=$1`, srcID)
+	subs, err := tx.Query(ctx, `SELECT id::text, name FROM entries WHERE parent_id=$1 AND kind='folder'`, srcID)
 	if err != nil {
 		return "", err
 	}
@@ -515,8 +523,7 @@ func (s *Service) moveTreeCrossSpaceTx(ctx context.Context, tx pgx.Tx, p *Princi
 			return "", err
 		}
 	}
-	_, err = tx.Exec(ctx, `DELETE FROM folders WHERE id=$1`, srcID)
-	return newID, err
+	return newID, deleteFolderTreeTx(ctx, tx, srcID)
 }
 
 // DeleteFolder deletes a folder recursively: links below are moved to the
@@ -538,11 +545,11 @@ func (s *Service) DeleteFolder(ctx context.Context, p *Principal, folderID strin
 		}
 		rows, err := tx.Query(ctx, `
 			WITH RECURSIVE sub(id, path) AS (
-				SELECT id, $2::text FROM folders WHERE id = $1
-				UNION ALL SELECT f.id, sub.path || '/' || f.name FROM folders f JOIN sub ON f.parent_id = sub.id
+				SELECT id, $2::text FROM entries WHERE id = $1 AND kind = 'folder'
+				UNION ALL SELECT f.id, sub.path || '/' || f.name FROM entries f JOIN sub ON f.parent_id = sub.id AND f.kind = 'folder'
 			)
-			UPDATE links l SET deleted_at = now(), deleted_path = sub.path || '/' || l.name
-			FROM sub WHERE l.folder_id = sub.id AND l.deleted_at IS NULL
+			UPDATE entries l SET deleted_at = now(), deleted_path = sub.path || '/' || l.name, updated_at = now()
+			FROM sub WHERE l.parent_id = sub.id AND l.kind = 'link' AND l.deleted_at IS NULL
 			RETURNING l.document_id::text`, folderID, f.Path)
 		if err != nil {
 			return err
@@ -557,9 +564,21 @@ func (s *Service) DeleteFolder(ctx context.Context, p *Principal, folderID strin
 		if err := trashOrphans(ctx, tx, docs); err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, `DELETE FROM folders WHERE id=$1`, folderID)
-		return err
+		return deleteFolderTreeTx(ctx, tx, folderID)
 	})
+}
+
+// deleteFolderTreeTx removes a folder and all folders below it. Live links
+// must have been moved or trashed before (the schema refuses otherwise);
+// trashed links below lose their parent and keep their deleted_path.
+func deleteFolderTreeTx(ctx context.Context, tx pgx.Tx, folderID string) error {
+	_, err := tx.Exec(ctx, `
+		WITH RECURSIVE sub(id) AS (
+			SELECT id FROM entries WHERE id = $1 AND kind = 'folder'
+			UNION ALL SELECT f.id FROM entries f JOIN sub ON f.parent_id = sub.id AND f.kind = 'folder'
+		)
+		DELETE FROM entries WHERE id IN (SELECT id FROM sub)`, folderID)
+	return err
 }
 
 // trashOrphans marks documents without live links as deleted.
@@ -569,6 +588,6 @@ func trashOrphans(ctx context.Context, tx pgx.Tx, docIDs []string) error {
 	}
 	_, err := tx.Exec(ctx, `UPDATE documents d SET deleted_at = now()
 		WHERE d.id = ANY($1::uuid[]) AND d.deleted_at IS NULL
-		AND NOT EXISTS (SELECT 1 FROM links l WHERE l.document_id = d.id AND l.deleted_at IS NULL)`, docIDs)
+		AND NOT EXISTS (SELECT 1 FROM entries l WHERE l.document_id = d.id AND l.deleted_at IS NULL)`, docIDs)
 	return err
 }

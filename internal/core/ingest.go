@@ -24,7 +24,7 @@ func (p *Principal) userRef() *string {
 
 // PutOptions controls a file write.
 type PutOptions struct {
-	Protocol      string            // web | s3 | webdav | sftp | api
+	Protocol      string            // web | api | webdav | sftp | s3 ("" = api)
 	ImportID      string            // explicit import batch (optional)
 	ClientRoot    string            // client side root for new imports (optional)
 	Meta          map[string]string // user metadata stored on the version
@@ -70,6 +70,9 @@ func (s *Service) PutStaged(ctx context.Context, p *Principal, spaceID string, s
 	if err := s.requirePerm(ctx, s.DB, p, spaceID, PermWrite); err != nil {
 		s.Blobs.Discard(st)
 		return nil, err
+	}
+	if opt.Protocol == "" {
+		opt.Protocol = "api"
 	}
 	newBlob, err := s.Blobs.Commit(st)
 	if err != nil {
@@ -177,8 +180,10 @@ func ensureProcessingTx(ctx context.Context, tx pgx.Tx, sha blob.SHA256) error {
 
 func findDocBySHA(ctx context.Context, tx pgx.Tx, spaceID string, sha blob.SHA256) (string, error) {
 	var id string
-	err := tx.QueryRow(ctx, `SELECT id::text FROM documents WHERE space_id=$1 AND current_sha256=$2 AND deleted_at IS NULL
-		ORDER BY created_at LIMIT 1 FOR UPDATE`, spaceID, sha[:]).Scan(&id)
+	err := tx.QueryRow(ctx, `SELECT d.id::text FROM documents d
+		JOIN document_versions v ON v.document_id = d.id AND v.version = d.current_version
+		WHERE d.space_id=$1 AND v.sha256=$2 AND d.deleted_at IS NULL
+		ORDER BY d.created_at LIMIT 1 FOR UPDATE OF d`, spaceID, sha[:]).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
@@ -190,8 +195,8 @@ func createDocTx(ctx context.Context, tx pgx.Tx, p *Principal, spaceID string, s
 	if meta == nil {
 		meta = map[string]string{}
 	}
-	err := tx.QueryRow(ctx, `INSERT INTO documents(space_id, current_sha256, current_version, created_by)
-		VALUES($1,$2,1,$3) RETURNING id::text`, spaceID, sha[:], p.userRef()).Scan(&id)
+	err := tx.QueryRow(ctx, `INSERT INTO documents(space_id, current_version, created_by)
+		VALUES($1,1,$2) RETURNING id::text`, spaceID, p.userRef()).Scan(&id)
 	if err != nil {
 		return "", err
 	}
@@ -202,8 +207,9 @@ func createDocTx(ctx context.Context, tx pgx.Tx, p *Principal, spaceID string, s
 
 func createLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, docID, folderID, name string, importID *string, origPath string) (string, error) {
 	var id string
-	err := tx.QueryRow(ctx, `INSERT INTO links(document_id, folder_id, name, import_id, original_path, created_by)
-		VALUES($1,$2,$3,$4,$5,$6) RETURNING id::text`, docID, folderID, name, importID, origPath, p.userRef()).Scan(&id)
+	err := tx.QueryRow(ctx, `INSERT INTO entries(space_id, kind, document_id, parent_id, name, import_id, original_path, created_by)
+		SELECT space_id, 'link', id, $2, $3, $4, $5, $6 FROM documents WHERE id=$1 RETURNING id::text`,
+		docID, folderID, name, importID, origPath, p.userRef()).Scan(&id)
 	return id, err
 }
 
@@ -212,15 +218,16 @@ func createLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, docID, folderID,
 // (copy-on-write). Returns whether anything changed and whether it forked.
 func (s *Service) writeVersionTx(ctx context.Context, tx pgx.Tx, p *Principal, linkID string, sha blob.SHA256, source string, meta map[string]string) (bool, bool, error) {
 	var docID string
-	if err := tx.QueryRow(ctx, `SELECT document_id::text FROM links WHERE id=$1`, linkID).Scan(&docID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT document_id::text FROM entries WHERE id=$1 AND kind='link'`, linkID).Scan(&docID); err != nil {
 		return false, false, err
 	}
 	var cur []byte
 	var ver, links int
 	var spaceID string
-	err := tx.QueryRow(ctx, `SELECT current_sha256, current_version, space_id::text,
-		(SELECT count(*) FROM links WHERE document_id=d.id AND deleted_at IS NULL)
-		FROM documents d WHERE id=$1 FOR UPDATE`, docID).Scan(&cur, &ver, &spaceID, &links)
+	err := tx.QueryRow(ctx, `SELECT v.sha256, d.current_version, d.space_id::text,
+		(SELECT count(*) FROM entries WHERE document_id=d.id AND deleted_at IS NULL)
+		FROM documents d JOIN document_versions v ON v.document_id = d.id AND v.version = d.current_version
+		WHERE d.id=$1 FOR UPDATE OF d`, docID).Scan(&cur, &ver, &spaceID, &links)
 	if err != nil {
 		return false, false, err
 	}
@@ -236,7 +243,7 @@ func (s *Service) writeVersionTx(ctx context.Context, tx pgx.Tx, p *Principal, l
 		if err != nil {
 			return false, false, err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE links SET document_id=$2, updated_at=now() WHERE id=$1`, linkID, newDoc); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE entries SET document_id=$2, updated_at=now() WHERE id=$1`, linkID, newDoc); err != nil {
 			return false, false, err
 		}
 		docID, forked = newDoc, true
@@ -245,8 +252,7 @@ func (s *Service) writeVersionTx(ctx context.Context, tx pgx.Tx, p *Principal, l
 		VALUES($1,$2,$3,$4,$5,$6)`, docID, ver+1, sha[:], p.userRef(), source, meta); err != nil {
 		return false, false, err
 	}
-	_, err = tx.Exec(ctx, `UPDATE documents SET current_sha256=$2, current_version=$3, updated_at=now() WHERE id=$1`,
-		docID, sha[:], ver+1)
+	_, err = tx.Exec(ctx, `UPDATE documents SET current_version=$2, updated_at=now() WHERE id=$1`, docID, ver+1)
 	return true, forked, err
 }
 
@@ -254,15 +260,17 @@ func (s *Service) writeVersionTx(ctx context.Context, tx pgx.Tx, p *Principal, l
 // targetSpace and returns the new document id.
 func forkDocTx(ctx context.Context, tx pgx.Tx, p *Principal, docID, targetSpace string) (string, error) {
 	var id string
-	err := tx.QueryRow(ctx, `INSERT INTO documents(space_id, current_sha256, current_version, created_by, forked_from, created_at, updated_at)
-		SELECT $2, current_sha256, current_version, $3, id, created_at, updated_at FROM documents WHERE id=$1
+	err := tx.QueryRow(ctx, `INSERT INTO documents(space_id, current_version, created_by, forked_from, created_at, updated_at)
+		SELECT $2, current_version, $3, id, created_at, updated_at FROM documents WHERE id=$1
 		RETURNING id::text`, docID, targetSpace, p.userRef()).Scan(&id)
 	if err != nil {
 		return "", err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO document_versions(document_id, version, sha256, created_at, created_by, source, meta)
-		SELECT $2, version, sha256, created_at, created_by, source, meta FROM document_versions WHERE document_id=$1`, docID, id)
-	return id, err
+	if _, err = tx.Exec(ctx, `INSERT INTO document_versions(document_id, version, sha256, created_at, created_by, source, meta)
+		SELECT $2, version, sha256, created_at, created_by, source, meta FROM document_versions WHERE document_id=$1`, docID, id); err != nil {
+		return "", err
+	}
+	return id, copyDocRelationsTx(ctx, tx, docID, id)
 }
 
 // importTx returns the import batch for a write: the explicit one, or the
@@ -330,7 +338,7 @@ func (s *Service) ListImports(ctx context.Context, p *Principal, limit int) ([]I
 		limit = 100
 	}
 	rows, err := s.DB.Query(ctx, `SELECT i.id::text, i.space_id::text, i.protocol, i.client_root, i.created_at, i.last_activity_at,
-		(SELECT count(*) FROM links l WHERE l.import_id = i.id)
+		(SELECT count(*) FROM entries l WHERE l.import_id = i.id)
 		FROM imports i WHERE i.user_id=$1 ORDER BY i.last_activity_at DESC LIMIT $2`, p.UserID, limit)
 	if err != nil {
 		return nil, err
@@ -377,7 +385,9 @@ func (s *Service) AddDocumentVersion(ctx context.Context, p *Principal, docID st
 		}
 		var cur []byte
 		var ver int
-		if err := tx.QueryRow(ctx, `SELECT current_sha256, current_version FROM documents WHERE id=$1 FOR UPDATE`, docID).Scan(&cur, &ver); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT v.sha256, d.current_version FROM documents d
+				JOIN document_versions v ON v.document_id = d.id AND v.version = d.current_version
+				WHERE d.id=$1 FOR UPDATE OF d`, docID).Scan(&cur, &ver); err != nil {
 			return err
 		}
 		if string(cur) == string(st.SHA256[:]) {
@@ -387,8 +397,7 @@ func (s *Service) AddDocumentVersion(ctx context.Context, p *Principal, docID st
 			VALUES($1,$2,$3,$4,$5)`, docID, ver+1, st.SHA256[:], p.userRef(), source); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `UPDATE documents SET current_sha256=$2, current_version=$3, updated_at=now() WHERE id=$1`,
-			docID, st.SHA256[:], ver+1)
+		_, err := tx.Exec(ctx, `UPDATE documents SET current_version=$2, updated_at=now() WHERE id=$1`, docID, ver+1)
 		return err
 	})
 	if err != nil {
@@ -417,7 +426,9 @@ func (s *Service) RestoreVersion(ctx context.Context, p *Principal, docID string
 		}
 		var ver int
 		var cur []byte
-		if err := tx.QueryRow(ctx, `SELECT current_version, current_sha256 FROM documents WHERE id=$1 FOR UPDATE`, docID).Scan(&ver, &cur); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT d.current_version, v.sha256 FROM documents d
+				JOIN document_versions v ON v.document_id = d.id AND v.version = d.current_version
+				WHERE d.id=$1 FOR UPDATE OF d`, docID).Scan(&ver, &cur); err != nil {
 			return err
 		}
 		if string(cur) == string(sha) {
@@ -427,7 +438,7 @@ func (s *Service) RestoreVersion(ctx context.Context, p *Principal, docID string
 			VALUES($1,$2,$3,$4,'restore',jsonb_build_object('restored_from', $5::text))`, docID, ver+1, sha, p.userRef(), fmt.Sprint(version)); err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, `UPDATE documents SET current_sha256=$2, current_version=$3, updated_at=now() WHERE id=$1`, docID, sha, ver+1)
+		_, err = tx.Exec(ctx, `UPDATE documents SET current_version=$2, updated_at=now() WHERE id=$1`, docID, ver+1)
 		return err
 	})
 	if err != nil {

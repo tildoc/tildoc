@@ -2,10 +2,12 @@ package core
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
+
+	"github.com/jackc/pgx/v5"
 )
 
-// PDF viewer choices.
+// PDF viewer choices (users.pdf_viewer).
 const (
 	PDFViewerPDFJS  = "pdfjs"  // in-app viewer (pdf.js), default
 	PDFViewerNative = "native" // the browser's built-in viewer
@@ -16,22 +18,14 @@ type Prefs struct {
 	PDFViewer string `json:"pdf_viewer"`
 }
 
-func (p *Prefs) normalize() {
-	if p.PDFViewer != PDFViewerNative {
-		p.PDFViewer = PDFViewerPDFJS
-	}
-}
-
-// GetPrefs returns the preferences of a user with defaults applied.
+// GetPrefs returns the preferences of a user.
 func (s *Service) GetPrefs(ctx context.Context, userID string) (Prefs, error) {
-	var raw []byte
 	var p Prefs
-	if err := s.DB.QueryRow(ctx, `SELECT prefs FROM users WHERE id=$1`, userID).Scan(&raw); err != nil {
-		return p, err
+	err := s.DB.QueryRow(ctx, `SELECT pdf_viewer FROM users WHERE id=$1`, userID).Scan(&p.PDFViewer)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return p, errf(ErrNotFound, "user not found")
 	}
-	_ = json.Unmarshal(raw, &p)
-	p.normalize()
-	return p, nil
+	return p, err
 }
 
 // PrefsUpdate changes individual preferences; nil fields stay unchanged.
@@ -44,19 +38,15 @@ func (s *Service) SetPrefs(ctx context.Context, p *Principal, upd PrefsUpdate) (
 	if p == nil {
 		return Prefs{}, ErrUnauthorized
 	}
-	cur, err := s.GetPrefs(ctx, p.UserID)
-	if err != nil {
-		return cur, err
-	}
 	if upd.PDFViewer != nil {
 		switch *upd.PDFViewer {
 		case PDFViewerPDFJS, PDFViewerNative:
-			cur.PDFViewer = *upd.PDFViewer
 		default:
-			return cur, errf(ErrInvalid, "pdf_viewer must be %q or %q", PDFViewerPDFJS, PDFViewerNative)
+			return Prefs{}, errf(ErrInvalid, "pdf_viewer must be %q or %q", PDFViewerPDFJS, PDFViewerNative)
+		}
+		if _, err := s.DB.Exec(ctx, `UPDATE users SET pdf_viewer=$2 WHERE id=$1`, p.UserID, *upd.PDFViewer); err != nil {
+			return Prefs{}, err
 		}
 	}
-	raw, _ := json.Marshal(cur)
-	_, err = s.DB.Exec(ctx, `UPDATE users SET prefs=$2 WHERE id=$1`, p.UserID, raw)
-	return cur, err
+	return s.GetPrefs(ctx, p.UserID)
 }

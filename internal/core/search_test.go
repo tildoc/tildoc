@@ -10,7 +10,7 @@ func TestSearchHitPage(t *testing.T) {
 	f := newFixture(t)
 	res := f.put(t, f.alice, f.home.ID, "/docs/report.pdf", "%PDF-1.4 placeholder")
 	text := "Introduction\nnothing here\f" + "Second page\f" + "Third page mentions the Zebra budget\f"
-	if err := f.svc.StoreText(f.ctx, res.File.SHA256, "pdf-digital", text); err != nil {
+	if err := f.svc.StoreText(f.ctx, res.File.SHA256, "pdftotext", text); err != nil {
 		t.Fatal(err)
 	}
 	r := ck(f.svc.Search(f.ctx, f.alice, core.SearchQuery{Q: "zebra", Limit: 10}))

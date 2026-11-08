@@ -67,14 +67,14 @@ func (s *Service) GetDocument(ctx context.Context, p *Principal, id string) (*Do
 	d := &Document{ID: id}
 	var sha, md5 []byte
 	err := s.DB.QueryRow(ctx, `
-		SELECT d.space_id::text, d.current_version, d.current_sha256, b.md5, b.size, b.mime,
+		SELECT d.space_id::text, d.current_version, d.sha256, b.md5, b.size, b.mime,
 		       coalesce(bp.status,'pending'), coalesce(bp.kind,''), bp.pages, coalesce(bp.error,''),
 		       d.created_at, d.updated_at, d.deleted_at, d.forked_from::text,
 		       coalesce(t.method,''), t.sha256 IS NOT NULL,
-		       EXISTS(SELECT 1 FROM blob_derivatives x WHERE x.source_sha256=d.current_sha256 AND x.kind='searchable_pdf')
-		FROM documents d JOIN blobs b ON b.sha256=d.current_sha256
-		LEFT JOIN blob_processing bp ON bp.sha256=d.current_sha256
-		LEFT JOIN blob_texts t ON t.sha256=d.current_sha256
+		       EXISTS(SELECT 1 FROM blob_derivatives x WHERE x.source_sha256=d.sha256 AND x.kind='searchable_pdf')
+		FROM document_heads d JOIN blobs b ON b.sha256=d.sha256
+		LEFT JOIN blob_processing bp ON bp.sha256=d.sha256
+		LEFT JOIN blob_texts t ON t.sha256=d.sha256
 		WHERE d.id=$1`, id).Scan(&d.SpaceID, &d.Version, &sha, &md5, &d.Size, &d.MIME, &d.Status, &d.Kind, &d.Pages,
 		&d.ProcessError, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt, &d.ForkedFrom, &d.TextMethod, &d.HasText, &d.HasSearchable)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -107,10 +107,10 @@ func (s *Service) GetDocument(ctx context.Context, p *Principal, id string) (*Do
 	}
 	rows.Close()
 
-	rows, err = s.DB.Query(ctx, `SELECT id::text, coalesce(folder_id::text,''), name,
-		CASE WHEN deleted_at IS NULL THEN folder_path(folder_id) || '/' || name ELSE coalesce(deleted_path,'') END,
+	rows, err = s.DB.Query(ctx, `SELECT id::text, coalesce(parent_id::text,''), name,
+		CASE WHEN deleted_at IS NULL THEN folder_path(parent_id) || '/' || name ELSE deleted_path END,
 		original_path, import_id::text, created_at, deleted_at IS NOT NULL
-		FROM links WHERE document_id=$1 AND (deleted_at IS NULL OR $2) ORDER BY created_at`, id, d.DeletedAt != nil)
+		FROM entries WHERE document_id=$1 AND (deleted_at IS NULL OR $2) ORDER BY created_at`, id, d.DeletedAt != nil)
 	if err != nil {
 		return nil, err
 	}

@@ -76,7 +76,7 @@ func (p *Processor) Process(ctx context.Context, sha blob.SHA256, force bool) er
 	case looksLikeText(head):
 		return p.processText(ctx, sha, path)
 	default:
-		return p.Svc.SetProcessing(ctx, sha, core.StatusUnsupported, mt, nil, "")
+		return p.Svc.SetProcessing(ctx, sha, core.StatusUnsupported, "", nil, "")
 	}
 }
 

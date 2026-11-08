@@ -18,7 +18,7 @@ func TestMigrateIdempotent(t *testing.T) {
 	if err := env.Pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil || n < 1 {
 		t.Fatalf("migrations: %d %v", n, err)
 	}
-	for _, tbl := range []string{"users", "spaces", "folders", "documents", "links", "blobs", "jobs"} {
+	for _, tbl := range []string{"users", "spaces", "entries", "documents", "document_versions", "blobs", "tags", "collections", "jobs"} {
 		if _, err := env.Pool.Exec(ctx, "SELECT 1 FROM "+tbl+" LIMIT 1"); err != nil {
 			t.Fatalf("table %s: %v", tbl, err)
 		}

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/tildoc/tildoc/internal/blob"
 )
 
 type linkRow struct {
@@ -16,8 +18,8 @@ type linkRow struct {
 
 func loadLinkTx(ctx context.Context, q pgx.Tx, linkID string) (*linkRow, error) {
 	l := &linkRow{ID: linkID}
-	err := q.QueryRow(ctx, `SELECT l.document_id::text, l.folder_id::text, l.name, d.space_id::text, l.created_at, l.created_by::text
-		FROM links l JOIN documents d ON d.id = l.document_id WHERE l.id=$1 AND l.deleted_at IS NULL FOR UPDATE OF l`, linkID).
+	err := q.QueryRow(ctx, `SELECT document_id::text, parent_id::text, name, space_id::text, created_at, created_by::text
+		FROM entries WHERE id=$1 AND kind='link' AND deleted_at IS NULL FOR UPDATE`, linkID).
 		Scan(&l.DocID, &l.FolderID, &l.Name, &l.SpaceID, &l.CreatedAt, &l.CreatedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errf(ErrNotFound, "file not found")
@@ -29,8 +31,8 @@ func loadLinkTx(ctx context.Context, q pgx.Tx, linkID string) (*linkRow, error) 
 // it was the last live link.
 func softDeleteLinkTx(ctx context.Context, tx pgx.Tx, linkID string) error {
 	var docID string
-	err := tx.QueryRow(ctx, `UPDATE links SET deleted_at=now(), deleted_path=folder_path(folder_id) || '/' || name
-		WHERE id=$1 AND deleted_at IS NULL RETURNING document_id::text`, linkID).Scan(&docID)
+	err := tx.QueryRow(ctx, `UPDATE entries SET deleted_at=now(), deleted_path=folder_path(parent_id) || '/' || name, updated_at=now()
+		WHERE id=$1 AND kind='link' AND deleted_at IS NULL RETURNING document_id::text`, linkID).Scan(&docID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errf(ErrNotFound, "file not found")
 	}
@@ -47,7 +49,7 @@ func softDeleteLinkTx(ctx context.Context, tx pgx.Tx, linkID string) error {
 func (s *Service) retireLinkTx(ctx context.Context, tx pgx.Tx, l *linkRow) error {
 	var others, versions int
 	var created time.Time
-	err := tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM links WHERE document_id=d.id AND deleted_at IS NULL AND id<>$2),
+	err := tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM entries WHERE document_id=d.id AND deleted_at IS NULL AND id<>$2),
 		d.current_version, d.created_at FROM documents d WHERE d.id=$1`, l.DocID, l.ID).Scan(&others, &versions, &created)
 	if err != nil {
 		return err
@@ -76,8 +78,8 @@ func (s *Service) reviveTx(ctx context.Context, tx pgx.Tx, p *Principal, folderI
 		return "", nil
 	}
 	var linkID, docID string
-	err := tx.QueryRow(ctx, `SELECT l.id::text, l.document_id::text FROM links l JOIN documents d ON d.id = l.document_id
-		WHERE l.folder_id=$1 AND l.name=$2 AND l.deleted_at > now() - make_interval(secs => $3) AND d.deleted_at IS NOT NULL
+	err := tx.QueryRow(ctx, `SELECT l.id::text, l.document_id::text FROM entries l JOIN documents d ON d.id = l.document_id
+		WHERE l.parent_id=$1 AND l.name=$2 AND l.deleted_at > now() - make_interval(secs => $3) AND d.deleted_at IS NOT NULL
 		ORDER BY l.deleted_at DESC LIMIT 1 FOR UPDATE OF l, d`, folderID, name, s.Cfg.ProvenanceWindow.Seconds()).Scan(&linkID, &docID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
@@ -85,7 +87,7 @@ func (s *Service) reviveTx(ctx context.Context, tx pgx.Tx, p *Principal, folderI
 	if err != nil {
 		return "", err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE links SET deleted_at=NULL, deleted_path=NULL, updated_at=now() WHERE id=$1`, linkID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE entries SET deleted_at=NULL, deleted_path=NULL, updated_at=now() WHERE id=$1`, linkID); err != nil {
 		return "", err
 	}
 	_, err = tx.Exec(ctx, `UPDATE documents SET deleted_at=NULL WHERE id=$1`, docID)
@@ -106,7 +108,7 @@ func (s *Service) moveLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, linkI
 		return "", err
 	}
 	var dstSpace string
-	if err := tx.QueryRow(ctx, `SELECT space_id::text FROM folders WHERE id=$1`, dstFolderID).Scan(&dstSpace); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT space_id::text FROM entries WHERE id=$1 AND kind='folder'`, dstFolderID).Scan(&dstSpace); err != nil {
 		return "", err
 	}
 	fold, other, err := child(ctx, tx, dstFolderID, newName)
@@ -132,14 +134,13 @@ func (s *Service) moveLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, linkI
 			return "", errf(ErrConflict, "%q already exists", newName)
 		}
 		var otherDoc string
-		if err := tx.QueryRow(ctx, `SELECT document_id::text FROM links WHERE id=$1`, other).Scan(&otherDoc); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT document_id::text FROM entries WHERE id=$1`, other).Scan(&otherDoc); err != nil {
 			return "", err
 		}
 		if otherDoc != l.DocID {
 			var sha []byte
 			var meta map[string]string
-			if err := tx.QueryRow(ctx, `SELECT d.current_sha256, v.meta FROM documents d JOIN document_versions v
-				ON v.document_id=d.id AND v.version=d.current_version WHERE d.id=$1`, l.DocID).Scan(&sha, &meta); err != nil {
+			if err := tx.QueryRow(ctx, `SELECT sha256, meta FROM document_heads WHERE id=$1`, l.DocID).Scan(&sha, &meta); err != nil {
 				return "", err
 			}
 			var h [32]byte
@@ -151,7 +152,7 @@ func (s *Service) moveLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, linkI
 		return other, s.retireLinkTx(ctx, tx, l)
 	}
 	if dstSpace == l.SpaceID {
-		_, err = tx.Exec(ctx, `UPDATE links SET folder_id=$2, name=$3, updated_at=now(),
+		_, err = tx.Exec(ctx, `UPDATE entries SET parent_id=$2, name=$3, updated_at=now(),
 			original_path = CASE WHEN $6 AND created_at > now() - make_interval(secs => $4) AND created_by IS NOT DISTINCT FROM $5::uuid
 				THEN folder_path($2) || '/' || $3 ELSE original_path END
 			WHERE id=$1`, linkID, dstFolderID, newName, s.Cfg.ProvenanceWindow.Seconds(), p.userRef(), p.fileProtocol())
@@ -159,15 +160,47 @@ func (s *Service) moveLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, linkI
 	}
 	// cross-space move
 	var live int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM links WHERE document_id=$1 AND deleted_at IS NULL`, l.DocID).Scan(&live); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM entries WHERE document_id=$1 AND deleted_at IS NULL`, l.DocID).Scan(&live); err != nil {
 		return "", err
+	}
+	var sha blob.SHA256
+	var raw []byte
+	if err := tx.QueryRow(ctx, `SELECT sha256 FROM document_heads WHERE id=$1`, l.DocID).Scan(&raw); err != nil {
+		return "", err
+	}
+	copy(sha[:], raw)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, dstSpace+sha.Hex()); err != nil {
+		return "", err
+	}
+	target, err := findDocBySHA(ctx, tx, dstSpace, sha)
+	if err != nil {
+		return "", err
+	}
+	if target != "" {
+		// The destination already holds this content (one document per
+		// content and space): the link joins that document, whose history
+		// absorbs the moved document's versions.
+		if err := mergeHistoryTx(ctx, tx, target, l.DocID); err != nil {
+			return "", err
+		}
+		if err := copyDocRelationsTx(ctx, tx, l.DocID, target); err != nil {
+			return "", err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE entries SET document_id=$2, space_id=$3, parent_id=$4, name=$5, updated_at=now() WHERE id=$1`,
+			linkID, target, dstSpace, dstFolderID, newName); err != nil {
+			return "", err
+		}
+		if live == 1 {
+			_, err = tx.Exec(ctx, `DELETE FROM documents WHERE id=$1`, l.DocID)
+		}
+		return linkID, err
 	}
 	docID := l.DocID
 	if live == 1 {
-		if _, err := tx.Exec(ctx, `UPDATE documents SET space_id=$2 WHERE id=$1`, docID, dstSpace); err != nil {
+		if _, err := tx.Exec(ctx, `DELETE FROM entries WHERE document_id=$1 AND deleted_at IS NOT NULL`, docID); err != nil {
 			return "", err
 		}
-		if _, err := tx.Exec(ctx, `DELETE FROM links WHERE document_id=$1 AND deleted_at IS NOT NULL`, docID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE documents SET space_id=$2 WHERE id=$1`, docID, dstSpace); err != nil {
 			return "", err
 		}
 	} else {
@@ -175,9 +208,73 @@ func (s *Service) moveLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, linkI
 			return "", err
 		}
 	}
-	_, err = tx.Exec(ctx, `UPDATE links SET document_id=$2, folder_id=$3, name=$4, updated_at=now() WHERE id=$1`,
-		linkID, docID, dstFolderID, newName)
+	_, err = tx.Exec(ctx, `UPDATE entries SET document_id=$2, space_id=$3, parent_id=$4, name=$5, updated_at=now() WHERE id=$1`,
+		linkID, docID, dstSpace, dstFolderID, newName)
 	return linkID, err
+}
+
+// mergeHistoryTx merges the versions of document from into document into:
+// both histories are combined in chronological order and renumbered. Both
+// documents currently have the same content, so the newest version is that
+// content in any case. from is left unchanged.
+func mergeHistoryTx(ctx context.Context, tx pgx.Tx, into, from string) error {
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM documents WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`, []string{into, from}); err != nil {
+		return err
+	}
+	type ver struct {
+		sha       []byte
+		createdAt time.Time
+		createdBy *string
+		source    string
+		meta      map[string]any
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT sha256, created_at, created_by::text, source, meta FROM (
+			SELECT sha256, created_at, created_by, source, meta, 0 AS o, version FROM document_versions WHERE document_id = $1
+			UNION ALL
+			SELECT sha256, created_at, created_by, source, meta || jsonb_build_object('merged_from', document_id::text), 1, version
+			FROM document_versions WHERE document_id = $2
+		) x ORDER BY created_at, o, version`, into, from)
+	if err != nil {
+		return err
+	}
+	var all []ver
+	for rows.Next() {
+		var v ver
+		if err := rows.Scan(&v.sha, &v.createdAt, &v.createdBy, &v.source, &v.meta); err != nil {
+			rows.Close()
+			return err
+		}
+		all = append(all, v)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM document_versions WHERE document_id=$1`, into); err != nil {
+		return err
+	}
+	for i, v := range all {
+		if _, err := tx.Exec(ctx, `INSERT INTO document_versions(document_id, version, sha256, created_at, created_by, source, meta)
+			VALUES($1,$2,$3,$4,$5,$6,$7)`, into, i+1, v.sha, v.createdAt, v.createdBy, v.source, v.meta); err != nil {
+			return err
+		}
+	}
+	_, err = tx.Exec(ctx, `UPDATE documents d SET current_version=$3, updated_at=now(),
+		created_at = least(d.created_at, (SELECT created_at FROM documents WHERE id=$2)) WHERE d.id=$1`, into, from, len(all))
+	return err
+}
+
+// copyDocRelationsTx gives document to the tags and collection memberships
+// of document from (used when a document is split or merged).
+func copyDocRelationsTx(ctx context.Context, tx pgx.Tx, from, to string) error {
+	if _, err := tx.Exec(ctx, `INSERT INTO document_tags(document_id, tag_id, added_by, added_at)
+		SELECT $2, tag_id, added_by, added_at FROM document_tags WHERE document_id=$1 ON CONFLICT DO NOTHING`, from, to); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO collection_items(collection_id, document_id, added_by, added_at)
+		SELECT collection_id, $2, added_by, added_at FROM collection_items WHERE document_id=$1 ON CONFLICT DO NOTHING`, from, to)
+	return err
 }
 
 // MoveLink moves and/or renames a file. dstFolderID "" keeps the folder,
@@ -224,8 +321,8 @@ func (s *Service) MoveLink(ctx context.Context, p *Principal, linkID, dstFolderI
 func (s *Service) copyLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, linkID, dstFolderID, newName string, overwrite bool) (string, error) {
 	var docID, srcSpace, name string
 	var sha []byte
-	err := tx.QueryRow(ctx, `SELECT l.document_id::text, d.space_id::text, l.name, d.current_sha256 FROM links l
-		JOIN documents d ON d.id=l.document_id WHERE l.id=$1 AND l.deleted_at IS NULL`, linkID).Scan(&docID, &srcSpace, &name, &sha)
+	err := tx.QueryRow(ctx, `SELECT l.document_id::text, l.space_id::text, l.name, d.sha256 FROM entries l
+		JOIN document_heads d ON d.id=l.document_id WHERE l.id=$1 AND l.kind='link' AND l.deleted_at IS NULL`, linkID).Scan(&docID, &srcSpace, &name, &sha)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", errf(ErrNotFound, "file not found")
 	}
@@ -364,7 +461,7 @@ func (s *Service) copyTreeTx(ctx context.Context, tx pgx.Tx, p *Principal, srcID
 		}
 		return out, rows.Err()
 	}
-	links, err := collect(`SELECT id::text, name FROM links WHERE folder_id=$1 AND deleted_at IS NULL`)
+	links, err := collect(`SELECT id::text, name FROM entries WHERE parent_id=$1 AND kind='link' AND deleted_at IS NULL`)
 	if err != nil {
 		return "", err
 	}
@@ -373,7 +470,7 @@ func (s *Service) copyTreeTx(ctx context.Context, tx pgx.Tx, p *Principal, srcID
 			return "", err
 		}
 	}
-	subs, err := collect(`SELECT id::text, name FROM folders WHERE parent_id=$1`)
+	subs, err := collect(`SELECT id::text, name FROM entries WHERE parent_id=$1 AND kind='folder'`)
 	if err != nil {
 		return "", err
 	}
@@ -479,7 +576,7 @@ func (s *Service) RestoreOriginal(ctx context.Context, p *Principal, linkIDs []s
 			if err != nil {
 				return err
 			}
-			_, err = tx.Exec(ctx, `UPDATE links SET folder_id=$2, name=$3, updated_at=now() WHERE id=$1`, id, dir, name)
+			_, err = tx.Exec(ctx, `UPDATE entries SET parent_id=$2, name=$3, updated_at=now() WHERE id=$1`, id, dir, name)
 			return err
 		})
 		if err != nil {
@@ -496,7 +593,7 @@ func (s *Service) RestoreOriginal(ctx context.Context, p *Principal, linkIDs []s
 
 // ImportLinks returns the live link ids of an import batch owned by the caller.
 func (s *Service) ImportLinks(ctx context.Context, p *Principal, importID string) ([]string, error) {
-	rows, err := s.DB.Query(ctx, `SELECT l.id::text FROM links l JOIN imports i ON i.id=l.import_id
+	rows, err := s.DB.Query(ctx, `SELECT l.id::text FROM entries l JOIN imports i ON i.id=l.import_id
 		WHERE i.id=$1 AND i.user_id=$2 AND l.deleted_at IS NULL`, importID, p.UserID)
 	if err != nil {
 		return nil, err

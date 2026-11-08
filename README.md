@@ -226,6 +226,9 @@ web/               SvelteKit UI (static SPA)   deploy/         compose, nginx te
   preference. The UI ships a strict hash-based CSP (`'wasm-unsafe-eval'` only for
   pdf.js image decoders, no JS eval).
 - Deduplication is server-side only. There is no "do you have hash X" endpoint
-  that could reveal other users' files.
+  that could reveal other users' files. Accepted limitation: text extraction
+  and OCR results are shared per content, so uploading bytes that someone else
+  already stored shows them as processed right away (this reveals that the
+  identical file existed on the server, nothing about where or whose).
 - **Backups** need all three: PostgreSQL (`pg_dump`), the `data` volume (blobs,
   SSH host key) and `TILDOC_MASTER_KEY`.

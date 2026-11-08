@@ -26,23 +26,22 @@ func (s *Service) ListKeys(ctx context.Context, p *Principal, spaceID, startFold
 	}
 	rows, err := s.DB.Query(ctx, `
 		WITH RECURSIVE tree(id, path) AS (
-			SELECT id, ''::text FROM folders WHERE id = $1 AND space_id = $5
+			SELECT id, ''::text FROM entries WHERE id = $1 AND space_id = $5 AND kind = 'folder'
 			UNION ALL
-			SELECT f.id, t.path || f.name || '/' FROM folders f JOIN tree t ON f.parent_id = t.id
-		), entries AS (
+			SELECT f.id, t.path || f.name || '/' FROM entries f JOIN tree t ON f.parent_id = t.id AND f.kind = 'folder'
+		), keys AS (
 			SELECT t.path || l.name AS key, false AS is_dir, b.size, b.md5, d.updated_at AS mod, l.id::text AS link_id
 			FROM tree t
-			JOIN links l ON l.folder_id = t.id AND l.deleted_at IS NULL
-			JOIN documents d ON d.id = l.document_id
-			JOIN blobs b ON b.sha256 = d.current_sha256
+			JOIN entries l ON l.parent_id = t.id AND l.kind = 'link' AND l.deleted_at IS NULL
+			JOIN document_heads d ON d.id = l.document_id
+			JOIN blobs b ON b.sha256 = d.sha256
 			UNION ALL
 			SELECT t.path, true, 0, NULL, f.created_at, ''
-			FROM tree t JOIN folders f ON f.id = t.id
+			FROM tree t JOIN entries f ON f.id = t.id
 			WHERE t.path <> ''
-			  AND NOT EXISTS (SELECT 1 FROM folders c WHERE c.parent_id = t.id)
-			  AND NOT EXISTS (SELECT 1 FROM links c WHERE c.folder_id = t.id AND c.deleted_at IS NULL)
+			  AND NOT EXISTS (SELECT 1 FROM entries c WHERE c.parent_id = t.id AND c.deleted_at IS NULL)
 		)
-		SELECT key, is_dir, size, md5, mod, link_id FROM entries
+		SELECT key, is_dir, size, md5, mod, link_id FROM keys
 		WHERE key COLLATE "C" > $2 COLLATE "C" AND starts_with(key, $3)
 		ORDER BY key COLLATE "C" LIMIT $4`, startFolder, after, prefix, limit, spaceID)
 	if err != nil {

@@ -45,7 +45,7 @@ const spaceSelect = `
 	       f.id::text, s.created_at,
 	       CASE WHEN s.owner_user_id = $1 THEN 'owner' ELSE coalesce(tm.role,'') END
 	FROM spaces s
-	JOIN folders f ON f.space_id = s.id AND f.parent_id IS NULL
+	JOIN entries f ON f.space_id = s.id AND f.parent_id IS NULL AND f.kind = 'folder'
 	LEFT JOIN teams t ON t.id = s.owner_team_id
 	LEFT JOIN team_members tm ON tm.team_id = s.owner_team_id AND tm.user_id = $1`
 
@@ -171,7 +171,7 @@ func (s *Service) createSpaceTx(ctx context.Context, tx pgx.Tx, slug, name, owne
 	if err != nil {
 		return "", err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO folders(space_id, parent_id, name) VALUES($1, NULL, '')`, id)
+	_, err = tx.Exec(ctx, `INSERT INTO entries(space_id, kind, parent_id, name) VALUES($1, 'folder', NULL, '')`, id)
 	return id, err
 }
 

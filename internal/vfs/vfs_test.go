@@ -22,7 +22,7 @@ func TestVFS(t *testing.T) {
 	p, _ := svc.Authenticate(ctx, "alice", "alicepass")
 	p.Via = "session"
 	fs := vfs.New(svc)
-	opt := core.PutOptions{Protocol: "test"}
+	opt := core.PutOptions{Protocol: "api"}
 
 	root, err := fs.List(ctx, p, "/")
 	if err != nil || len(root) != 1 || root[0].Name != "alice" {

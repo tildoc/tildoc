@@ -94,6 +94,9 @@ OCR binary missing → status `ocr_pending`; bulk re-processing available.
 | **Version** | Immutable revision of a document → blob | overwrite creates one |
 | **Blob** | Immutable content, SHA-256 addressed (internal) | ETag (MD5) |
 | **Import** | Upload batch incl. original drop location (provenance) | per client session |
+| **Entry** | Internal: a row of the namespace table `entries` — a Folder or a Link | — |
+| **Tag** | Server-wide label attached to documents | S3 object tagging; WebDAV `tildoc:tags` |
+| **Collection** | Personal or team list of documents across spaces; grants no access | read-only `/@collections/<name>/` in WebDAV/SFTP |
 
 ---
 
@@ -396,39 +399,39 @@ modals and the folder picker are redone.
 - [x] 8.9 Tests: extend `test/ui/smoke.mjs` (multi-page fixture; open viewer, page jump, find count, OCR toggle, Esc restores selection, mobile, dark, **no CSP/console errors**); Go tests for hit page; screenshot review pass; commit "Phase 8"
 - [x] 8.10 Follow-up: one typeface, hints below inputs, full-width subpages, row click shows the preview and the file name opens the viewer
 
-### Phase 9 — Data Model Cleanup (proposed, awaiting confirmation)
+### Phase 9 — Data Model Cleanup
 
 **Goal:** move invariants from Go into the schema, remove redundancy, fold
 everything into `0001_init.sql` (development mode, dev databases are
 recreated).
 
-- [ ] 9.1 Space integrity in the DB: `links.space_id` plus composite FKs
+- [x] 9.1 Space integrity in the DB: `links.space_id` plus composite FKs
   `(folder_id, space_id) → folders(id, space_id)` and
   `(document_id, space_id) → documents(id, space_id)`; `folders.parent_id`
   likewise `(parent_id, space_id)`. A link can then never point across spaces.
-- [ ] 9.2 One namespace per folder: replace `folders` + `links` placement by a
-  single `entries` table (`id, space_id, parent_id, name, kind folder|file,
+- [x] 9.2 One namespace per folder: replace `folders` + `links` placement by a
+  single `entries` table (`id, space_id, parent_id, name, kind folder|link,
   document_id`) with `UNIQUE (parent_id, name)`, so a file and a folder can
   never share a name (today only the Go lock in `child()` prevents it).
-- [ ] 9.3 No duplicated document head: drop `documents.current_sha256`; keep
+- [x] 9.3 No duplicated document head: drop `documents.current_sha256`; keep
   `current_version` with a deferrable FK `(id, current_version) →
   document_versions`. The content hash then lives only in `document_versions`.
-- [ ] 9.4 Trash state in one place: a document is in the trash exactly when it
+- [x] 9.4 Trash state in one place: a document is in the trash exactly when it
   has no live link. Keep `documents.deleted_at` (purge clock) but enforce
   the invariant with a constraint trigger, or derive it.
-- [ ] 9.5 Value rules as CHECKs: names (non-empty, no `/`, no control chars,
+- [x] 9.5 Value rules as CHECKs: names (non-empty, no `/`, no control chars,
   ≤ 255 bytes), slug and username patterns, closed value sets for
   `imports.protocol`, `document_versions.source`, `blob_texts.method`,
   `blob_processing.kind`, `blob_derivatives.kind`, `jobs.kind`.
-- [ ] 9.6 Preferences as typed columns: `users.pdf_viewer text NOT NULL DEFAULT
+- [x] 9.6 Preferences as typed columns: `users.pdf_viewer text NOT NULL DEFAULT
   'pdfjs' CHECK (...)` instead of the `prefs` jsonb (folded into 0001,
   0002 removed).
-- [ ] 9.7 Tests: schema-level tests that try to violate each invariant directly
+- [x] 9.7 Tests: schema-level tests that try to violate each invariant directly
   in SQL; full suites green.
-- [ ] 9.8 Dedup on cross-space moves: moving a document into a space that
+- [x] 9.8 Dedup on cross-space moves: moving a document into a space that
   already holds the same content currently leaves two documents with equal
   content there (violates decision 10). Merge rule needed (see open questions).
-- [ ] 9.9 Per-document processing view: `blob_processing` is shared by all
+- [x] 9.9 (accepted, decision 23) Per-document processing view: `blob_processing` is shared by all
   spaces, so a second uploader of the same bytes sees "Indexed"/OCR done at
   once (reveals that the file existed on the server), and "Extract text
   again" by one user resets the status for everybody.
@@ -444,7 +447,7 @@ Verified by tests (`internal/core/storage_test.go`):
   admins; purging one owner keeps the bytes for the other, GC removes them
   once unreferenced.
 
-### Phase 10 — Tags and Collections (proposed)
+### Phase 10 — Tags and Collections
 
 **Tags** (central vocabulary per server instance):
 
@@ -521,25 +524,20 @@ Open questions: see below.
 | 18 | PDF viewer | pdf.js (`pdfjs-dist`) by default; browser viewer selectable per user |
 | 19 | UI font | Atkinson Hyperlegible Next only, self-hosted |
 | 20 | Access key secrets | 40 alphanumeric chars (no leading `-` that CLIs parse as a flag) |
+| 21 | Namespace | one `entries` table (folders + file placements), one name per folder |
+| 22 | Move into space with same content | merge into existing document, histories merged chronologically |
+| 23 | Shared processing state | accepted side channel (dedup reveals prior existence of identical bytes) |
+| 24 | Tags | central vocabulary, users create, admins rename/merge/delete; attached to documents |
+| 25 | Collections | personal or team-owned, reference documents, never grant access, read-only in WebDAV/SFTP |
 
 ## Open Questions
 
-Phase 9:
-1. 9.2 (single `entries` table) is the largest change: it touches every
-   query in `core` that lists, moves or resolves paths. Do it now, or only
-   9.1/9.3–9.6 and keep the name collision rule in Go?
-2. 9.4: enforce `documents.deleted_at` with a trigger (keeps fast trash
-   queries) or derive it from links (no redundancy, slower)?
-3. 9.8: moving a document into a space that already has the same content:
-   (a) merge — the moved place becomes another place of the existing
-   document, the moved document's older versions are appended to its
-   history; (b) merge and drop the moved document's history; (c) keep two
-   documents (allow duplicates after moves).
-4. 9.9: hide the shared processing state per space (status shown per
-   document, reprocess only affects the caller's view) or accept the
-   side channel, which is common to all deduplicating stores?
-
-Phase 10:
-5. Tags: may users create new tags, or only admins (users pick from the list)?
-6. Collections: personal only at first, or also team-owned collections?
-7. Should collections appear as folders in WebDAV/SFTP (read-only)?
+None. Phase 9/10 decisions (2026-11-08):
+1. 9.2 single `entries` table: yes.
+2. 9.4 trash invariant: constraint trigger.
+3. 9.8 move into a space with the same content: merge; the moved document's
+   history is merged into the existing document (chronologically).
+4. 9.9 shared processing state: accepted (documented risk).
+5. Tags: users may create tags; admins rename, merge and delete.
+6. Collections: personal and team-owned.
+7. Collections appear read-only in WebDAV/SFTP under `/@collections/`.

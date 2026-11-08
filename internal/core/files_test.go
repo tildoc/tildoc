@@ -37,7 +37,7 @@ func newFixture(t *testing.T) *fixture {
 func (f *fixture) put(t *testing.T, p *core.Principal, space, path, content string) *core.PutResult {
 	t.Helper()
 	segs := ck(core.SplitPath(path))
-	res, err := f.svc.PutFile(f.ctx, p, space, segs, strings.NewReader(content), core.PutOptions{Protocol: "test", CreateParents: true})
+	res, err := f.svc.PutFile(f.ctx, p, space, segs, strings.NewReader(content), core.PutOptions{Protocol: "api", CreateParents: true})
 	if err != nil {
 		t.Fatalf("put %s: %v", path, err)
 	}

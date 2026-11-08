@@ -82,28 +82,28 @@ func (s *Service) Search(ctx context.Context, p *Principal, q SearchQuery) (*Sea
 	}
 	rows, err := s.DB.Query(ctx, `
 		WITH RECURSIVE sub(id) AS (
-			SELECT id FROM folders WHERE $4 <> '' AND id = nullif($4,'')::uuid
-			UNION ALL SELECT f.id FROM folders f JOIN sub ON f.parent_id = sub.id
+			SELECT id FROM entries WHERE $4 <> '' AND id = nullif($4,'')::uuid AND kind = 'folder'
+			UNION ALL SELECT f.id FROM entries f JOIN sub ON f.parent_id = sub.id AND f.kind = 'folder'
 		), hits AS (
-			SELECT l.id::text AS link_id, l.document_id::text AS doc_id, d.space_id::text AS space_id, l.folder_id::text AS folder_id,
-			       l.name, folder_path(l.folder_id) || '/' || l.name AS path,
+			SELECT l.id::text AS link_id, l.document_id::text AS doc_id, l.space_id::text AS space_id, l.parent_id::text AS folder_id,
+			       l.name, folder_path(l.parent_id) || '/' || l.name AS path,
 			       b.size, b.sha256, b.md5, b.mime, d.current_version, coalesce(bp.status,'pending') AS status,
-			       (SELECT count(*) FROM links x WHERE x.document_id = d.id AND x.deleted_at IS NULL) AS link_count,
+			       (SELECT count(*) FROM entries x WHERE x.document_id = d.id AND x.deleted_at IS NULL) AS link_count,
 			       l.created_at, d.updated_at, l.original_path, l.import_id::text AS import_id,
 			       (CASE WHEN $2 = '' THEN 0 ELSE
 			         coalesce(ts_rank(t.tsv, websearch_to_tsquery('simple', $2)), 0)
 			         + CASE WHEN l.name ILIKE '%' || $3 || '%' ESCAPE '\' THEN 1 ELSE 0 END END)::real AS rank,
 			       count(*) OVER () AS total
-			FROM links l
-			JOIN documents d ON d.id = l.document_id
-			JOIN blobs b ON b.sha256 = d.current_sha256
-			LEFT JOIN blob_processing bp ON bp.sha256 = d.current_sha256
-			LEFT JOIN blob_texts t ON t.sha256 = d.current_sha256
-			WHERE l.deleted_at IS NULL AND d.deleted_at IS NULL AND d.space_id = ANY($1::uuid[])
+			FROM entries l
+			JOIN document_heads d ON d.id = l.document_id
+			JOIN blobs b ON b.sha256 = d.sha256
+			LEFT JOIN blob_processing bp ON bp.sha256 = d.sha256
+			LEFT JOIN blob_texts t ON t.sha256 = d.sha256
+			WHERE l.kind = 'link' AND l.deleted_at IS NULL AND l.space_id = ANY($1::uuid[])
 			  AND ($2 = '' OR t.tsv @@ websearch_to_tsquery('simple', $2)
 			       OR to_tsvector('simple', regexp_replace(l.name, '[._-]+', ' ', 'g')) @@ websearch_to_tsquery('simple', $2)
 			       OR l.name ILIKE '%' || $3 || '%' ESCAPE '\')
-			  AND ($4 = '' OR l.folder_id IN (SELECT id FROM sub))
+			  AND ($4 = '' OR l.parent_id IN (SELECT id FROM sub))
 			  AND ($5 = '' OR b.mime LIKE $5 || '%')
 			  AND ($6 = '' OR coalesce(bp.status,'pending') = $6)
 			ORDER BY `+order+`, l.id
