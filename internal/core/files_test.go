@@ -168,20 +168,29 @@ func TestMoveRenameProvenance(t *testing.T) {
 	root := ck(f.svc.FolderByPath(f.ctx, f.alice, sp, nil))
 	archive := ck(f.svc.Mkdir(f.ctx, f.alice, root.ID, "Archive"))
 
-	// fresh rename (within provenance window, e.g. editor save) updates provenance
-	m := ck(f.svc.MoveLink(f.ctx, f.alice, r.File.LinkID, "", "contract-final.pdf", false))
-	if m.OriginalPath != "/import/contract-final.pdf" {
-		t.Fatalf("provenance not updated: %q", m.OriginalPath)
+	// a deliberate rename in the UI keeps provenance
+	m := ck(f.svc.MoveLink(f.ctx, f.alice, r.File.LinkID, "", "contract-v1.pdf", false))
+	if m.OriginalPath != "/import/contract.pdf" {
+		t.Fatalf("UI rename changed provenance: %q", m.OriginalPath)
 	}
+	// a fresh rename by a protocol client (temp file + rename save) updates provenance
+	_, sec := ck2(f.svc.CreateAccessKey(f.ctx, f.alice, "dav", "", false))
+	dav := ck(f.svc.AuthenticateAppPassword(f.ctx, "alice", sec))
+	pr := f.put(t, dav, sp, "/import/scan.pdf.part", "scan")
+	pm := ck(f.svc.MoveLink(f.ctx, dav, pr.File.LinkID, "", "scan.pdf", false))
+	if pm.OriginalPath != "/import/scan.pdf" {
+		t.Fatalf("protocol rename provenance: %q", pm.OriginalPath)
+	}
+	m = ck(f.svc.MoveLink(f.ctx, f.alice, r.File.LinkID, "", "contract-final.pdf", false))
 	// age the link: later moves keep provenance
 	f.env.Pool.Exec(f.ctx, `UPDATE links SET created_at = now() - interval '1 hour'`)
 	m = ck(f.svc.MoveLink(f.ctx, f.alice, r.File.LinkID, archive.ID, "", false))
-	if m.Path != "/Archive/contract-final.pdf" || m.OriginalPath != "/import/contract-final.pdf" {
+	if m.Path != "/Archive/contract-final.pdf" || m.OriginalPath != "/import/contract.pdf" {
 		t.Fatalf("move: %+v", m)
 	}
 	// restore original structure
 	res := ck(f.svc.RestoreOriginal(f.ctx, f.alice, []string{m.LinkID}))
-	if res[0].Path != "/import/contract-final.pdf" {
+	if res[0].Path != "/import/contract.pdf" {
 		t.Fatalf("restore original: %q", res[0].Path)
 	}
 

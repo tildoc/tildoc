@@ -59,6 +59,12 @@ func (s *Service) retireLinkTx(ctx context.Context, tx pgx.Tx, l *linkRow) error
 	return softDeleteLinkTx(ctx, tx, l.ID)
 }
 
+// fileProtocol reports whether the caller is a file protocol client
+// (WebDAV, SFTP, S3). Such clients save via temp file + rename; a rename
+// shortly after creation then still belongs to the upload and updates the
+// link's provenance.
+func (p *Principal) fileProtocol() bool { return p.Via == "accesskey" || p.Via == "ssh" }
+
 // moveLinkTx moves/renames a link. With overwrite, an existing file at the
 // destination receives the content as a new version (history preserved).
 func (s *Service) moveLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, linkID, dstFolderID, newName string, overwrite bool) (string, error) {
@@ -111,9 +117,9 @@ func (s *Service) moveLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, linkI
 	}
 	if dstSpace == l.SpaceID {
 		_, err = tx.Exec(ctx, `UPDATE links SET folder_id=$2, name=$3, updated_at=now(),
-			original_path = CASE WHEN created_at > now() - make_interval(secs => $4) AND created_by IS NOT DISTINCT FROM $5::uuid
+			original_path = CASE WHEN $6 AND created_at > now() - make_interval(secs => $4) AND created_by IS NOT DISTINCT FROM $5::uuid
 				THEN folder_path($2) || '/' || $3 ELSE original_path END
-			WHERE id=$1`, linkID, dstFolderID, newName, s.Cfg.ProvenanceWindow.Seconds(), p.userRef())
+			WHERE id=$1`, linkID, dstFolderID, newName, s.Cfg.ProvenanceWindow.Seconds(), p.userRef(), p.fileProtocol())
 		return linkID, err
 	}
 	// cross-space move
