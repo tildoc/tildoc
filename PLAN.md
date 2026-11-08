@@ -208,3 +208,45 @@ flowchart LR
 - [x] Integration tests (own SigV4 client validated against AWS test vectors, raw WebDAV, pkg/sftp client)
 - [x] Real-client E2E in Docker: aws-cli, rclone (s3, webdav, sftp backends)
 
+### Phase 5 — Web UI
+- [ ] SvelteKit (Svelte 5, adapter-static, SPA), plain CSS, light/dark
+- [ ] Setup/login; space/folder tree; details list (sortable, customizable + persisted columns, responsive); search; drag & drop upload preserving folder structure; move/rename/delete/new folder/link; document panel (preview, versions, links, text, status, downloads, new version, reprocess); trash; settings (password, access keys, SSH keys, connection help incl. Dolphin/rclone); teams; admin (users, jobs)
+
+### Phase 6 — Worker & OCR
+- [x] Job runner (SKIP LOCKED, retries/backoff, stale-lock reclaim, NOTIFY)
+- [x] Processors: text, PDF (`pdftotext`), OCR (`ocrmypdf --skip-text`, sidecar text, searchable PDF as derived blob), unsupported
+- [x] Periodic: trash purge, blob GC, stale multipart cleanup
+- [x] Tests in Docker test image (poppler + ocrmypdf + tesseract deu/eng)
+
+### Phase 7 — Deployment & Docs
+- [ ] Dockerfile (targets: server, worker incl. OCR tools, web), docker compose (postgres, server, worker, nginx), nginx template + cert generation
+- [ ] README: setup, Arch/Dolphin client setup (webdavs, sftp, rclone + fuse3 systemd user unit)
+- [ ] Full-stack smoke test via compose
+
+---
+
+## Decisions
+
+| # | Topic | Decision |
+|---|-------|----------|
+| 1 | File types | Accept all; advanced services for supported types |
+| 2 | Structure | Folder tree preserved as dropped; remappable; provenance kept |
+| 3 | Overwrite | New version |
+| 4 | Sharing | Deferred; space-based access only |
+| 5 | S3 implementation | Own, Go stdlib |
+| 6 | Deduplication | SHA-256; known file in space → new link only |
+| 7 | Desktop protocols | WebDAV **and** SFTP |
+| 8 | Libraries | `golang.org/x/*`, `pkg/sftp`, `pgx/v5` |
+| 9 | TLS | nginx in front of HTTP adapters |
+| 10 | Duplicate in same space | One document, multiple links |
+| 11 | Delete link | Only that link; document to trash with last link; all links visible |
+| 12 | Terminology | Space, Team, Folder, Document, Link (Blob internal) |
+| 13 | PDF text | poppler `pdftotext` |
+| 14 | Queue | Postgres (replaces Redis) |
+| 15 | Scope | Phases 0–6 incl. OCR |
+| 16 | Repo | git, one commit per phase; tests via Docker; no AWS SDK |
+| 17 | Write via multi-linked doc | Copy-on-write fork |
+
+## Open Questions
+
+None.

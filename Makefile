@@ -1,0 +1,34 @@
+# tildoc developer tasks
+GO      ?= go
+BIN     := bin/tildoc
+TESTPG  := postgres://postgres:test@127.0.0.1:55432/postgres?sslmode=disable
+
+.PHONY: build web test test-docker e2e vet clean
+
+build:
+	$(GO) build -trimpath -o $(BIN) ./cmd/tildoc
+
+web:
+	cd web && npm ci && npm run build
+
+vet:
+	$(GO) vet ./...
+
+# unit + integration tests (starts a PostgreSQL container via Docker)
+test:
+	TILDOC_TEST_REQUIRE_DB=1 $(GO) test -count=1 ./...
+
+# all tests incl. OCR inside a container with poppler/ocrmypdf/tesseract
+test-docker:
+	TILDOC_TEST_REQUIRE_DB=1 $(GO) test -count=1 ./internal/db/ >/dev/null  # ensures the PostgreSQL test container
+	docker build -q -t tildoc-test test/docker
+	docker run --rm --network host -v $(CURDIR):/src -v tildoc-gocache:/root/go \
+		-e TILDOC_TEST_DATABASE_URL='$(TESTPG)' -e TILDOC_TEST_REQUIRE_DB=1 -e TILDOC_TEST_REQUIRE_TOOLS=1 \
+		tildoc-test go test -count=1 ./...
+
+# real clients (aws-cli, rclone s3/webdav/sftp) against a running build
+e2e:
+	test/e2e/run.sh
+
+clean:
+	rm -rf bin

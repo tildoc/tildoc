@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/tildoc/tildoc/internal/blob"
 )
@@ -122,11 +123,20 @@ func sanitizeText(t string) string {
 // StoreText saves extracted text for a blob and indexes it.
 func (s *Service) StoreText(ctx context.Context, sha blob.SHA256, method, text string) error {
 	text = sanitizeText(text)
-	_, err := s.DB.Exec(ctx, `INSERT INTO blob_texts(sha256, method, content, tsv)
-		VALUES($1, $2, $3, strip(to_tsvector('simple', $3)))
-		ON CONFLICT (sha256) DO UPDATE SET method=EXCLUDED.method, content=EXCLUDED.content, tsv=EXCLUDED.tsv, created_at=now()`,
-		sha[:], method, text)
-	return err
+	// Positions enable phrase search and better ranking; very large texts
+	// exceed PostgreSQL's tsvector size limit (54000) and are stored stripped.
+	for _, vec := range []string{`to_tsvector('simple', $3)`, `strip(to_tsvector('simple', $3))`} {
+		_, err := s.DB.Exec(ctx, `INSERT INTO blob_texts(sha256, method, content, tsv)
+			VALUES($1, $2, $3, `+vec+`)
+			ON CONFLICT (sha256) DO UPDATE SET method=EXCLUDED.method, content=EXCLUDED.content, tsv=EXCLUDED.tsv, created_at=now()`,
+			sha[:], method, text)
+		var pe *pgconn.PgError
+		if errors.As(err, &pe) && pe.Code == "54000" {
+			continue
+		}
+		return err
+	}
+	return errors.New("text could not be indexed")
 }
 
 // StoreDerivative stores a derived file (e.g. searchable PDF) for a source blob.
