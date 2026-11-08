@@ -21,58 +21,44 @@ type Space struct {
 	OwnerTeamID  *string   `json:"owner_team_id"`
 	TeamName     string    `json:"team_name,omitempty"`
 	RootFolderID string    `json:"root_folder_id"`
-	Perm         Perm      `json:"perm"`
+	Perm         Perm      `json:"perm"` // highest level, for simple UI checks
 	Role         string    `json:"role"`
+	Caps         []string  `json:"caps"`
+	Shared       bool      `json:"shared"` // access comes from a grant, not ownership/team
 	CreatedAt    time.Time `json:"created_at"`
-}
-
-func permRole(p Perm) string {
-	switch p {
-	case PermManage:
-		return "owner"
-	case PermDelete:
-		return "admin"
-	case PermWrite:
-		return "member"
-	case PermRead:
-		return "viewer"
-	}
-	return ""
 }
 
 const spaceSelect = `
 	SELECT s.id::text, s.slug, s.name, s.owner_user_id::text, s.owner_team_id::text, coalesce(t.name,''),
-	       f.id::text, s.created_at,
-	       CASE WHEN s.owner_user_id = $1 THEN 'owner' ELSE coalesce(tm.role,'') END
+	       f.id::text, s.created_at, coalesce(space_role(s.id, $1::uuid), ''),
+	       NOT (s.owner_user_id IS NOT DISTINCT FROM $1::uuid
+	            OR EXISTS (SELECT 1 FROM team_members m WHERE m.team_id = s.owner_team_id AND m.user_id = $1::uuid))
 	FROM spaces s
 	JOIN entries f ON f.space_id = s.id AND f.parent_id IS NULL AND f.kind = 'folder'
-	LEFT JOIN teams t ON t.id = s.owner_team_id
-	LEFT JOIN team_members tm ON tm.team_id = s.owner_team_id AND tm.user_id = $1`
+	LEFT JOIN teams t ON t.id = s.owner_team_id`
 
 func scanSpace(row pgx.Row, p *Principal) (*Space, error) {
 	sp := &Space{}
 	var role string
-	err := row.Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.OwnerUserID, &sp.OwnerTeamID, &sp.TeamName, &sp.RootFolderID, &sp.CreatedAt, &role)
+	err := row.Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.OwnerUserID, &sp.OwnerTeamID, &sp.TeamName, &sp.RootFolderID, &sp.CreatedAt, &role, &sp.Shared)
 	if err != nil {
 		return nil, err
 	}
-	sp.Perm = roleToPerm(role)
+	caps := effectiveCaps(p, sp.ID, role)
+	sp.Perm, sp.Caps = capsPerm(caps), caps.Names()
+	sp.Role = role
 	if p.Via == "system" {
-		sp.Perm = PermManage
+		sp.Role = "owner"
 	}
-	if p.ScopeSpaceID != "" && p.ScopeSpaceID != sp.ID {
-		sp.Perm = PermNone
+	if caps == 0 {
+		sp.Role = ""
 	}
-	if p.ReadOnly && sp.Perm > PermRead {
-		sp.Perm = PermRead
-	}
-	sp.Role = permRole(sp.Perm)
 	return sp, nil
 }
 
 // ListSpaces lists spaces the caller can read.
 func (s *Service) ListSpaces(ctx context.Context, p *Principal) ([]Space, error) {
-	rows, err := s.DB.Query(ctx, spaceSelect+` WHERE s.owner_user_id = $1 OR tm.user_id IS NOT NULL ORDER BY s.slug`, p.UserID)
+	rows, err := s.DB.Query(ctx, spaceSelect+` WHERE space_role(s.id, $1::uuid) IS NOT NULL ORDER BY s.slug`, p.UserID)
 	if err != nil {
 		return nil, err
 	}

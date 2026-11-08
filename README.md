@@ -45,6 +45,48 @@ belong to a team, can include every document with a given tag, and never
 grant access: everyone only sees the documents of spaces they can read.
 In WebDAV and SFTP they appear read-only under `/@collections/<name>/`.
 
+### Sharing
+
+A space belongs to a person or a team. Owners and admins can additionally
+share it with single people or whole teams as viewer, member or admin
+(*Spaces → Share*). A team member never gets more than their role in that
+team, and nobody can grant more than they have.
+
+### Export, import, backup
+
+- **Export as ZIP** (space, folder, collection): the current files in the
+  structure and names you see. Opens anywhere.
+- **Export** (space, collection, `.tildoc`): everything incl. versions, places,
+  original paths, tags, collections and OCR results, for another tildoc server.
+  *Spaces → Import a space* turns it into a new space; *Import* in a folder adds
+  a bundle or a ZIP there. Imports follow the upload rules: files already stored
+  are not stored again, identical content joins the existing document.
+- **Server backups** (*Administration → Backups* or `tildoc backup full|differential`):
+  full backups hold everything incl. trash, users and keys; differential backups
+  only the files added since the last full one. They stay on the server in
+  `TILDOC_BACKUP_DIR` (`backups` volume); copy them off yourself:
+
+```
+docker compose -f deploy/docker-compose.yml cp worker:/backups ./backups
+docker compose -f deploy/docker-compose.yml exec worker tildoc backup verify /backups/FULL.dtbackup /backups/DIFF.dtbackup
+```
+
+  Restore into an empty server with the same `TILDOC_MASTER_KEY`:
+
+```
+docker compose -f deploy/docker-compose.yml exec worker tildoc restore /backups/FULL.dtbackup [/backups/DIFF.dtbackup]
+```
+
+Format: [docs/bundle-format.md](docs/bundle-format.md).
+
+### OCR variants
+
+Scans without text get tildoc's OCR as an additional searchable PDF. Scans
+that arrive with someone else's OCR keep it; tildoc additionally strips the
+text to an image-only copy and runs its own OCR on it. *Administration → OCR*
+decides which text search uses. The document details show the variant tree
+and let you open or download each variant.
+
 Glossary: **Team** (users + roles owner/admin/member/viewer), **Space**
 (container, = S3 bucket, = top-level WebDAV/SFTP folder), **Folder**,
 **Document**, **Link**, **Version**, **Blob** (internal). See [PLAN.md](PLAN.md)
@@ -108,6 +150,8 @@ All settings are `TILDOC_*` environment variables (template: `deploy/.env.exampl
 | `TILDOC_OCR_ENABLED` / `_OCR_LANGS` | `true` / `deu+eng` | OCR via ocrmypdf/tesseract (worker image ships deu+eng) |
 | `TILDOC_WORKER_CONCURRENCY` | `2` | parallel processing jobs |
 | `TILDOC_COOKIE_SECURE` | `true` | set `false` only for plain-HTTP development |
+| `TILDOC_BACKUP_DIR` | `<data dir>/backups` | where server backups are written (compose: `/backups` volume) |
+| `TILDOC_OCR_REDO_FOREIGN` | `true` | add tildoc's OCR to PDFs that come with a foreign OCR layer |
 
 ## Connecting from Arch Linux / KDE
 
@@ -214,7 +258,7 @@ cd web && npm run dev   # UI dev server with proxy to :8080
 Layout:
 
 ```
-cmd/tildoc        single binary: serve | worker | all | migrate | user | health
+cmd/tildoc        single binary: serve | worker | all | migrate | user | export | import | backup | restore | health
 internal/core      domain logic (only package touching DB + blob store)
 internal/vfs       path-based filesystem view used by WebDAV, SFTP, S3
 internal/api       REST API + UI serving       internal/s3     S3 gateway (SigV4, aws-chunked, multipart)
@@ -244,5 +288,8 @@ web/               SvelteKit UI (static SPA)   deploy/         compose, nginx te
   and OCR results are shared per content, so uploading bytes that someone else
   already stored shows them as processed right away (this reveals that the
   identical file existed on the server, nothing about where or whose).
-- **Backups** need all three: PostgreSQL (`pg_dump`), the `data` volume (blobs,
-  SSH host key) and `TILDOC_MASTER_KEY`.
+- **Backups**: server backups (see above) contain password hashes and encrypted
+  access key secrets; keep them as safe as the server. They are not
+  downloadable in the UI. Keep `TILDOC_MASTER_KEY` separately; without it
+  restored access keys cannot be used. The byte-exact alternative remains
+  `pg_dump` + the `data` volume + the master key.

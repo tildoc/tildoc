@@ -29,7 +29,7 @@ const MaxTextBytes = 20 << 20
 
 // Job is a claimed queue entry.
 type Job struct {
-	ID          int64
+	ID          string
 	Kind        string
 	Payload     json.RawMessage
 	Attempts    int
@@ -43,7 +43,7 @@ func (s *Service) ClaimJob(ctx context.Context, workerID string) (*Job, error) {
 		UPDATE jobs SET status='running', locked_at=now(), locked_by=$1, attempts=attempts+1, updated_at=now()
 		WHERE id = (SELECT id FROM jobs WHERE status='queued' AND run_after <= now()
 		            ORDER BY run_after, id FOR UPDATE SKIP LOCKED LIMIT 1)
-		RETURNING id, kind, payload, attempts, max_attempts`, workerID).Scan(&j.ID, &j.Kind, &j.Payload, &j.Attempts, &j.MaxAttempts)
+		RETURNING id::text, kind, payload, attempts, max_attempts`, workerID).Scan(&j.ID, &j.Kind, &j.Payload, &j.Attempts, &j.MaxAttempts)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -51,7 +51,7 @@ func (s *Service) ClaimJob(ctx context.Context, workerID string) (*Job, error) {
 }
 
 // CompleteJob marks a job done.
-func (s *Service) CompleteJob(ctx context.Context, id int64) error {
+func (s *Service) CompleteJob(ctx context.Context, id string) error {
 	_, err := s.DB.Exec(ctx, `UPDATE jobs SET status='done', locked_at=NULL, updated_at=now(), last_error='' WHERE id=$1`, id)
 	return err
 }
@@ -139,8 +139,19 @@ func (s *Service) StoreText(ctx context.Context, sha blob.SHA256, method, text s
 	return errors.New("text could not be indexed")
 }
 
-// StoreDerivative stores a derived file (e.g. searchable PDF) for a source blob.
-func (s *Service) StoreDerivative(ctx context.Context, source blob.SHA256, kind string, st *blob.Staged) error {
+// Derivation describes how a derived variant was produced.
+type Derivation struct {
+	Kind   string         // searchable_pdf | image_only_pdf
+	Input  blob.SHA256    // the blob the tool ran on (source or another variant)
+	Engine string         // e.g. "ocrmypdf 16.10 / tesseract 5.5"
+	Meta   map[string]any // e.g. {"langs": "deu+eng"}
+}
+
+// StoreDerivative stores a derived variant of a source blob.
+func (s *Service) StoreDerivative(ctx context.Context, source blob.SHA256, d Derivation, st *blob.Staged) error {
+	if d.Meta == nil {
+		d.Meta = map[string]any{}
+	}
 	if _, err := s.Blobs.Commit(st); err != nil {
 		s.Blobs.Discard(st)
 		return err
@@ -150,9 +161,11 @@ func (s *Service) StoreDerivative(ctx context.Context, source blob.SHA256, kind 
 			ON CONFLICT (sha256) DO UPDATE SET last_used_at=now()`, st.SHA256[:], st.MD5[:], st.Size, DetectMIME(st.Head)); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `INSERT INTO blob_derivatives(source_sha256, kind, derived_sha256) VALUES($1,$2,$3)
-			ON CONFLICT (source_sha256, kind) DO UPDATE SET derived_sha256=EXCLUDED.derived_sha256, created_at=now()`,
-			source[:], kind, st.SHA256[:])
+		_, err := tx.Exec(ctx, `INSERT INTO blob_derivatives(source_sha256, kind, derived_sha256, input_sha256, engine, meta)
+			VALUES($1,$2,$3,$4,$5,$6)
+			ON CONFLICT (source_sha256, kind) DO UPDATE SET derived_sha256=EXCLUDED.derived_sha256, input_sha256=EXCLUDED.input_sha256,
+				engine=EXCLUDED.engine, meta=EXCLUDED.meta, created_at=now()`,
+			source[:], d.Kind, st.SHA256[:], d.Input[:], d.Engine, d.Meta)
 		return err
 	})
 }

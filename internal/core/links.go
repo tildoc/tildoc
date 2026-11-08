@@ -214,7 +214,8 @@ func (s *Service) moveLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, linkI
 }
 
 // mergeHistoryTx merges the versions of document from into document into:
-// both histories are combined in chronological order and renumbered. Both
+// both histories are combined in chronological order and renumbered;
+// versions already present (same content and time) are not duplicated. Both
 // documents currently have the same content, so the newest version is that
 // content in any case. from is left unchanged.
 func mergeHistoryTx(ctx context.Context, tx pgx.Tx, into, from string) error {
@@ -233,7 +234,8 @@ func mergeHistoryTx(ctx context.Context, tx pgx.Tx, into, from string) error {
 			SELECT sha256, created_at, created_by, source, meta, 0 AS o, version FROM document_versions WHERE document_id = $1
 			UNION ALL
 			SELECT sha256, created_at, created_by, source, meta || jsonb_build_object('merged_from', document_id::text), 1, version
-			FROM document_versions WHERE document_id = $2
+			FROM document_versions f WHERE document_id = $2
+			  AND NOT EXISTS (SELECT 1 FROM document_versions i WHERE i.document_id = $1 AND i.sha256 = f.sha256 AND i.created_at = f.created_at)
 		) x ORDER BY created_at, o, version`, into, from)
 	if err != nil {
 		return err

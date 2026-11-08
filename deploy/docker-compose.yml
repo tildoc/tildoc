@@ -17,6 +17,7 @@ x-tildoc-env: &tildoc-env
   TILDOC_OCR_ENABLED: ${TILDOC_OCR_ENABLED:-true}
   TILDOC_OCR_LANGS: ${TILDOC_OCR_LANGS:-deu+eng}
   TILDOC_LOG_LEVEL: ${TILDOC_LOG_LEVEL:-info}
+  TILDOC_BACKUP_DIR: /backups
 
 services:
   postgres:
@@ -42,6 +43,7 @@ services:
     environment: *tildoc-env
     volumes:
       - data:/data
+      - backups:/backups
     ports:
       - "${TILDOC_SFTP_PORT:-2222}:2222"
     depends_on:
@@ -59,6 +61,7 @@ services:
     environment: *tildoc-env
     volumes:
       - data:/data
+      - backups:/backups
     depends_on:
       server: { condition: service_healthy }
 
@@ -80,4 +83,5 @@ services:
 volumes:
   pgdata:
   data:
+  backups:
   certs:

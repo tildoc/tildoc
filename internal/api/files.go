@@ -244,8 +244,11 @@ func (s *Server) documentContent(w http.ResponseWriter, r *http.Request) error {
 	}
 	defer f.Close()
 	name := ci.Name
-	if q.Get("variant") == "searchable" {
-		name = strings.TrimSuffix(name, ".pdf") + ".searchable.pdf"
+	switch q.Get("variant") {
+	case "searchable":
+		name = strings.TrimSuffix(name, ".pdf") + ".tildoc-ocr.pdf"
+	case "image_only":
+		name = strings.TrimSuffix(name, ".pdf") + ".image-only.pdf"
 	}
 	ServeContent(w, r, f, name, ci.MIME, ci.MD5, ci.ModTime, s.disposition(r))
 	return nil

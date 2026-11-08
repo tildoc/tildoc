@@ -163,14 +163,22 @@ func (s *Service) PurgeExpired(ctx context.Context) (int, error) {
 // derived from a referenced blob) that were not used within grace.
 // Derived blobs become collectable once their source is gone, hence the loop.
 func (s *Service) GCBlobs(ctx context.Context, grace time.Duration) (int, error) {
+	conn, ok, err := s.tryBlobGC(ctx)
+	if err != nil || !ok {
+		return 0, err // an export or backup is streaming blobs; try again later
+	}
+	defer func() {
+		conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, int64(blobLockKey))
+		conn.Release()
+	}()
 	total := 0
 	for round := 0; round < 5; round++ {
 		rows, err := s.DB.Query(ctx, `
 			DELETE FROM blobs b
 			WHERE b.last_used_at < now() - make_interval(secs => $1)
 			  AND NOT EXISTS (SELECT 1 FROM document_versions v WHERE v.sha256 = b.sha256)
-			  
-			  AND NOT EXISTS (SELECT 1 FROM blob_derivatives x WHERE x.derived_sha256 = b.sha256)
+			  AND NOT EXISTS (SELECT 1 FROM blob_derivatives x WHERE x.source_sha256 <> b.sha256
+			                  AND (x.derived_sha256 = b.sha256 OR x.input_sha256 = b.sha256))
 			RETURNING b.sha256`, grace.Seconds())
 		if err != nil {
 			return total, err

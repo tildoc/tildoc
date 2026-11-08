@@ -112,7 +112,7 @@ func (s *Service) Search(ctx context.Context, p *Principal, q SearchQuery) (*Sea
 			JOIN document_heads d ON d.id = l.document_id
 			JOIN blobs b ON b.sha256 = d.sha256
 			LEFT JOIN blob_processing bp ON bp.sha256 = d.sha256
-			LEFT JOIN blob_texts t ON t.sha256 = d.sha256
+			LEFT JOIN blob_texts t ON t.sha256 = text_sha(d.sha256)
 			WHERE l.kind = 'link' AND l.deleted_at IS NULL AND l.space_id = ANY($1::uuid[])
 			  AND ($2 = '' OR t.tsv @@ websearch_to_tsquery('simple', $2)
 			       OR to_tsvector('simple', regexp_replace(l.name, '[._-]+', ' ', 'g')) @@ websearch_to_tsquery('simple', $2)
@@ -129,7 +129,7 @@ func (s *Service) Search(ctx context.Context, p *Principal, q SearchQuery) (*Sea
 		SELECT h.*, CASE WHEN $2 = '' THEN '' ELSE coalesce((
 			SELECT ts_headline('simple', left(bt.content, 200000), websearch_to_tsquery('simple', $2),
 			       'MaxFragments=2,MinWords=6,MaxWords=20,StartSel=<<,StopSel=>>,FragmentDelimiter= … ')
-			FROM blob_texts bt WHERE bt.sha256 = h.sha256 AND bt.tsv @@ websearch_to_tsquery('simple', $2)), '') END
+			FROM blob_texts bt WHERE bt.sha256 = text_sha(h.sha256) AND bt.tsv @@ websearch_to_tsquery('simple', $2)), '') END
 		FROM hits h`,
 		ids, q.Q, likeEscape(q.Q), q.FolderID, q.MIME, q.Status, q.Limit, q.Offset, tagIDs, q.CollectionID)
 	if err != nil {
@@ -196,7 +196,7 @@ func (s *Service) fillHitPages(ctx context.Context, hits []SearchHit) error {
 	rows, err := s.DB.Query(ctx, `
 		SELECT x.ord, 1 + length(p.pre) - length(replace(p.pre, E'\f', ''))
 		FROM unnest($1::bytea[], $2::text[]) WITH ORDINALITY AS x(sha, term, ord)
-		JOIN blob_texts bt ON bt.sha256 = x.sha
+		JOIN blob_texts bt ON bt.sha256 = text_sha(x.sha)
 		CROSS JOIN LATERAL (SELECT strpos(bt.content, x.term) AS pos) f
 		CROSS JOIN LATERAL (SELECT left(bt.content, f.pos - 1) AS pre) p
 		WHERE f.pos > 0`, shas, terms)
@@ -231,7 +231,7 @@ type Stats struct {
 
 // JobInfo describes a job.
 type JobInfo struct {
-	ID        int64  `json:"id"`
+	ID        string `json:"id"`
 	Kind      string `json:"kind"`
 	Status    string `json:"status"`
 	Attempts  int    `json:"attempts"`
@@ -270,7 +270,7 @@ func (s *Service) AdminStats(ctx context.Context, p *Principal) (*Stats, error) 
 		}
 		rows.Close()
 	}
-	rows, err := s.DB.Query(ctx, `SELECT id, kind, status, attempts, last_error FROM jobs WHERE status='failed' ORDER BY updated_at DESC LIMIT 50`)
+	rows, err := s.DB.Query(ctx, `SELECT id::text, kind, status, attempts, last_error FROM jobs WHERE status='failed' ORDER BY updated_at DESC LIMIT 50`)
 	if err != nil {
 		return nil, err
 	}

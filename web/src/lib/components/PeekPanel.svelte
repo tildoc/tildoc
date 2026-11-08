@@ -7,6 +7,7 @@
   import DocDetails from './DocDetails.svelte';
   import { get } from '../api.js';
   import { errorToast, stored, store } from '../state.svelte.js';
+  import { defaultVariant } from '../format.js';
 
   let { file, onclose, onopen, onchanged, query = '' } = $props();
   let doc = $state(null);
@@ -69,7 +70,7 @@
     onopen?.({ page, version: viewVersion });
   }
 
-  const variant = $derived(doc?.has_searchable ? 'searchable' : 'original');
+  const variant = $derived(defaultVariant(doc));
 </script>
 
 <aside class="peek" style:--w="{width}px" aria-label="Preview of {file.name}">

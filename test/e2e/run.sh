@@ -168,5 +168,26 @@ done
 curl -sf "http://$HTTP/api/search?q=Übergrößenträger" -H "Authorization: Bearer $TOKEN" | grep -q '"total":[1-9]' \
   || fail "full text search did not find extracted text"
 
+step "export / import / backup via CLI and REST"
+"$WORK/tildoc" export -user alice -space alice -format zip -o "$WORK/alice.zip" >/dev/null || fail "cli zip export"
+python3 -m zipfile -t "$WORK/alice.zip" >/dev/null || fail "zip archive is not valid"
+python3 -m zipfile -l "$WORK/alice.zip" | grep -q "alice/ver.txt" || fail "zip lacks the shown structure"
+if command -v unzip >/dev/null; then unzip -tq "$WORK/alice.zip" >/dev/null || fail "unzip test"; fi
+curl -sf -o "$WORK/rest.tildoc" "http://$HTTP/api/spaces/alice/export?format=bundle" -H "Authorization: Bearer $TOKEN" \
+  || curl -sf -o "$WORK/rest.tildoc" "http://$HTTP/api/spaces/$(curl -sf "http://$HTTP/api/spaces" -H "Authorization: Bearer $TOKEN" | sed -E 's/.*"id":"([^"]+)","slug":"alice".*/\1/')/export?format=bundle" -H "Authorization: Bearer $TOKEN" \
+  || fail "rest bundle export"
+tar -tf "$WORK/rest.tildoc" >"$WORK/bundle.list" || fail "bundle is not a tar archive"
+[ "$(sed -n 1p "$WORK/bundle.list")" = "manifest.json" ] || fail "bundle must start with manifest.json"
+"$WORK/tildoc" import -user alice -space-name "Kopie" "$WORK/rest.tildoc" | tee "$WORK/import.json"
+grep -q '"blobs_new": 0' "$WORK/import.json" || fail "re-import on the same server stored content again"
+TR=$(curl -sf -X POST "http://$HTTP/api/transfers?kind=import_bundle&space_name=Rest" -H "Authorization: Bearer $TOKEN" \
+  --data-binary "@$WORK/rest.tildoc" | sed -E 's/.*"id":"([^"]+)".*/\1/')
+for i in $(seq 1 60); do curl -sf "http://$HTTP/api/transfers/$TR" -H "Authorization: Bearer $TOKEN" | grep -q '"status":"done"' && break; sleep 0.5; done
+curl -sf "http://$HTTP/api/transfers/$TR" -H "Authorization: Bearer $TOKEN" | grep -q '"status":"done"' || fail "import transfer"
+TILDOC_BACKUP_DIR="$WORK/backups" "$WORK/tildoc" backup full >"$WORK/full.path" || fail "backup full"
+echo "after the full backup" | "$WORK/tildoc" user create -username dora >/dev/null
+TILDOC_BACKUP_DIR="$WORK/backups" "$WORK/tildoc" backup differential >"$WORK/diff.path" || fail "backup differential"
+"$WORK/tildoc" backup verify "$(cat "$WORK/full.path")" "$(cat "$WORK/diff.path")" | grep -q '"users": 2' || fail "backup verify"
+
 grep -q "panic" "$WORK/server.log" && fail "server log contains panic"
 printf '\n\033[1;32mE2E PASSED\033[0m\n'

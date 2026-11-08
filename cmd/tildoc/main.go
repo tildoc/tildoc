@@ -5,6 +5,7 @@
 //	tildoc all      serve + worker in one process
 //	tildoc migrate  apply database migrations
 //	tildoc user create|passwd ...
+//	tildoc export | import | backup | restore
 package main
 
 import (
@@ -48,6 +49,11 @@ commands:
   health                check the local HTTP server (container healthcheck)
   user create -username NAME [-admin] [-display NAME]   (password from stdin)
   user passwd -username NAME                             (password from stdin)
+  export -user NAME (-space ID|-folder ID|-collection ID) [-format zip|bundle] -o FILE
+  import -user NAME [-space-name N] [-space-slug S] [-team ID] [-folder ID] FILE   (bundle or .zip)
+  backup full|differential|list                          (to TILDOC_BACKUP_DIR)
+  backup verify FULL [DIFFERENTIAL]
+  restore FULL [DIFFERENTIAL]                            (into an empty instance)
 
 configuration: TILDOC_* environment variables, see deploy/.env.example`)
 	os.Exit(2)
@@ -85,6 +91,14 @@ func main() {
 		}
 	case "user":
 		err = userCmd(ctx, cfg, log, os.Args[2:])
+	case "export":
+		err = exportCmd(ctx, cfg, log, os.Args[2:])
+	case "import":
+		err = importCmd(ctx, cfg, log, os.Args[2:])
+	case "backup":
+		err = backupCmd(ctx, cfg, log, os.Args[2:])
+	case "restore":
+		err = restoreCmd(ctx, cfg, log, os.Args[2:])
 	default:
 		usage()
 	}

@@ -13,3 +13,20 @@ the CSP) from bytes fetched over the API, so every content response carries the 
 browser's viewer remains available as an opt-in preference (`prefs.pdf_viewer = "native"`);
 only for users with that preference does `?inline=1&viewer=native` drop the sandbox for PDFs. The
 server checks the preference itself, so a crafted link cannot opt other users out.
+
+## 2026-11-08: capability based permissions, space sharing
+
+Before: access to a space came only from personal ownership or membership in
+the owning team; checks compared numeric levels in several places.
+
+Now: `space_role()` in the database computes the strongest role (ownership,
+owning team, direct share, team share capped by the member's team role) and
+`internal/core/permissions.go` maps roles to capabilities; every check goes
+through `requireCap`. Shares never grant ownership and nobody can grant more
+than their own role. Access keys still restrict scope and writing.
+
+## 2026-11-08: blob garbage collection vs. exports
+
+Exports and backups stream blob files after reading a snapshot. A shared
+advisory lock now keeps garbage collection from deleting files while they
+are being streamed.

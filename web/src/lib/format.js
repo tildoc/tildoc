@@ -53,3 +53,12 @@ export function iconFor(row) {
   if (m.startsWith('text/') || m.includes('json')) return 'text';
   return 'file';
 }
+
+// defaultVariant picks which PDF to show: tildoc's OCR for scans, the
+// original for files that came with their own OCR unless the server prefers
+// tildoc's OCR.
+export function defaultVariant(doc) {
+  if (!doc?.has_searchable) return 'original';
+  if (doc.foreign_ocr) return doc.ocr_preference === 'tildoc' ? 'searchable' : 'original';
+  return 'searchable';
+}

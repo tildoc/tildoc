@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -278,4 +279,84 @@ func TestWorkerRunLoop(t *testing.T) {
 	}
 	cancel()
 	t.Fatal("worker loop did not process the job")
+}
+
+// A scan that was OCRed elsewhere keeps its text; tildoc adds an
+// image-only variant and its own OCR, and the OCR preference decides which
+// text search uses.
+func TestForeignOCRVariantTree(t *testing.T) {
+	f := newFx(t)
+	if _, err := exec.LookPath("pdfimages"); err != nil {
+		t.Skip("poppler-utils not installed")
+	}
+	pdf := testutil.MakePDF(testutil.PDFPage{Image: "INVOICE NUMBER 4711", OCRText: "Quittung Bravo"})
+	fi := f.put(t, "/fremd-ocr.pdf", pdf)
+	f.drain(t)
+	d := f.doc(t, fi.DocumentID)
+	if d.Kind != "pdf-ocred" || !d.ForeignOCR || d.Status != core.StatusDone {
+		t.Fatalf("classification: kind %s status %s err %s", d.Kind, d.Status, d.ProcessError)
+	}
+	if f.search(t, "bravo") != 1 {
+		t.Fatal("the existing OCR text must be searchable")
+	}
+	_, gsErr := exec.LookPath(f.env.Cfg.GhostscriptBin)
+	if _, err := exec.LookPath("ocrmypdf"); err != nil || gsErr != nil || !f.env.Cfg.OCREnabled {
+		if os.Getenv("TILDOC_TEST_REQUIRE_TOOLS") != "" {
+			t.Fatal("ocrmypdf and ghostscript required")
+		}
+		t.Skip("ocrmypdf/ghostscript not installed: variant tree skipped")
+	}
+	if len(d.Variants) != 2 {
+		t.Fatalf("variants: %+v", d.Variants)
+	}
+	var img, ocr core.Variant
+	for _, v := range d.Variants {
+		switch v.Kind {
+		case "image_only_pdf":
+			img = v
+		case "searchable_pdf":
+			ocr = v
+		}
+	}
+	if img.Input != fi.SHA256 || ocr.Input != img.SHA256 || ocr.SearchText {
+		t.Fatalf("tree: image %+v ocr %+v", img, ocr)
+	}
+	// the image-only variant has no text left
+	rd, _, err := f.env.Svc.OpenDocument(f.ctx, f.p, fi.DocumentID, 0, "image_only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := filepath.Join(t.TempDir(), "img.pdf")
+	data, _ := io.ReadAll(rd)
+	rd.Close()
+	os.WriteFile(tmp, data, 0o600)
+	if out, _ := exec.Command(f.env.Cfg.PdftotextBin, "-q", tmp, "-").Output(); strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("image-only variant still has text: %q", out)
+	}
+	// prefer tildoc's OCR: search and text view switch
+	pref := "tildoc"
+	if _, err := f.env.Svc.UpdateSettings(f.ctx, f.p, core.SettingsUpdate{OCRPreference: &pref}); err != nil {
+		t.Fatal(err)
+	}
+	if f.search(t, "bravo") != 0 || f.search(t, "4711") != 1 {
+		t.Fatalf("tildoc preference: bravo %d 4711 %d", f.search(t, "bravo"), f.search(t, "4711"))
+	}
+	text, _, _ := f.env.Svc.DocumentText(f.ctx, f.p, fi.DocumentID)
+	if !strings.Contains(text, "4711") {
+		t.Fatalf("text view: %q", text)
+	}
+	if d = f.doc(t, fi.DocumentID); d.OCRPreference != "tildoc" {
+		t.Fatal("preference not reported")
+	}
+	for _, v := range d.Variants {
+		if v.Kind == "searchable_pdf" && !v.SearchText {
+			t.Fatal("search text flag")
+		}
+	}
+	// the whole tree is collected with the document
+	f.env.Svc.DeleteLink(f.ctx, f.p, fi.LinkID)
+	f.env.Svc.PurgeDocument(f.ctx, f.p, fi.DocumentID)
+	if n, _ := f.env.Svc.GCBlobs(f.ctx, 0); n != 3 {
+		t.Fatalf("gc after purge: %d", n)
+	}
 }

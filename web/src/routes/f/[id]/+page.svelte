@@ -12,6 +12,7 @@
   import Confirm from '#lib/components/Confirm.svelte';
   import FolderPicker from '#lib/components/FolderPicker.svelte';
   import CollectionPicker from '#lib/components/CollectionPicker.svelte';
+  import ImportDialog from '#lib/components/ImportDialog.svelte';
 
   let data = $state(null);
   let error = $state('');
@@ -231,6 +232,11 @@
           <button onclick={() => dirInput.click()}><Icon name="folder" size={16} /> Upload folder</button>
           <button class="ghost" onclick={() => (dialog = { kind: 'mkdir' })}><Icon name="plus" size={16} /> New folder</button>
         {/if}
+        {#if !selected.length}
+          <span class="divider" aria-hidden="true"></span>
+          {#if data.space.caps?.includes('export')}<a class="btn ghost" href={`/api/folders/${folderId}/export`} download title="This folder with all subfolders as a ZIP archive"><Icon name="download" size={16} /> Export as ZIP</a>{/if}
+          {#if canWrite}<button class="ghost" onclick={() => (dialog = { kind: 'import' })} title="Import a ZIP or a tildoc export into this folder"><Icon name="upload" size={16} /> Import</button>{/if}
+        {/if}
         {#if selected.length}
           <span class="divider" aria-hidden="true"></span>
           {#if single?.kind === 'file'}
@@ -279,7 +285,10 @@
   {/if}
 </div>
 
-{#if dialog?.kind === 'collect'}
+{#if dialog?.kind === 'import'}
+  <ImportDialog folder={{ id: folderId, name: data.breadcrumbs.length === 1 ? data.space.name : data.folder.name }}
+    onclose={() => (dialog = null)} ondone={() => load(true)} />
+{:else if dialog?.kind === 'collect'}
   <CollectionPicker count={selRows.filter((r) => r.kind === 'file').length} onpick={addToCollection} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'mkdir'}
   <Prompt title="New folder" confirm="Create" onsubmit={mkdir} onclose={() => (dialog = null)} />

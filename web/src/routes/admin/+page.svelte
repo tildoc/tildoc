@@ -7,6 +7,48 @@
   let users = $state([]);
   let nu = $state({ username: '', password: '', display_name: '', is_admin: false });
   let tags = $state([]);
+  let backups = $state([]);
+  let settings = $state(null);
+
+  async function loadBackups() {
+    backups = await get('/admin/backups');
+    settings = await get('/admin/settings');
+  }
+  $effect(() => { loadBackups().catch(errorToast); });
+  // refresh while a backup runs
+  $effect(() => {
+    if (!backups.some((b) => b.status === 'queued' || b.status === 'running')) return;
+    const t = setTimeout(() => loadBackups().catch(() => {}), 2000);
+    return () => clearTimeout(t);
+  });
+
+  async function startBackup(mode) {
+    try {
+      await post('/admin/backups', { mode });
+      toast(mode === 'full' ? 'Full backup started' : 'Differential backup started', 'success');
+      loadBackups();
+    } catch (e) {
+      errorToast(e);
+    }
+  }
+  async function deleteBackup(b) {
+    if (!confirm(`Delete the ${b.mode} backup ${b.file || b.id}? The file is removed from the server.`)) return;
+    try {
+      await del(`/admin/backups/${b.id}`);
+      loadBackups();
+    } catch (e) {
+      errorToast(e);
+    }
+  }
+  async function saveSetting(patchBody, msg) {
+    try {
+      settings = await patch('/admin/settings', patchBody);
+      toast(msg, 'success');
+    } catch (e) {
+      errorToast(e);
+    }
+  }
+  const baseOf = (b) => backups.find((x) => x.id === b.base_id);
   let mergeFrom = $state(null), mergeInto = $state('');
 
   async function loadTags() {
@@ -139,6 +181,56 @@
     </section>
   {/if}
   <section class="section">
+    <h2>Backups</h2>
+    <p>A <strong>full</strong> backup holds everything: people, teams, spaces with trash and all versions, tags, collections and keys. A <strong>differential</strong> backup holds the same information but only the files added since the last full backup; restoring needs the full backup and the newest differential. Backups stay on the server{settings ? ` in ${settings.backup_dir}` : ''}; copy them elsewhere from the file system. Restoring is done on the command line: <code>tildoc restore FULL [DIFFERENTIAL]</code> into an empty server, with the same <code>TILDOC_MASTER_KEY</code>.</p>
+    <div class="row">
+      <button class="primary" onclick={() => startBackup('full')}>Create full backup</button>
+      <button onclick={() => startBackup('differential')} disabled={!backups.some((b) => b.mode === 'full' && b.status === 'done')}>Create differential backup</button>
+      {#if settings}
+        <label class="inline keep">Keep the last
+          <input type="number" min="1" max="100" value={settings.backup_keep}
+            onchange={(e) => saveSetting({ backup_keep: +e.currentTarget.value }, 'Saved how many full backups are kept')} aria-label="Full backups to keep" />
+          full backups (with their differentials)</label>
+      {/if}
+    </div>
+    {#if backups.length}
+      <div class="table-wrap" style="margin-top:12px">
+        <table class="plain">
+          <thead><tr><th>Started</th><th>Kind</th><th>Status</th><th>Size</th><th>Files</th><th>File</th><th></th></tr></thead>
+          <tbody>
+            {#each backups as b (b.id)}
+              <tr>
+                <td>{date(b.started_at)}</td>
+                <td>{b.mode === 'full' ? 'Full' : `Differential of ${date(baseOf(b)?.started_at) || 'a deleted backup'}`}</td>
+                <td><span class="pill status {b.status === 'done' ? 'done' : b.status === 'failed' ? 'failed' : 'pending'}">{b.status}</span>{#if b.error}<small class="err"> {b.error}</small>{/if}</td>
+                <td>{b.status === 'done' ? size(b.size) : ''}</td>
+                <td>{b.status === 'done' ? b.blob_count : ''}</td>
+                <td class="mono small">{b.file}</td>
+                <td class="actions">{#if b.status === 'done' || b.status === 'failed'}<button class="small ghost" onclick={() => deleteBackup(b)}>Delete</button>{/if}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {:else}
+      <p class="muted">No backups yet.</p>
+    {/if}
+  </section>
+
+  <section class="section">
+    <h2>OCR</h2>
+    <p>Some PDFs arrive as scans that someone else already ran OCR on. tildoc keeps that text and additionally removes it to run its own OCR on the plain images. Choose which text search and the text view use for these documents.</p>
+    {#if settings}
+      <div class="seg" role="radiogroup" aria-label="Preferred OCR">
+        <button role="radio" aria-checked={settings.ocr_preference === 'existing'} class:active={settings.ocr_preference === 'existing'}
+          onclick={() => saveSetting({ ocr_preference: 'existing' }, 'Search now uses the existing OCR text')}>Existing OCR in the file</button>
+        <button role="radio" aria-checked={settings.ocr_preference === 'tildoc'} class:active={settings.ocr_preference === 'tildoc'}
+          onclick={() => saveSetting({ ocr_preference: 'tildoc' }, 'Search now uses tildoc’s OCR')}>tildoc OCR</button>
+      </div>
+    {/if}
+  </section>
+
+  <section class="section">
     <h2>Tags</h2>
     <p>One tag list for the whole server. Everyone can create tags; only administrators rename, merge or delete them. Usage counts cover your own spaces only.</p>
     {#if tags.length}
@@ -214,6 +306,8 @@
 </div>
 
 <style>
+  .keep { margin: 0 0 0 12px; font-size: var(--t-sm); }
+  .keep input { width: 4.5em; min-height: 28px; padding: 2px 6px; }
   .tagname { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-2); }
   input[type='color'] { width: 44px; min-height: 28px; padding: 2px; }

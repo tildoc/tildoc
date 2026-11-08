@@ -19,6 +19,9 @@ import (
 type PDFPage struct {
 	Text  string // text layer lines (separated by \n)
 	Image string // text rendered into a raster image
+	// OCRText adds an invisible text layer over a full-page image (a scan
+	// that was OCRed elsewhere); requires Image.
+	OCRText string
 }
 
 func pdfEscape(s string) string {
@@ -67,6 +70,13 @@ func MakePDF(pages ...PDFPage) []byte {
 		resources := fmt.Sprintf("/Font << /F1 %d 0 R >>", font)
 		if pg.Image != "" {
 			img := RenderTextImage(pg.Image)
+			if pg.OCRText != "" {
+				// a page-shaped scan: text at the top of a white A4 canvas
+				page := image.NewGray(image.Rect(0, 0, 1240, 1754))
+				draw.Draw(page, page.Bounds(), image.White, image.Point{}, draw.Src)
+				draw.Draw(page, img.Bounds().Add(image.Pt(80, 120)), img, img.Bounds().Min, draw.Src)
+				img = page
+			}
 			var jb bytes.Buffer
 			jpeg.Encode(&jb, img, &jpeg.Options{Quality: 90})
 			b := img.Bounds()
@@ -76,10 +86,15 @@ func MakePDF(pages ...PDFPage) []byte {
 			obj = append(obj, []byte("\nendstream")...)
 			im := add(obj)
 			resources += fmt.Sprintf(" /XObject << /Im1 %d 0 R >>", im)
-			// scale image to page width keeping aspect ratio
-			pw := 540.0
-			ph := pw * float64(b.Dy()) / float64(b.Dx())
-			content = fmt.Sprintf("q %.2f 0 0 %.2f 36 %.2f cm /Im1 Do Q", pw, ph, 800-ph)
+			if pg.OCRText != "" {
+				// full page scan with an invisible (render mode 3) text layer
+				content = fmt.Sprintf("q 612 0 0 842 0 0 cm /Im1 Do Q BT 3 Tr /F1 14 Tf 72 760 Td (%s) Tj ET", pdfEscape(pg.OCRText))
+			} else {
+				// scale image to page width keeping aspect ratio
+				pw := 540.0
+				ph := pw * float64(b.Dy()) / float64(b.Dx())
+				content = fmt.Sprintf("q %.2f 0 0 %.2f 36 %.2f cm /Im1 Do Q", pw, ph, 800-ph)
+			}
 		} else {
 			var sb strings.Builder
 			sb.WriteString("BT /F1 14 Tf 72 760 Td 18 TL ")

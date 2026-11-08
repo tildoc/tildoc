@@ -24,10 +24,10 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates tzdata \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 10001 --user-group --home-dir /data --no-create-home tildoc \
- && mkdir -p /data && chown tildoc:tildoc /data
+ && mkdir -p /data /backups && chown tildoc:tildoc /data /backups && chmod 700 /backups
 COPY --from=build /out/tildoc /usr/local/bin/tildoc
-ENV TILDOC_DATA_DIR=/data
-VOLUME /data
+ENV TILDOC_DATA_DIR=/data TILDOC_BACKUP_DIR=/backups
+VOLUME /data /backups
 ENTRYPOINT ["tildoc"]
 
 FROM base AS worker

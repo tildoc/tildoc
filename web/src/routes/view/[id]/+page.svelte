@@ -6,6 +6,7 @@
   import { get } from '#lib/api.js';
   import { errorToast, session, stored, store } from '#lib/state.svelte.js';
   import { COLUMNS, loadView } from '#lib/columns.js';
+  import { defaultVariant } from '#lib/format.js';
   import Icon from '#lib/components/Icon.svelte';
   import DocView from '#lib/components/viewer/DocView.svelte';
   import DocDetails from '#lib/components/DocDetails.svelte';
@@ -54,7 +55,7 @@
       if (id !== linkId) return;
       file = f;
       doc = d;
-      variant = d.has_searchable ? 'searchable' : 'original';
+      variant = ['original', 'searchable', 'image_only'].includes(sp.get('variant')) ? sp.get('variant') : defaultVariant(d);
       loadSiblings(f);
     } catch (e) {
       error = e.message;
@@ -244,8 +245,13 @@
       <div class="right">
         {#if doc.has_searchable}
           <div class="seg hide-sm" role="group" aria-label="Version of the PDF">
-            <button class:active={variant === 'searchable'} onclick={() => (variant = 'searchable')} title="The original with recognised text added (OCR)">With OCR text</button>
-            <button class:active={variant === 'original'} onclick={() => (variant = 'original')} title="The file exactly as uploaded">Original</button>
+            {#if doc.foreign_ocr}
+              <button class:active={variant === 'original'} onclick={() => (variant = 'original')} title="The file as uploaded, with the OCR it came with">Existing OCR</button>
+              <button class:active={variant === 'searchable'} onclick={() => (variant = 'searchable')} title="tildoc's own OCR of the plain page images">tildoc OCR</button>
+            {:else}
+              <button class:active={variant === 'searchable'} onclick={() => (variant = 'searchable')} title="The original with recognised text added (OCR)">With OCR text</button>
+              <button class:active={variant === 'original'} onclick={() => (variant = 'original')} title="The file exactly as uploaded">Original</button>
+            {/if}
           </div>
         {/if}
         {#if caps.find}<button class="icon" class:on={findOpen} onclick={() => (findOpen ? closeFind() : openFind())} aria-label="Find in document" title="Find in document (Ctrl+F)"><Icon name="search" /></button>{/if}

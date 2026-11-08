@@ -173,3 +173,37 @@ func (s *Server) removeCollectionItem(w http.ResponseWriter, r *http.Request) er
 	}
 	return s.getCollection(w, r)
 }
+
+// ---------------------------------------------------------------- sharing
+
+func (s *Server) listGrants(w http.ResponseWriter, r *http.Request) error {
+	g, err := s.Svc.ListGrants(r.Context(), principal(r), r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, 200, g)
+}
+
+func (s *Server) setGrant(w http.ResponseWriter, r *http.Request) error {
+	var b struct {
+		User   string `json:"user"`
+		TeamID string `json:"team_id"`
+		Role   string `json:"role"`
+	}
+	if err := readJSON(r, &b); err != nil {
+		return err
+	}
+	g, err := s.Svc.SetGrant(r.Context(), principal(r), r.PathValue("id"), b.User, b.TeamID, b.Role)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, 200, g)
+}
+
+func (s *Server) deleteGrant(w http.ResponseWriter, r *http.Request) error {
+	if err := s.Svc.DeleteGrant(r.Context(), principal(r), r.PathValue("id"), r.PathValue("grant")); err != nil {
+		return err
+	}
+	w.WriteHeader(204)
+	return nil
+}

@@ -4,10 +4,15 @@
   import { date } from '#lib/format.js';
   import { goto } from '$app/navigation';
   import Confirm from '#lib/components/Confirm.svelte';
+  import ShareDialog from '#lib/components/ShareDialog.svelte';
+  import ImportDialog from '#lib/components/ImportDialog.svelte';
+  import Icon from '#lib/components/Icon.svelte';
 
   let teams = $state([]);
   let name = $state(''), slug = $state(''), team = $state('');
   let confirm = $state(null);
+  let sharing = $state(null);
+  let importing = $state(false);
   $effect(() => { get('/teams').then((t) => (teams = t)).catch(() => {}); });
   let manageable = $derived(teams.filter((t) => t.role === 'owner' || t.role === 'admin'));
 
@@ -47,7 +52,8 @@
 <div class="page">
   <header>
     <h1>Spaces</h1>
-    <p>A space holds folders and documents, for you alone or for a team. Its short name is the S3 bucket and the top folder in WebDAV and SFTP.</p>
+    <p>A space holds folders and documents, for you alone or for a team, and can be shared with more people. Its short name is the S3 bucket and the top folder in WebDAV and SFTP.</p>
+    <div class="row" style="margin-top:12px"><button onclick={() => (importing = true)}><Icon name="upload" size={16} /> Import a space</button></div>
   </header>
   <div class="table-wrap">
     <table class="plain">
@@ -57,12 +63,17 @@
           <tr>
             <td><button class="link" onclick={() => goto(`/f/${s.root_folder_id}`)}>{s.name}</button></td>
             <td class="mono">{s.slug}</td>
-            <td>{s.team_name ? `Team ${s.team_name}` : 'Just you'}</td>
+            <td>{s.team_name ? `Team ${s.team_name}` : s.shared ? 'Shared with you' : 'Just you'}</td>
             <td>{s.role}</td>
             <td>{date(s.created_at)}</td>
             <td class="actions">
-              {#if s.perm >= 3}<button class="small" onclick={() => rename(s)}>Rename</button>{/if}
-              {#if s.perm >= 3}<button class="small ghost" onclick={() => (confirm = s)}>Delete</button>{/if}
+              <button class="small" onclick={() => (sharing = s)}>{s.caps.includes('share') ? 'Share' : 'Shared with'}</button>
+              {#if s.caps.includes('export')}
+                <a class="btn small ghost" href={`/api/spaces/${s.id}/export?format=zip`} download title="All current files as a ZIP archive">ZIP</a>
+                <a class="btn small ghost" href={`/api/spaces/${s.id}/export?format=bundle`} download title="Everything incl. versions, tags and collections, to import into a tildoc server">Export</a>
+              {/if}
+              {#if s.caps.includes('manage')}<button class="small" onclick={() => rename(s)}>Rename</button>{/if}
+              {#if s.caps.includes('manage')}<button class="small ghost" onclick={() => (confirm = s)}>Delete</button>{/if}
             </td>
           </tr>
         {/each}
@@ -86,6 +97,8 @@
   </form>
 </div>
 
+{#if sharing}<ShareDialog space={sharing} onclose={() => (sharing = null)} />{/if}
+{#if importing}<ImportDialog onclose={() => (importing = false)} />{/if}
 {#if confirm}
   <Confirm title="Delete space" danger confirm="Delete" message={`Delete the space “${confirm.name}”? This only works when it contains no documents.`}
     onconfirm={() => remove(confirm)} onclose={() => (confirm = null)} />

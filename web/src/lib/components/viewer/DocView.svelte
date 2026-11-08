@@ -38,7 +38,7 @@
   const base = $derived(`/api/documents/${file.document_id}/content`);
   const url = $derived.by(() => {
     const q = new URLSearchParams({ inline: '1' });
-    if (variant === 'searchable') q.set('variant', 'searchable');
+    if (variant && variant !== 'original') q.set('variant', variant);
     if (version) q.set('version', String(version));
     if (kind === 'native') q.set('viewer', 'native');
     return `${base}?${q}`;

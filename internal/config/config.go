@@ -17,6 +17,7 @@ import (
 type Config struct {
 	DatabaseURL string
 	DataDir     string
+	BackupDir   string // server backups (default <DataDir>/backups)
 	MasterKey   []byte // 32 bytes, encrypts access-key secrets
 
 	HTTPAddr string // REST + WebDAV
@@ -42,6 +43,8 @@ type Config struct {
 	OCRLangs          string
 	PdftotextBin      string
 	OcrmypdfBin       string
+	GhostscriptBin    string
+	OCRRedoForeign    bool // re-OCR PDFs that come with a foreign OCR layer (image-only variant + own OCR)
 	ProcessTimeout    time.Duration
 
 	UIDir    string
@@ -63,11 +66,13 @@ func Load() (*Config, error) {
 		OCRLangs:       env("TILDOC_OCR_LANGS", "deu+eng"),
 		PdftotextBin:   env("TILDOC_PDFTOTEXT_BIN", "pdftotext"),
 		OcrmypdfBin:    env("TILDOC_OCRMYPDF_BIN", "ocrmypdf"),
+		GhostscriptBin: env("TILDOC_GHOSTSCRIPT_BIN", "gs"),
 		UIDir:          env("TILDOC_UI_DIR", ""),
 	}
 	var errs []error
 	c.CookieSecure = boolEnv("TILDOC_COOKIE_SECURE", true, &errs)
 	c.OCREnabled = boolEnv("TILDOC_OCR_ENABLED", true, &errs)
+	c.OCRRedoForeign = boolEnv("TILDOC_OCR_REDO_FOREIGN", true, &errs)
 	c.TrashRetention = durEnv("TILDOC_TRASH_RETENTION", 30*24*time.Hour, &errs)
 	c.ProvenanceWindow = durEnv("TILDOC_PROVENANCE_WINDOW", 2*time.Minute, &errs)
 	c.MultipartMaxAge = durEnv("TILDOC_MULTIPART_MAX_AGE", 7*24*time.Hour, &errs)
@@ -112,6 +117,10 @@ func Load() (*Config, error) {
 			errs = append(errs, errors.New("TILDOC_MASTER_KEY must be 32 bytes, base64 encoded"))
 		}
 		c.MasterKey = key
+	}
+	c.BackupDir = env("TILDOC_BACKUP_DIR", "")
+	if c.BackupDir == "" {
+		c.BackupDir = c.DataDir + "/backups"
 	}
 	if c.WorkerConcurrency < 1 {
 		c.WorkerConcurrency = 1

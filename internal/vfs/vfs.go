@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path"
 	"sort"
 	"strings"
 	"time"
@@ -483,16 +482,11 @@ func (fs *FS) collectionFiles(ctx context.Context, p *core.Principal, dir *Node)
 	for i := range spaces {
 		bySpace[spaces[i].ID] = &spaces[i]
 	}
-	used := map[string]bool{}
+	names := core.CollectionFileNames(items)
 	out := make([]Node, 0, len(items))
 	for i := range items {
 		f := items[i].FileInfo
-		name := f.Name
-		ext := path.Ext(name)
-		for n := 2; used[name]; n++ {
-			name = fmt.Sprintf("%s (%d)%s", strings.TrimSuffix(f.Name, ext), n, ext)
-		}
-		used[name] = true
+		name := names[i]
 		out = append(out, Node{Kind: KindFile, Name: name, Path: dir.Path + "/" + name, Space: bySpace[f.SpaceID],
 			File: &f, ModTime: f.ModifiedAt, Size: f.Size, ReadOnly: true})
 	}

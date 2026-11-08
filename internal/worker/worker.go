@@ -186,6 +186,17 @@ func (w *Worker) execute(ctx context.Context, j *core.Job) error {
 			w.Log.Info("blob gc", "deleted", n, "orphans", o)
 		}
 		return err
+	case core.JobTransfer, core.JobBackup:
+		var p struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(j.Payload, &p); err != nil {
+			return err
+		}
+		if j.Kind == core.JobTransfer {
+			return w.Svc.RunTransfer(ctx, p.ID)
+		}
+		return w.Svc.RunBackup(ctx, p.ID)
 	}
 	return fmt.Errorf("unknown job kind %q", j.Kind)
 }

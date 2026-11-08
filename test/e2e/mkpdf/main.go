@@ -1,4 +1,5 @@
-// Command mkpdf writes test PDFs (digital + scanned) into a directory.
+// Command mkpdf writes test PDFs (digital, scanned, scanned with a foreign
+// OCR layer) into a directory.
 package main
 
 import (
@@ -15,4 +16,6 @@ func main() {
 		testutil.PDFPage{Text: "Mietvertrag Wohnung Altona\nVermieter und Mieter vereinbaren"}), 0o644)
 	os.WriteFile(filepath.Join(dir, "scanned.pdf"), testutil.MakePDF(
 		testutil.PDFPage{Image: "TILDOC SCANNED RECEIPT\nTOTAL AMOUNT 4711 EUR"}), 0o644)
+	os.WriteFile(filepath.Join(dir, "foreign-ocr.pdf"), testutil.MakePDF(
+		testutil.PDFPage{Image: "INVOICE NUMBER 8150", OCRText: "Quittung Bravo"}), 0o644)
 }

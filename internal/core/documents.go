@@ -35,7 +35,24 @@ type Document struct {
 	Links         []LinkRef       `json:"links"`
 	Tags          []TagRef        `json:"tags"`
 	Collections   []CollectionRef `json:"collections"` // the caller's collections containing it
-	Name          string          `json:"name"`        // name of the first live link (or last deleted)
+	Variants      []Variant       `json:"variants"`    // derived variants of the current content
+	ForeignOCR    bool            `json:"foreign_ocr"` // the original came with someone else's OCR layer
+	OCRPreference string          `json:"ocr_preference"`
+	Name          string          `json:"name"` // name of the first live link (or last deleted)
+}
+
+// Variant is a derived variant of the current content. Variants form a
+// tree through Input: original -> searchable_pdf, or original ->
+// image_only_pdf -> searchable_pdf.
+type Variant struct {
+	Kind       string         `json:"kind"` // searchable_pdf | image_only_pdf
+	SHA256     blob.SHA256    `json:"sha256"`
+	Input      blob.SHA256    `json:"input"`
+	Engine     string         `json:"engine"`
+	Meta       map[string]any `json:"meta"`
+	Size       int64          `json:"size"`
+	CreatedAt  time.Time      `json:"created_at"`
+	SearchText bool           `json:"search_text"` // its text is used for search and the text view
 }
 
 // VersionInfo describes one version.
@@ -76,7 +93,7 @@ func (s *Service) GetDocument(ctx context.Context, p *Principal, id string) (*Do
 		       EXISTS(SELECT 1 FROM blob_derivatives x WHERE x.source_sha256=d.sha256 AND x.kind='searchable_pdf')
 		FROM document_heads d JOIN blobs b ON b.sha256=d.sha256
 		LEFT JOIN blob_processing bp ON bp.sha256=d.sha256
-		LEFT JOIN blob_texts t ON t.sha256=d.sha256
+		LEFT JOIN blob_texts t ON t.sha256=text_sha(d.sha256)
 		WHERE d.id=$1`, id).Scan(&d.SpaceID, &d.Version, &sha, &md5, &d.Size, &d.MIME, &d.Status, &d.Kind, &d.Pages,
 		&d.ProcessError, &d.CreatedAt, &d.UpdatedAt, &d.DeletedAt, &d.ForkedFrom, &d.TextMethod, &d.HasText, &d.HasSearchable)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -150,7 +167,37 @@ func (s *Service) GetDocument(ctx context.Context, p *Principal, id string) (*Do
 			return nil, err
 		}
 	}
+	if err := s.loadVariants(ctx, d); err != nil {
+		return nil, err
+	}
 	return d, nil
+}
+
+func (s *Service) loadVariants(ctx context.Context, d *Document) error {
+	d.ForeignOCR = d.Kind == "pdf-ocred"
+	if err := s.DB.QueryRow(ctx, `SELECT ocr_preference FROM instance_settings`).Scan(&d.OCRPreference); err != nil {
+		return err
+	}
+	rows, err := s.DB.Query(ctx, `SELECT x.kind, x.derived_sha256, x.input_sha256, x.engine, x.meta, b.size, x.created_at,
+		x.derived_sha256 = text_sha(x.source_sha256)
+		FROM blob_derivatives x JOIN blobs b ON b.sha256 = x.derived_sha256
+		WHERE x.source_sha256 = $1 ORDER BY x.created_at`, d.SHA256[:])
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	d.Variants = []Variant{}
+	for rows.Next() {
+		var v Variant
+		var der, in []byte
+		if err := rows.Scan(&v.Kind, &der, &in, &v.Engine, &v.Meta, &v.Size, &v.CreatedAt, &v.SearchText); err != nil {
+			return err
+		}
+		copy(v.SHA256[:], der)
+		copy(v.Input[:], in)
+		d.Variants = append(d.Variants, v)
+	}
+	return rows.Err()
 }
 
 // ContentInfo describes content returned by OpenDocument.
@@ -164,7 +211,8 @@ type ContentInfo struct {
 }
 
 // OpenDocument opens the content of a document version. version 0 means
-// current; variant "searchable" returns the derived OCR PDF if present.
+// current; variant "searchable" returns tildoc's OCR PDF, "image_only" the
+// original without its text layer.
 func (s *Service) OpenDocument(ctx context.Context, p *Principal, docID string, version int, variant string) (blob.File, *ContentInfo, error) {
 	d, err := s.GetDocument(ctx, p, docID)
 	if err != nil {
@@ -183,12 +231,17 @@ func (s *Service) OpenDocument(ctx context.Context, p *Principal, docID string, 
 			return nil, nil, errf(ErrNotFound, "version not found")
 		}
 	}
-	if variant == "searchable" {
+	kinds := map[string]string{"searchable": "searchable_pdf", "image_only": "image_only_pdf"}
+	if variant != "" {
+		kind, ok := kinds[variant]
+		if !ok {
+			return nil, nil, errf(ErrInvalid, "unknown variant %q", variant)
+		}
 		var derived []byte
-		err := s.DB.QueryRow(ctx, `SELECT derived_sha256 FROM blob_derivatives WHERE source_sha256=$1 AND kind='searchable_pdf'`,
-			sha[:]).Scan(&derived)
+		err := s.DB.QueryRow(ctx, `SELECT derived_sha256 FROM blob_derivatives WHERE source_sha256=$1 AND kind=$2`,
+			sha[:], kind).Scan(&derived)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil, errf(ErrNotFound, "no searchable version available")
+			return nil, nil, errf(ErrNotFound, "this variant does not exist")
 		}
 		if err != nil {
 			return nil, nil, err
@@ -227,7 +280,7 @@ func (s *Service) DocumentText(ctx context.Context, p *Principal, docID string) 
 		return "", "", err
 	}
 	var content, method string
-	err = s.DB.QueryRow(ctx, `SELECT content, method FROM blob_texts WHERE sha256=$1`, d.SHA256[:]).Scan(&content, &method)
+	err = s.DB.QueryRow(ctx, `SELECT content, method FROM blob_texts WHERE sha256=text_sha($1)`, d.SHA256[:]).Scan(&content, &method)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", errf(ErrNotFound, "no text available")
 	}

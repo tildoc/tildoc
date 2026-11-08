@@ -52,6 +52,9 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("PATCH /api/spaces/{id}", s.authed(s.updateSpace))
 	h("DELETE /api/spaces/{id}", s.authed(s.deleteSpace))
 	h("GET /api/spaces/{id}/tree", s.authed(s.spaceTree))
+	h("GET /api/spaces/{id}/grants", s.authed(s.listGrants))
+	h("POST /api/spaces/{id}/grants", s.authed(s.setGrant))
+	h("DELETE /api/spaces/{id}/grants/{grant}", s.authed(s.deleteGrant))
 
 	h("POST /api/folders", s.authed(s.createFolder))
 	h("GET /api/folders/{id}", s.authed(s.getFolder))
@@ -105,6 +108,18 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("POST /api/imports", s.authed(s.createImport))
 
 	h("GET /api/admin/stats", s.authed(s.adminStats))
+	h("GET /api/admin/backups", s.authed(s.listBackups))
+	h("POST /api/admin/backups", s.authed(s.startBackup))
+	h("DELETE /api/admin/backups/{id}", s.authed(s.deleteBackup))
+	h("GET /api/admin/settings", s.authed(s.getSettings))
+	h("PATCH /api/admin/settings", s.authed(s.updateSettings))
+
+	h("GET /api/spaces/{id}/export", s.authed(s.export("space")))
+	h("GET /api/folders/{id}/export", s.authed(s.export("folder")))
+	h("GET /api/collections/{id}/export", s.authed(s.export("collection")))
+	h("POST /api/transfers", s.authed(s.createTransfer))
+	h("GET /api/transfers", s.authed(s.listTransfers))
+	h("GET /api/transfers/{id}", s.authed(s.getTransfer))
 	h("POST /api/admin/reprocess", s.authed(s.adminReprocess))
 
 	mux.Handle("/api/", s.public(func(w http.ResponseWriter, r *http.Request) error {

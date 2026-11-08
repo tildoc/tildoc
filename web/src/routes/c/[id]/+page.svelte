@@ -115,6 +115,8 @@
           <button class="ghost" onclick={removeItems}><Icon name="close" size={16} /> Remove from collection</button>
         {/if}
         <span class="spacer"></span>
+        <a class="btn ghost" href={`/api/collections/${id}/export?format=zip`} download title="The documents you can see, as a ZIP archive"><Icon name="download" size={16} /> ZIP</a>
+        <a class="btn ghost" href={`/api/collections/${id}/export?format=bundle`} download title="For importing into a tildoc server, with versions and tags"><Icon name="download" size={16} /> Export</a>
         {#if c.can_manage}
           <button class="ghost" onclick={() => (dialog = { kind: 'edit' })}><Icon name="edit" size={16} /> Edit</button>
           <button class="ghost" onclick={() => (dialog = { kind: 'delete' })}><Icon name="trash" size={16} /> Delete collection</button>

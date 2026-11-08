@@ -1,5 +1,5 @@
 // Drag & drop / file input upload preserving the dropped folder structure.
-import { post, uploadFile } from './api.js';
+import { get, post, uploadFile } from './api.js';
 import { ui, toast, bumpTree } from './state.svelte.js';
 
 function readEntries(reader) {
@@ -99,4 +99,38 @@ export async function uploadAll(spaceId, folderId, items, onDone) {
     }
   }, 4000);
   onDone?.();
+}
+
+// uploadTransfer sends a bundle or ZIP for import and returns the queued
+// transfer. params: kind (import_bundle | import_zip), space_name, space_slug,
+// team_id, folder_id.
+export function uploadTransfer(file, params, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v));
+    xhr.open('POST', `/api/transfers?${q}`);
+    xhr.setRequestHeader('X-Tildoc-CSRF', '1');
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
+    xhr.onload = () => {
+      let body = {};
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {}
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body);
+      else reject(new Error(body.error || xhr.statusText));
+    };
+    xhr.onerror = () => reject(new Error('network error'));
+    xhr.send(file);
+  });
+}
+
+// waitTransfer polls a transfer until it is done or failed.
+export async function waitTransfer(id, onUpdate) {
+  for (;;) {
+    const t = await get(`/transfers/${id}`);
+    onUpdate?.(t);
+    if (t.status === 'done' || t.status === 'failed') return t;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
 }

@@ -339,6 +339,51 @@ await step('admin', async () => {
   await toast('Added bob');
 });
 
+await step('share a space', async () => {
+  await page.getByRole('link', { name: 'Spaces' }).click();
+  await row('Ada Admin').getByRole('button', { name: 'Share' }).click();
+  const dlg = page.getByRole('dialog');
+  await dlg.getByLabel('Username').fill('bob');
+  await dlg.getByLabel('Role').selectOption('viewer');
+  await dlg.getByRole('button', { name: 'Share', exact: true }).click();
+  await dlg.locator('.grants li', { hasText: 'bob' }).locator('.pill', { hasText: 'Viewer' }).waitFor();
+  await dlg.getByRole('button', { name: 'Done' }).click();
+});
+
+await step('export space as zip and bundle', async () => {
+  const href = await row('Ada Admin').getByRole('link', { name: 'ZIP' }).getAttribute('href');
+  const zip = await page.request.get(BASE + href);
+  const zbody = await zip.body();
+  if (zip.headers()['content-type'] !== 'application/zip' || zbody.subarray(0, 2).toString() !== 'PK') throw new Error('zip export');
+  const bhref = await row('Ada Admin').getByRole('link', { name: 'Export' }).getAttribute('href');
+  const bundle = await page.request.get(BASE + bhref);
+  if (!(bundle.headers()['content-disposition'] || '').includes('.tildoc')) throw new Error('bundle name');
+  writeFileSync(join(FIX, 'ada.tildoc'), await bundle.body());
+});
+
+await step('import a space', async () => {
+  await page.getByRole('button', { name: 'Import a space' }).click();
+  const dlg = page.getByRole('dialog');
+  await dlg.locator('input[type=file]').setInputFiles(join(FIX, 'ada.tildoc'));
+  await dlg.getByLabel('Name of the new space').fill('Archiv');
+  await dlg.getByRole('button', { name: 'Import' }).click();
+  await dlg.getByText('Imported.').waitFor({ timeout: 30000 });
+  await dlg.getByText(/files were already stored and not stored again/).waitFor();
+  await dlg.getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL('**/f/**');
+  await page.locator('.titlerow h1', { hasText: 'Archiv' }).waitFor();
+  await row('Handbuch.pdf').locator('.tags .chip', { hasText: 'Steuer 2025' }).waitFor();
+});
+
+await step('server backup', async () => {
+  await page.getByRole('link', { name: 'Administration' }).click();
+  await page.getByRole('button', { name: 'Create full backup' }).click();
+  await page.locator('table tr', { hasText: 'Full' }).locator('.pill', { hasText: 'done' }).waitFor({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Create differential backup' }).click();
+  await page.locator('table tr', { hasText: 'Differential of' }).locator('.pill', { hasText: 'done' }).waitFor({ timeout: 30000 });
+  await page.getByRole('radio', { name: 'tildoc OCR' }).waitFor();
+});
+
 await step('columns customization', async () => {
   await page.goto(BASE + '/');
   await page.getByRole('button', { name: 'Columns' }).click();

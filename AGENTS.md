@@ -113,5 +113,11 @@ When the user requests a programming task, **do not start coding immediately.**
   subpages use the full width; form hints go below the input). Viewer code:
   `web/src/lib/components/viewer/` (DocView picks PdfView / ImageView /
   TextView / native iframe). `web/static/vendor/` is generated, never edit it.
+- **Permissions** are only computed in `internal/core/permissions.go`
+  (capabilities from `space_role()`); use `requireCap`, never compare roles
+  elsewhere.
+- **Bundles** (`internal/core/bundle.go`, `import.go`, `backup.go`): format in
+  `docs/bundle-format.md`; bump `BundleVersion` for incompatible changes and
+  keep imports going through the normal ingest rules.
 - **Window key handlers** must ignore `e.defaultPrevented` events; dialogs and
   inputs that handle a key call `preventDefault()`.

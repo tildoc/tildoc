@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"os"
@@ -36,19 +35,20 @@ func (s *Service) CreateUpload(ctx context.Context, p *Principal, spaceID, key s
 	if err := s.requirePerm(ctx, s.DB, p, spaceID, PermWrite); err != nil {
 		return nil, err
 	}
-	b := make([]byte, 16)
-	rand.Read(b)
-	u := &Upload{ID: hex.EncodeToString(b), UserID: p.UserID, SpaceID: spaceID, Key: key, Meta: meta}
+	u := &Upload{UserID: p.UserID, SpaceID: spaceID, Key: key, Meta: meta}
 	if u.Meta == nil {
 		u.Meta = map[string]string{}
 	}
-	err := s.DB.QueryRow(ctx, `INSERT INTO multipart_uploads(id, user_id, space_id, key, meta) VALUES($1,$2,$3,$4,$5) RETURNING created_at`,
-		u.ID, p.UserID, spaceID, key, u.Meta).Scan(&u.CreatedAt)
+	err := s.DB.QueryRow(ctx, `INSERT INTO multipart_uploads(user_id, space_id, key, meta) VALUES($1,$2,$3,$4) RETURNING id::text, created_at`,
+		p.UserID, spaceID, key, u.Meta).Scan(&u.ID, &u.CreatedAt)
 	return u, err
 }
 
 // GetUpload returns an upload owned by the caller.
 func (s *Service) GetUpload(ctx context.Context, p *Principal, id string) (*Upload, error) {
+	if !looksLikeUUID(id) {
+		return nil, errf(ErrNotFound, "upload not found")
+	}
 	u := &Upload{ID: id}
 	err := s.DB.QueryRow(ctx, `SELECT user_id::text, space_id::text, key, meta, created_at FROM multipart_uploads WHERE id=$1 AND user_id=$2`,
 		id, p.UserID).Scan(&u.UserID, &u.SpaceID, &u.Key, &u.Meta, &u.CreatedAt)
@@ -66,7 +66,7 @@ func (s *Service) GetUpload(ctx context.Context, p *Principal, id string) (*Uplo
 
 // ListUploads lists the caller's uploads in a space.
 func (s *Service) ListUploads(ctx context.Context, p *Principal, spaceID string) ([]Upload, error) {
-	rows, err := s.DB.Query(ctx, `SELECT id, user_id::text, space_id::text, key, meta, created_at FROM multipart_uploads
+	rows, err := s.DB.Query(ctx, `SELECT id::text, user_id::text, space_id::text, key, meta, created_at FROM multipart_uploads
 		WHERE space_id=$1 AND user_id=$2 ORDER BY key, created_at`, spaceID, p.UserID)
 	if err != nil {
 		return nil, err
@@ -142,7 +142,7 @@ func (s *Service) DeleteUpload(ctx context.Context, uploadID string) error {
 
 // CleanupUploads aborts uploads older than maxAge and removes stale temp files.
 func (s *Service) CleanupUploads(ctx context.Context, maxAge time.Duration) (int, error) {
-	rows, err := s.DB.Query(ctx, `SELECT id FROM multipart_uploads WHERE created_at < now() - make_interval(secs => $1)`, maxAge.Seconds())
+	rows, err := s.DB.Query(ctx, `SELECT id::text FROM multipart_uploads WHERE created_at < now() - make_interval(secs => $1)`, maxAge.Seconds())
 	if err != nil {
 		return 0, err
 	}

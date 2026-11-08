@@ -9,7 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -203,7 +206,15 @@ func (p *Processor) processPDF(ctx context.Context, sha blob.SHA256, path string
 		if err := p.Svc.StoreText(ctx, sha, "pdftotext", text); err != nil {
 			return err
 		}
-		return p.Svc.SetProcessing(ctx, sha, core.StatusDone, "pdf-digital", &pages, "")
+		if !p.foreignOCR(ctx, path, pages) {
+			return p.Svc.SetProcessing(ctx, sha, core.StatusDone, "pdf-digital", &pages, "")
+		}
+		// scanned pages with someone else's OCR layer: keep that text and
+		// add tildoc's own OCR of an image-only variant
+		if !p.HaveOCR() || !p.Svc.Cfg.OCRRedoForeign || !p.haveTool(p.Svc.Cfg.GhostscriptBin) {
+			return p.Svc.SetProcessing(ctx, sha, core.StatusDone, "pdf-ocred", &pages, "")
+		}
+		return p.reOCR(ctx, sha, path, pages)
 	}
 	kind := "pdf-scanned"
 	if empty < pages {
@@ -246,10 +257,164 @@ func (p *Processor) ocr(ctx context.Context, sha blob.SHA256, path, kind string,
 		return err
 	}
 	// StageFile adopts the file; move it out of the temp dir removed by defer
-	if err := p.Svc.StoreDerivative(ctx, sha, "searchable_pdf", st); err != nil {
+	if err := p.Svc.StoreDerivative(ctx, sha, core.Derivation{Kind: "searchable_pdf", Input: sha, Engine: p.ocrEngine(ctx),
+		Meta: map[string]any{"langs": p.Svc.Cfg.OCRLangs, "mode": "skip-text"}}, st); err != nil {
 		return err
 	}
 	if err := p.Svc.StoreText(ctx, sha, "ocr", string(text)); err != nil {
+		return err
+	}
+	return p.Svc.SetProcessing(ctx, sha, core.StatusDone, kind, &pages, "")
+}
+
+func (p *Processor) haveTool(bin string) bool {
+	_, err := exec.LookPath(bin)
+	return err == nil
+}
+
+// popplerTool returns another poppler binary next to pdftotext.
+func (p *Processor) popplerTool(name string) string {
+	if dir := filepath.Dir(p.Svc.Cfg.PdftotextBin); dir != "." {
+		return filepath.Join(dir, name)
+	}
+	return name
+}
+
+var (
+	pdfinfoPage = regexp.MustCompile(`(?m)^Page\s+(\d+)\s+size:\s+([\d.]+)\s+x\s+([\d.]+)\s+pts`)
+	engineOnce  sync.Once
+	engineName  string
+)
+
+// foreignOCR reports whether every page is a full-page image that also has
+// a text layer: a scan that was OCRed elsewhere.
+func (p *Processor) foreignOCR(ctx context.Context, path string, pages int) bool {
+	if pages == 0 || pages > 5000 {
+		return false
+	}
+	info, err := p.run(ctx, p.popplerTool("pdfinfo"), "-f", "1", "-l", strconv.Itoa(pages), path)
+	if err != nil {
+		return false
+	}
+	area := map[int]float64{}
+	for _, m := range pdfinfoPage.FindAllStringSubmatch(string(info), -1) {
+		n, _ := strconv.Atoi(m[1])
+		w, _ := strconv.ParseFloat(m[2], 64)
+		h, _ := strconv.ParseFloat(m[3], 64)
+		area[n] = w * h
+	}
+	list, err := p.run(ctx, p.popplerTool("pdfimages"), "-list", path)
+	if err != nil {
+		return false
+	}
+	covered := map[int]bool{}
+	for _, line := range strings.Split(string(list), "\n") {
+		f := strings.Fields(line)
+		// page num type width height color comp bpc enc interp object ID x-ppi y-ppi size ratio
+		if len(f) < 14 {
+			continue
+		}
+		page, err1 := strconv.Atoi(f[0])
+		w, err2 := strconv.ParseFloat(f[3], 64)
+		h, err3 := strconv.ParseFloat(f[4], 64)
+		xppi, err4 := strconv.ParseFloat(f[12], 64)
+		yppi, err5 := strconv.ParseFloat(f[13], 64)
+		if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil || xppi <= 0 || yppi <= 0 {
+			continue
+		}
+		img := (w / xppi * 72) * (h / yppi * 72)
+		if a := area[page]; a > 0 && img >= 0.8*a {
+			covered[page] = true
+		}
+	}
+	return len(area) == pages && len(covered) == pages
+}
+
+// ocrEngine names the OCR tool chain (cached).
+func (p *Processor) ocrEngine(ctx context.Context) string {
+	engineOnce.Do(func() {
+		engineName = "ocrmypdf"
+		if out, err := p.run(ctx, p.Svc.Cfg.OcrmypdfBin, "--version"); err == nil {
+			engineName += " " + strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
+		}
+		if out, err := p.run(ctx, "tesseract", "--version"); err == nil {
+			first := strings.Fields(strings.SplitN(string(out), "\n", 2)[0])
+			if len(first) >= 2 {
+				engineName += " / tesseract " + strings.TrimPrefix(first[1], "v")
+			}
+		}
+	})
+	return engineName
+}
+
+// reOCR builds the variant tree for a PDF with a foreign OCR layer:
+// original -> image-only PDF (all text removed) -> tildoc's own OCR.
+func (p *Processor) reOCR(ctx context.Context, sha blob.SHA256, path string, pages int) error {
+	const kind = "pdf-ocred"
+	dir, err := os.MkdirTemp(p.Svc.Blobs.TempDir(), "reocr-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	imgPDF := filepath.Join(dir, "image-only.pdf")
+	if _, err := p.run(ctx, p.Svc.Cfg.GhostscriptBin, "-q", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-sDEVICE=pdfwrite",
+		"-dFILTERTEXT", "-dPassThroughJPEGImages=true", "-dPassThroughJPXImages=true",
+		"-dDownsampleColorImages=false", "-dDownsampleGrayImages=false", "-dDownsampleMonoImages=false",
+		"-sOutputFile="+imgPDF, path); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return p.Svc.SetProcessing(ctx, sha, core.StatusFailed, kind, &pages, "image-only variant: "+err.Error())
+	}
+	gsVersion := "ghostscript"
+	if out, err := p.run(ctx, p.Svc.Cfg.GhostscriptBin, "--version"); err == nil {
+		gsVersion += " " + strings.TrimSpace(string(out))
+	}
+	imgSt, err := p.Svc.Blobs.StageFile(imgPDF, 0)
+	if err != nil {
+		return err
+	}
+	imgSHA := imgSt.SHA256
+	if err := p.Svc.StoreDerivative(ctx, sha, core.Derivation{Kind: "image_only_pdf", Input: sha, Engine: gsVersion,
+		Meta: map[string]any{"filter": "text"}}, imgSt); err != nil {
+		return err
+	}
+	src, err := p.Svc.Blobs.Open(imgSHA)
+	if err != nil {
+		return err
+	}
+	srcPath := filepath.Join(dir, "in.pdf")
+	tmp, err := os.Create(srcPath)
+	if err == nil {
+		_, err = io.Copy(tmp, src)
+		tmp.Close()
+	}
+	src.Close()
+	if err != nil {
+		return err
+	}
+	outPDF := filepath.Join(dir, "out.pdf")
+	if _, err := p.run(ctx, p.Svc.Cfg.OcrmypdfBin, "--output-type", "pdf", "--jobs", "1", "--quiet",
+		"-l", p.Svc.Cfg.OCRLangs, srcPath, outPDF); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return p.Svc.SetProcessing(ctx, sha, core.StatusFailed, kind, &pages, "OCR: "+err.Error())
+	}
+	text, err := p.run(ctx, p.Svc.Cfg.PdftotextBin, "-q", "-enc", "UTF-8", outPDF, "-")
+	if err != nil {
+		return p.Svc.SetProcessing(ctx, sha, core.StatusFailed, kind, &pages, err.Error())
+	}
+	st, err := p.Svc.Blobs.StageFile(outPDF, 0)
+	if err != nil {
+		return err
+	}
+	ocrSHA := st.SHA256
+	if err := p.Svc.StoreDerivative(ctx, sha, core.Derivation{Kind: "searchable_pdf", Input: imgSHA, Engine: p.ocrEngine(ctx),
+		Meta: map[string]any{"langs": p.Svc.Cfg.OCRLangs, "mode": "full"}}, st); err != nil {
+		return err
+	}
+	if err := p.Svc.StoreText(ctx, ocrSHA, "ocr", string(text)); err != nil {
 		return err
 	}
 	return p.Svc.SetProcessing(ctx, sha, core.StatusDone, kind, &pages, "")

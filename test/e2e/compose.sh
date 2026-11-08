@@ -107,4 +107,28 @@ curl -skI "$B/api/documents/$DOC/content?inline=1" -H "Authorization: Bearer $TO
 curl -skf "$B/api/search?q=RECEIPT" -H "Authorization: Bearer $TOKEN" | grep -q '"page":1' || fail "search hit page"
 curl -skf "$B/api/search?q=Altona" -H "Authorization: Bearer $TOKEN" | grep -q '"total":1' || fail "digital PDF text"
 
+step "foreign OCR layer: image-only variant + tildoc OCR (ghostscript, ocrmypdf in the worker image)"
+"${AWS[@]}" s3 cp /w/pdf/foreign-ocr.pdf "s3://admin/Fremd/foreign-ocr.pdf" >/dev/null 2>&1 || fail "upload foreign-ocr.pdf"
+for i in $(seq 1 90); do
+  R=$(curl -skf "$B/api/search?q=foreign-ocr.pdf" -H "Authorization: Bearer $TOKEN")
+  FDOC=$(echo "$R" | sed -E 's/.*"document_id":"([^"]+)".*/\1/')
+  D=$(curl -skf "$B/api/documents/$FDOC" -H "Authorization: Bearer $TOKEN" || true)
+  echo "$D" | grep -q '"kind":"searchable_pdf"' && break
+  sleep 2
+done
+echo "$D" | grep -q '"foreign_ocr":true' || fail "foreign OCR not detected: $D"
+echo "$D" | grep -q '"kind":"image_only_pdf"' || fail "no image-only variant"
+echo "$D" | grep -q '"kind":"searchable_pdf"' || fail "no tildoc OCR variant"
+curl -skf "$B/api/search?q=Bravo" -H "Authorization: Bearer $TOKEN" | grep -q '"total":[1-9]' || fail "existing OCR text not searchable"
+
+step "exports through nginx, server backup in the worker container"
+curl -skf -o "$WORK/admin.zip" "$B/api/folders/$(curl -skf "$B/api/spaces" -H "Authorization: Bearer $TOKEN" | sed -E 's/.*"root_folder_id":"([^"]+)".*/\1/')/export" \
+  -H "Authorization: Bearer $TOKEN" || fail "zip export via nginx"
+python3 -m zipfile -t "$WORK/admin.zip" >/dev/null || fail "zip export is not a valid archive"
+"${DC[@]}" exec -T worker tildoc backup full >/dev/null || fail "backup in worker container"
+"${DC[@]}" exec -T worker tildoc backup differential >/dev/null || fail "differential backup"
+"${DC[@]}" exec -T worker sh -c 'tildoc backup verify /backups/*-full-*.dtbackup /backups/*-differential-*.dtbackup' | grep -q '"mode": "differential"' \
+  || fail "backup verify"
+"${DC[@]}" exec -T server sh -c 'ls /backups/*.dtbackup' >/dev/null || fail "server does not see the backup volume"
+
 printf '\n\033[1;32mCOMPOSE E2E PASSED\033[0m\n'

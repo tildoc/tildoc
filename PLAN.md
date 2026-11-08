@@ -492,16 +492,280 @@ erDiagram
   prev/next within a collection. Protocol view (read-only
   `/@collections/<name>/` in WebDAV/SFTP) later.
 
-### Phase 11 — Export / Import (later)
+### Phase 11 — Export, Import, Backup
 
-- Export a space or collection as a streamed archive: files in their folder
-  structure (usable without tildoc) + `tildoc-manifest.json` (format
-  version, documents, all versions, places, original paths, tags,
-  collection membership, optional extracted text/OCR PDFs).
-- Import into a new or existing space: dedup applies, ids are remapped,
-  tags matched by name (created only by admins or on confirmation).
-- Data model requirement now: everything exportable has stable ids and no
-  meaning hidden in derived data.
+**Goal:** get data out of and into tildoc in three forms, with one import
+path that behaves like every other way of adding files. Everything is
+identified by UUIDs; names and short names are only labels.
+
+| Form | For | Contents | Scope | Trash |
+|------|-----|----------|-------|-------|
+| **Files export** | People, other programs | ZIP of the current files in the shown folder structure with the shown names | space, folder, collection | no |
+| **Bundle** | Another tildoc server | all versions, all derived variants (text, OCR PDFs), places, original paths, tags, collections | space, collection | no |
+| **Server backup** | Operators | bundle of the whole server incl. users, teams, keys; full or differential | whole instance | yes |
+
+```mermaid
+flowchart LR
+  subgraph Export
+    S[(snapshot<br/>REPEATABLE READ)] --> W[archive writer<br/>zip or bundle tar]
+    W --> E[encryption stage<br/>later: age]
+    E --> O[HTTP download / backup dir / CLI]
+  end
+  subgraph Import
+    U[upload / file / CLI] --> D[decryption stage] --> R[archive reader]
+    R -->|each blob| ST[Stage + Commit<br/>SHA-256 verified, dedup]
+    R -->|manifest| M[validate] --> A[apply in one transaction<br/>same rules as uploads]
+    ST --> A
+  end
+```
+
+#### 11.0 UUIDs everywhere
+
+- All entities already use UUIDs (users, teams, spaces, entries, documents,
+  tags, collections, imports). Exceptions stay deliberate: S3 access key ids
+  (`DK…` format required by S3 clients), session token hashes (secrets),
+  blobs (content address = SHA-256).
+- Switch the remaining technical ids to UUIDs: `jobs.id` (bigserial) and
+  `multipart_uploads.id` (random text; the S3 UploadId becomes the UUID).
+- Defaults become `uuidv7()` (PostgreSQL 18): time ordered, better index
+  locality, still opaque.
+- Bundles and backups reference everything by UUID. Space short names
+  (slugs) remain only the protocol label (S3 bucket, WebDAV/SFTP folder) and
+  can be changed freely.
+
+#### Files export (ZIP)
+
+- Streamed directly into the download (no temporary copy), `archive/zip`
+  from the stdlib (UTF-8 names, ZIP64).
+- Exactly what UI and WebDAV show: folder tree and names of a space or
+  folder; a collection flat with the names of `/@collections/<name>/`.
+  Current versions only, no trash, empty folders included.
+- REST `GET /api/spaces/{id}/export`, `/api/folders/{id}/export`,
+  `/api/collections/{id}/export`; UI "Export as ZIP"; CLI `tildoc export`.
+- Permission: read access (decision 26).
+
+#### Bundle (tildoc to tildoc)
+
+- Format `tildoc-bundle` v1 (`docs/bundle-format.md`): tar stream,
+  `manifest.json` first, then `blobs/<sha256>` (each content once).
+- Manifest: format version, kind (space | collection | server), source
+  instance UUID, folders, documents with **all versions** and the **full
+  derivative tree** (text, OCR PDFs, later image-only variants; see Phase 12),
+  places (path, original path, created), tags, collections. Every object
+  carries its UUID; users referenced by UUID + username (no credentials,
+  except in server backups).
+- Consistent snapshot (REPEATABLE READ); blob GC waits while an export runs.
+
+#### Import (one path, same rules as uploads)
+
+- Every blob goes through the normal ingest: `Stage` → SHA-256 checked
+  against the manifest → `Commit` → `registerBlob`. Bytes already on the
+  server are not stored again; derived data from the bundle is taken over
+  (no OCR rerun).
+- Documents and places follow the upload/move rules: identical content in
+  the target space becomes another place of that document and the
+  histories merge (decision 22); taken names get " (imported)".
+- **Remapping (users):** a user imports a space bundle as a **new space**
+  (new UUIDs, own name and short name, the importer or one of their teams as
+  owner) or **into an existing space/folder** they can write. Tags matched by
+  name (created if missing), collections become the importer's personal
+  collections (or a team's, if the importer manages it).
+- Hostile input is expected: version check, name/path validation (no
+  traversal, `valid_name`), size and count limits, hash of every blob,
+  unknown fields rejected; metadata applied in one transaction (all or
+  nothing; orphan blobs are collected by GC).
+- Runs as a job (upload to staging, then apply) with progress; REST
+  `POST /api/imports/bundle`, UI "Import space" (Spaces page) and
+  "Import into this folder"; CLI `tildoc import`.
+- A plain ZIP (e.g. a files export) can be imported into a folder through
+  the same upload path.
+
+#### Server backup: full and differential
+
+```mermaid
+flowchart LR
+  F1[Full 1<br/>metadata + all blobs] --> D1[Differential<br/>metadata + blobs new since Full 1]
+  F1 --> D2[Differential<br/>metadata + blobs new since Full 1]
+  F2[Full 2] --> D3[Differential]
+```
+
+- **Full:** complete metadata snapshot + every referenced blob.
+- **Differential:** complete metadata snapshot (small) + only the blobs not
+  contained in its base full backup. Restore needs exactly two files: the
+  full backup and the newest differential. (Blobs are immutable and content
+  addressed, so "not in the base" is an exact set difference, no change
+  tracking needed.)
+- Includes trash, all versions, derived data, users (password hashes),
+  teams, memberships, spaces, tags, collections, SSH keys, access keys
+  (secrets stay encrypted; `TILDOC_MASTER_KEY` is not in the backup).
+  Excludes sessions, jobs, multipart uploads.
+- Stored only on the server in `TILDOC_BACKUP_DIR` (decision 27); whoever
+  has file system access copies them. Administration shows the list
+  (mode, base, date, size, status), starts backups and deletes them;
+  retention keeps the last N full backups with their differentials (a full
+  backup cannot be deleted while differentials depend on it).
+- Schema: `backups(id uuid, mode full|differential, base_id → backups,
+  status, started_at, finished_at, file, size, blob_count, error)` and
+  `backup_blobs(backup_id, sha256)` for full backups (the set the
+  differentials are computed against).
+- CLI: `tildoc backup full|differential` (cron / systemd timer),
+  `tildoc backup verify <file>`, `tildoc restore <full> [<differential>]`
+  into an empty instance only, UUIDs preserved (decision 28). Logical
+  format, independent of the schema version.
+
+#### Encryption (later, prepared now)
+
+- Writer/reader chains with an optional encryption stage; format `age`
+  (passphrase or public key) when implemented (decision 29).
+
+#### Steps
+
+- [x] 11.0 UUIDs: `jobs.id`, `multipart_uploads.id` as UUID, `uuidv7()` defaults
+- [x] 11.1 Export foundation: writer chain with encryption stage, snapshot reader, GC guard
+- [x] 11.2 Files export (ZIP): space, folder, collection; REST, UI, CLI
+- [x] 11.3 Bundle format v1 spec + exporter (space, collection) incl. all versions and derivative tree
+- [x] 11.4 Bundle importer: validation, blob ingest with dedup, documents/history/places/tags/collections, remap to new or existing space, atomic apply, job + progress; REST, UI, CLI
+- [x] 11.5 ZIP import into a folder (upload path)
+- [x] 11.6 Server backup full/differential: schema, job, backup dir, retention, Administration UI, CLI backup/verify/restore
+- [x] 11.7 Tests: round trips between two test instances (files, bundle, full + differential restore), dedup/merge on import, remap, permissions, hostile bundles, ZIP checked with `unzip`/`bsdtar`, UI smoke
+- [x] 11.8 Docs: README (export, import, backup, restore), bundle format
+
+### Phase 12 — OCR variants
+
+- A document version can have a **tree of derived variants**:
+  - original without text layer → our OCR as searchable PDF;
+  - original with an existing (foreign) OCR layer → an image-only variant
+    split off the original → our OCR on it.
+- Server administration chooses which OCR is preferred for search, text
+  view and the viewer ("existing layer" vs "tildoc OCR"), per installation.
+- The document details visualize the variant tree (original → image-only →
+  OCR), with engine, language and date, and allow viewing/downloading each.
+- Data model: `blob_derivatives` already chains (source → derived); it gets
+  kinds `image_only_pdf` and `searchable_pdf` with engine metadata.
+- Exports (bundles, backups) carry the whole tree (Phase 11).
+
+- [x] 12.1 Schema: `blob_derivatives.input_sha256/engine/meta`, kinds `image_only_pdf`, `pdf-ocred`; `instance_settings.ocr_preference`; SQL `text_sha()` picks the text for search and the text view
+- [x] 12.2 Worker: detect foreign OCR (every page a full-page image with text: `pdfinfo` + `pdfimages`), image-only variant via Ghostscript `-dFILTERTEXT` (images passed through, no downsampling), own OCR via ocrmypdf; switch `TILDOC_OCR_REDO_FOREIGN`
+- [x] 12.3 API/UI: variants tree in document details (view/download per variant, "used for search"), viewer switch "Existing OCR / tildoc OCR", OCR preference in Administration
+- [x] 12.4 Tests: worker test in the OCR image, compose E2E with the real worker image
+
+### Phase 13 — Permission model
+
+- Today: personal spaces (owner) and team spaces (team roles owner, admin,
+  member, viewer) map to one level read < write < delete < manage, computed
+  in one place (`requirePerm`).
+- Proposed: **capabilities** instead of levels (`view`, `download`,
+  `export`, `write`, `delete`, `manage`, `share`), roles as named capability
+  sets, and **space grants** (`space_grants(space_id, user_id | team_id,
+  role)`) so a space can be shared with single people or several teams.
+- Not needed for Phase 11: export uses read access (decision 26), and the
+  check lives in the one permission function, so the capability model can
+  replace it later without touching the export code.
+
+- [x] 13.1 Capabilities (`view, download, export, write, delete, share, manage`) in `internal/core/permissions.go`; roles are capability sets; access keys (scope, read-only) restrict them; spaces report `caps`
+- [x] 13.2 `space_grants` (user or team, role viewer/member/admin) and SQL `space_role()`: strongest of ownership, owning-team role, direct grant, team grant capped by the member's team role
+- [x] 13.3 Sharing API and dialog; nobody grants more than their own role; owners only through ownership
+- [x] 13.4 Tests: sharing, team capping, revoke, read-only keys, collections and search follow the grants
+
+------|-----|----------|-------|
+| **Files export** | People, other programs | ZIP of the current files in the shown folder structure with the shown names | space, folder, collection |
+| **Bundle** | Another tildoc server | archive with every version, places, original paths, tags, collections, optional extracted text/OCR PDFs | space, collection |
+| **Server backup** | Administrators | bundle of the whole server: users, teams, spaces, tags, collections, keys | whole instance |
+
+```mermaid
+flowchart LR
+  subgraph Export
+    S[(snapshot<br/>REPEATABLE READ)] --> W[archive writer<br/>zip or bundle tar]
+    W --> E[encryption hook<br/>later: age]
+    E --> O[HTTP download / backup file / CLI]
+  end
+  subgraph Import
+    U[upload / file / CLI] --> D[decrypt hook] --> R[archive reader]
+    R -->|each blob| ST[Stage + Commit<br/>SHA-256 verified]
+    R -->|manifest| M[validate] --> A[apply in one transaction<br/>same rules as uploads]
+    ST --> A
+  end
+```
+
+#### Files export (ZIP)
+
+- Streamed directly into the download (no temporary copy on the server),
+  `archive/zip` from the stdlib (UTF-8 names, ZIP64 for large exports).
+- Exactly what the UI and WebDAV show: folder tree and file names of the
+  space or folder; a collection is exported flat with the names shown in
+  `/@collections/<name>/` ("name (2).ext" on clashes).
+- Current versions only, no trash. Empty folders are included.
+- REST: `GET /api/spaces/{id}/export`, `/api/folders/{id}/export`,
+  `/api/collections/{id}/export` (read permission). UI: "Export as ZIP" on
+  the space/folder toolbar and the collection page. CLI: `tildoc export`.
+
+#### Bundle (tildoc to tildoc)
+
+- Format `tildoc-bundle` v1, documented in `docs/bundle-format.md`:
+  a tar stream with `manifest.json` first, then `blobs/<sha256>` (each
+  content once), optional `text/<sha256>` and derived OCR PDFs.
+- Manifest: format version, kind (space | collection | server), folders,
+  documents with all versions (hash, size, mime, time, author username,
+  source, metadata), places (path, original path, created), tags (name,
+  color), collections (name, tag rule, members). Users are referenced by
+  username, never by id or with credentials (except in server backups).
+- Consistent: metadata is read in one REPEATABLE READ snapshot; blob
+  garbage collection waits while an export runs.
+
+#### Import (one path, same rules as uploads)
+
+- Every blob goes through the normal ingest (`Stage` → SHA-256 check against
+  the manifest → `Commit` → `registerBlob`, processing jobs for new content):
+  bytes already on the server are not stored twice.
+- Documents and places are created with the same rules as uploads and moves:
+  identical content already in the target space becomes another place of
+  that document and the histories merge (decision 22); names that are taken
+  get " (imported)".
+- Targets: a new space (default; name/short name adjustable, the importer
+  becomes owner) or an existing folder. Tags matched by name, missing ones
+  created. Collections created as personal collections of the importer
+  (or for a team the importer manages).
+- Bundles are untrusted input: format/version check, path and name
+  validation (no traversal, `valid_name`), size and count limits, SHA-256
+  of every blob verified, unknown fields rejected. The metadata is applied
+  in one transaction: an import either fully succeeds or leaves nothing
+  behind (orphan blobs are collected by GC).
+- Runs as a job (upload to a staging file, then apply) with progress in the
+  UI; REST `POST /api/imports/bundle`, UI "Import space" on the Spaces page,
+  CLI `tildoc import`.
+- A plain ZIP (e.g. a files export) can be imported into a folder; it is
+  unpacked through the same upload path.
+
+#### Server backup (administration)
+
+- Admin starts a backup; a job writes a server bundle to `TILDOC_BACKUP_DIR`
+  (volume). Administration lists backups (date, size, status), deletes them
+  and sets retention (keep N). CLI `tildoc backup` for cron/systemd timers.
+- Contains users (password hashes), teams, spaces, all documents and
+  versions, tags, collections, access keys (secrets stay encrypted with
+  `TILDOC_MASTER_KEY`, which is NOT in the backup), SSH keys. Not included:
+  sessions, jobs, derived data (optional), trash (optional).
+- Restore: `tildoc restore <file>` into an empty instance, ids preserved.
+- Independent of the database schema version (logical format), so backups
+  survive schema changes; `pg_dump` + data volume stays documented for
+  byte-exact operator backups.
+
+#### Encryption (later, prepared now)
+
+- Exports, bundles and backups are produced as a writer chain; encryption
+  is an optional stage between archive and output (and decryption before
+  the reader on import), so it can be added without changing the formats.
+
+#### Steps
+
+- [x] 11.1 Export foundation: writer chain with encryption hook, snapshot reader, GC guard
+- [x] 11.2 Files export (ZIP) for space, folder, collection: core, REST, UI buttons, CLI
+- [x] 11.3 Bundle format v1 spec + exporter for space and collection
+- [x] 11.4 Bundle importer: validation, blob ingest with dedup, documents/history/places/tags/collections, atomic apply, job + progress, REST/UI/CLI
+- [x] 11.5 ZIP import into a folder (through the upload path)
+- [x] 11.6 Server backup: job, backup directory, list/delete/retention in Administration, CLI backup/restore
+- [x] 11.7 Tests: round trips between two test instances (files, bundle, server backup), dedup and merge on import, permissions, hostile bundles (traversal, hash mismatch, oversize, unknown version), ZIP read by `unzip`/`bsdtar` in e2e, UI smoke
+- [x] 11.8 Docs: README (export/import/backup, restore procedure), bundle format
 
 Open questions: see below.
 
@@ -536,10 +800,20 @@ Open questions: see below.
 | 23 | Shared processing state | accepted side channel (dedup reveals prior existence of identical bytes) |
 | 24 | Tags | central vocabulary, users create, admins rename/merge/delete; attached to documents |
 | 25 | Collections | personal or team-owned, reference documents, never grant access, read-only in WebDAV/SFTP |
+| 26 | Export permission | anyone with read access (finer model: Phase 13) |
+| 27 | Server backups | full and differential, kept on the server only (no download in the UI) |
+| 28 | Restore | whole server only via CLI into an empty instance; users import space bundles and remap them to new or existing spaces |
+| 29 | Export encryption (later) | `age` |
+| 30 | Trash in exports | excluded from files exports and bundles, included in server backups; bundles carry all versions and derived variants |
+| 31 | Ids | UUIDv7 for every entity (jobs and multipart uploads included); exceptions: S3 key ids, session token hashes, blob SHA-256 |
+| 32 | OCR preference | server-wide `existing` (default) or `tildoc`; foreign OCR is always kept, tildoc OCR is added |
+| 33 | Permissions | capabilities + roles; spaces can be shared with users and teams (`space_grants`) |
 
 ## Open Questions
 
-None. Phase 9/10 decisions (2026-11-08):
+None for Phase 11 (answers 2026-11-08 recorded as decisions 26–30).
+
+Earlier decisions (Phase 9/10, 2026-11-08):
 1. 9.2 single `entries` table: yes.
 2. 9.4 trash invariant: constraint trigger.
 3. 9.8 move into a space with the same content: merge; the moved document's
