@@ -1,13 +1,16 @@
 <script>
-  import { untrack } from 'svelte';
+  import { untrack, onMount } from 'svelte';
   import Modal from './Modal.svelte';
   let { title, label = 'Name', value = '', confirm = 'OK', onsubmit, onclose } = $props();
   let v = $state(untrack(() => value));
   let input;
-  $effect(() => {
-    input?.focus();
+  // once when the dialog opens: focus and select the name without its
+  // extension. (As an $effect reading v it re-ran on every keystroke and
+  // re-selected the text, so each key replaced everything typed before.)
+  onMount(() => {
+    input.focus();
     const dot = v.lastIndexOf('.');
-    input?.setSelectionRange(0, dot > 0 ? dot : v.length);
+    input.setSelectionRange(0, dot > 0 ? dot : v.length);
   });
 </script>
 

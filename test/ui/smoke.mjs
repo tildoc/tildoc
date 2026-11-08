@@ -79,7 +79,10 @@ await step('setup admin', async () => {
 
 await step('new folder', async () => {
   await page.getByRole('button', { name: 'New folder' }).click();
-  await page.getByRole('dialog').getByRole('textbox').fill('Rechnungen');
+  // typed key by key (fill() would hide focus/selection bugs)
+  const name = page.getByRole('dialog').getByRole('textbox');
+  await name.pressSequentially('Rechnungen');
+  if ((await name.inputValue()) !== 'Rechnungen') throw new Error(`typed name became "${await name.inputValue()}"`);
   await page.getByRole('button', { name: 'Create' }).click();
   await row('Rechnungen').waitFor();
 });
@@ -295,7 +298,10 @@ await step('move via dialog', async () => {
 await step('rename', async () => {
   await row('Quartalsbericht.pdf').click();
   await page.getByRole('button', { name: 'Rename' }).click();
-  await page.getByRole('dialog').getByRole('textbox').fill('Q3-Bericht.pdf');
+  // the name is preselected without its extension: typing replaces only the name
+  const name = page.getByRole('dialog').getByRole('textbox');
+  await name.pressSequentially('Q3-Bericht');
+  if ((await name.inputValue()) !== 'Q3-Bericht.pdf') throw new Error(`rename field became "${await name.inputValue()}"`);
   await page.getByRole('dialog').getByRole('button', { name: 'Rename' }).click();
   await row('Q3-Bericht.pdf').waitFor();
 });
