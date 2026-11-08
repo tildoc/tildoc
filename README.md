@@ -127,7 +127,8 @@ continues from a variant (e.g. the OCR PDF uploaded as a new version) or
 restores an older version (dashed). Clicking a node shows it (version and
 variant) in the preview or viewer, and only that node is marked; *Open* opens
 exactly the selected node. Every node can be downloaded, older versions
-restored.
+restored. The viewer's toolbar shows the same graph horizontally (time
+from left to right); clicking a node switches the document shown.
 
 Glossary: **Team** (users + roles owner/admin/member/viewer), **Space**
 (container, = S3 bucket, = top-level WebDAV/SFTP folder), **Folder**,

@@ -91,6 +91,17 @@ export function layoutHistory(versions) {
   return { rows, edges, lanes };
 }
 
+// Selecting a node: which variant it is ('original' for a version node) and
+// the selection { viewVersion (0 = current), viewVariant } that shows it.
+const PARAM = { image_only_pdf: 'image_only', searchable_pdf: 'searchable' };
+export const nodeVariant = (r) => (r.kind === 'version' ? 'original' : PARAM[r.variant]);
+export function nodeSelection(doc, r) {
+  return { viewVersion: r.version === doc.version ? 0 : r.version, viewVariant: nodeVariant(r) };
+}
+export function nodeName(r) {
+  return r.kind === 'version' ? `Version ${r.version}` : `${VARIANT_LABEL[r.variant] ?? r.variant} of version ${r.version}`;
+}
+
 // path returns the SVG path of an edge. x(lane) and y(row) give centres.
 export function edgePath(e, x, y) {
   const { from: a, to: b } = e;

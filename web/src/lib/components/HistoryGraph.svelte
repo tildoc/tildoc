@@ -6,8 +6,8 @@
   // Every node is selectable: selecting shows it (version + variant) in the
   // preview or viewer; only the shown node is marked.
   import Icon from './Icon.svelte';
-  import { layoutHistory, edgePath, VARIANT_LABEL } from '../history.js';
-  import { size, date, shownVariant, VARIANT_NAME } from '../format.js';
+  import { layoutHistory, edgePath, nodeVariant, nodeSelection, nodeName, VARIANT_LABEL } from '../history.js';
+  import { size, date, shownVariant } from '../format.js';
 
   // viewVersion: 0 = current; viewVariant: '' = the default for that version
   let { doc, canWrite = false, viewVersion = $bindable(0), viewVariant = $bindable(''), onrestore } = $props();
@@ -18,15 +18,12 @@
   const x = (lane) => PAD + lane * LANE;
   const y = (row) => row * ROW + 19; // centre of the title line
   const color = (lane) => `var(--lane-${lane % 4})`;
-  const param = { image_only_pdf: 'image_only', searchable_pdf: 'searchable' };
   const shownVer = $derived(viewVersion || doc.version);
   const shownVar = $derived(shownVariant(doc, viewVersion, viewVariant));
-  const variantOf = (r) => (r.kind === 'version' ? 'original' : param[r.variant]);
-  const isShown = (r) => r.version === shownVer && variantOf(r) === shownVar;
+  const isShown = (r) => r.version === shownVer && nodeVariant(r) === shownVar;
 
   function select(r) {
-    viewVersion = r.version === doc.version ? 0 : r.version;
-    viewVariant = variantOf(r);
+    ({ viewVersion, viewVariant } = nodeSelection(doc, r));
   }
   const contentURL = $derived(`/api/documents/${doc.id}/content`);
 
@@ -56,7 +53,7 @@
   function variantQuery(r) {
     const q = new URLSearchParams();
     if (r.version !== doc.version) q.set('version', String(r.version));
-    q.set('variant', param[r.variant]);
+    q.set('variant', nodeVariant(r));
     return q;
   }
 </script>
@@ -82,7 +79,7 @@
     {#each graph.rows as r (r.id)}
       <li class={r.kind} class:shown={isShown(r)}>
         <button class="pick" aria-pressed={isShown(r)} onclick={() => select(r)}
-          aria-label="Show {r.kind === 'version' ? `version ${r.version}` : `${VARIANT_NAME[variantOf(r)]} of version ${r.version}`}"></button>
+          aria-label="Show {nodeName(r).replace(/^Version/, 'version')}"></button>
         {#if r.kind === 'version'}
           {@const v = r.data}
           <div class="title">

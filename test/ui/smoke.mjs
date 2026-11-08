@@ -568,6 +568,13 @@ await step('history graph', async () => {
   await page.locator('aside.peek').getByRole('button', { name: 'Open' }).click();
   await page.waitForURL(/\/view\/.*[?&]v=2/);
   await page.locator('.viewer', { hasText: 'second draft' }).waitFor();
+  // the viewer shows the same graph horizontally; its nodes switch the view
+  const strip = page.locator('.viewer .strip');
+  await strip.locator('.label', { hasText: 'Version 2' }).waitFor();
+  if ((await strip.locator('button.node').count()) !== 3 || (await strip.locator('path.edge.restore').count()) !== 1) throw new Error('strip nodes/edges');
+  await strip.getByRole('button', { name: 'Show version 3' }).click();
+  await page.locator('.viewer', { hasText: 'first draft' }).waitFor();
+  await strip.locator('.label', { hasText: 'Version 3' }).waitFor();
 });
 
 await step('history: open the selected variant', async () => {
@@ -603,6 +610,15 @@ await step('history: open the selected variant', async () => {
   await hist.getByRole('button', { name: 'Show tildoc OCR of version 1' }).click();
   await page.locator('aside.peek').getByRole('button', { name: 'Open' }).click();
   await page.waitForURL(/variant=searchable/);
+  await page.locator('.viewer .pg .textLayer span', { hasText: 'Erkannter' }).first().waitFor();
+  // in the viewer the strip replaces the OCR buttons: switch to the original and back
+  const strip = page.locator('.viewer .strip');
+  await strip.locator('.label', { hasText: 'tildoc OCR of version 1' }).waitFor();
+  if (await page.locator('.viewer').getByRole('button', { name: /Existing OCR|With OCR text/ }).count()) throw new Error('old OCR buttons still shown');
+  await strip.getByRole('button', { name: 'Show version 1' }).click();
+  await page.locator('.viewer .pg .textLayer span', { hasText: 'Scan Original' }).first().waitFor();
+  await strip.locator('.label', { hasText: 'Version 1' }).waitFor();
+  await strip.getByRole('button', { name: 'Show tildoc OCR of version 1' }).click();
   await page.locator('.viewer .pg .textLayer span', { hasText: 'Erkannter' }).first().waitFor();
 });
 

@@ -7,10 +7,11 @@
   import { get, cachedData, revalidate } from '#lib/api.js';
   import { errorToast, session, stored, store } from '#lib/state.svelte.js';
   import { COLUMNS, loadView } from '#lib/columns.js';
-  import { shownVariant, hasVariant, foreignOCR } from '#lib/format.js';
+  import { shownVariant, hasVariant } from '#lib/format.js';
   import Icon from '#lib/components/Icon.svelte';
   import DocView from '#lib/components/viewer/DocView.svelte';
   import DocDetails from '#lib/components/DocDetails.svelte';
+  import HistoryStrip from '#lib/components/HistoryStrip.svelte';
   import { watchBusy, isBusy } from '#lib/poll.svelte.js';
   import { watchLive } from '#lib/events.svelte.js';
 
@@ -259,16 +260,8 @@
       </div>
 
       <div class="right">
-        {#if hasVariant(doc, viewVersion, 'searchable')}
-          <div class="seg hide-sm" role="group" aria-label="Version of the PDF">
-            {#if foreignOCR(doc, viewVersion)}
-              <button class:active={variant === 'original'} onclick={() => (viewVariant = 'original')} title="The file as uploaded, with the OCR it came with">Existing OCR</button>
-              <button class:active={variant === 'searchable'} onclick={() => (viewVariant = 'searchable')} title="tildoc's own OCR of the plain page images">tildoc OCR</button>
-            {:else}
-              <button class:active={variant === 'searchable'} onclick={() => (viewVariant = 'searchable')} title="The original with recognised text added (OCR)">With OCR text</button>
-              <button class:active={variant === 'original'} onclick={() => (viewVariant = 'original')} title="The file exactly as uploaded">Original</button>
-            {/if}
-          </div>
+        {#if doc.versions.length > 1 || doc.versions.some((v) => v.variants?.length)}
+          <div class="hide-sm"><HistoryStrip {doc} bind:viewVersion bind:viewVariant /></div>
         {/if}
         {#if caps.find}<button class="icon" class:on={findOpen} onclick={() => (findOpen ? closeFind() : openFind())} aria-label="Find in document" title="Find in document (Ctrl+F)"><Icon name="search" /></button>{/if}
         {#if siblings.length > 1}
@@ -340,11 +333,6 @@
   .pager input { width: 3.6em; min-height: 30px; text-align: center; padding: 2px 4px; background: var(--stage); border-color: rgb(255 255 255 / 0.15); color: var(--stage-ink); }
   .pager span { color: var(--stage-ink-2); font-size: var(--t-sm); margin: 0 4px; white-space: nowrap; }
   .zoom select { width: auto; min-height: 30px; padding: 2px 6px; background: var(--stage); border-color: rgb(255 255 255 / 0.15); color: var(--stage-ink); font-size: var(--t-sm); }
-  .seg { border-color: rgb(255 255 255 / 0.15); margin-right: 6px; }
-  .seg button { background: var(--stage); color: var(--stage-ink-2); }
-  .seg button + button { border-left-color: rgb(255 255 255 / 0.15); }
-  .seg button:hover:not(:disabled) { background: rgb(255 255 255 / 0.08); }
-  .seg button.active { background: var(--stage-ink); color: var(--stage); }
 
   .find {
     grid-area: find; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 12px; background: var(--stage-2);
