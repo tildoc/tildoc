@@ -528,6 +528,31 @@ await step('revisit renders from cache', async () => {
   if (!statuses.includes(304)) throw new Error(`revalidation statuses ${statuses}`);
 });
 
+await step('history graph', async () => {
+  const sp = await home();
+  const f = await api('POST', '/folders', { parent_id: sp.root_folder_id, name: 'History' });
+  const up = await api('PUT', `/folders/${f.id}/files?path=contract.txt`, 'first draft');
+  const doc = up.file.document_id;
+  await api('POST', `/documents/${doc}/versions`, 'second draft');
+  await api('POST', `/documents/${doc}/versions/1/restore`);
+  await page.goto(`${BASE}/f/${f.id}`);
+  await row('contract.txt').click();
+  await page.locator('aside.peek').getByRole('tab', { name: 'History (3)' }).click();
+  const hist = page.locator('aside.peek .hist');
+  await hist.getByText('Version 3').waitFor();
+  // oldest first, the restore joins back from version 1 (dashed side lane)
+  const titles = await hist.locator('li strong').allTextContents();
+  if (titles.join(',') !== 'Version 1,Version 2,Version 3') throw new Error(`order ${titles}`);
+  await hist.getByText('Restored from version 1').waitFor();
+  const box = await page.locator('aside.peek').boundingBox();
+  if (box.x + box.width > 1440 + 1) throw new Error(`peek panel overflows the window (${box.x + box.width}px)`);
+  if ((await hist.locator('path.edge.restore').count()) !== 1 || (await hist.locator('path.edge.main').count()) !== 2) throw new Error('edges');
+  // view an older version from the graph
+  await hist.locator('li', { hasText: 'Version 2' }).getByRole('button', { name: 'View' }).click();
+  await hist.locator('li.viewing', { hasText: 'Version 2' }).waitFor();
+  await page.locator('aside.peek .bar .pill', { hasText: 'Viewing version 2' }).waitFor();
+});
+
 await browser.close();
 if (errors.length) {
   console.error('\nBrowser errors:\n' + errors.join('\n'));

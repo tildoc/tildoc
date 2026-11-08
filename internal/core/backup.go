@@ -730,8 +730,8 @@ func (s *Service) applyRestore(ctx context.Context, tx pgx.Tx, br *bundleReader)
 				if v.Meta == nil {
 					v.Meta = map[string]any{}
 				}
-				if err := ex(`INSERT INTO document_versions(document_id, version, sha256, created_at, created_by, source, meta)
-					VALUES($1,$2,$3,$4,$5,$6,$7)`, d.ID, v.Version, h[:], v.CreatedAt, v.CreatedBy, v.Source, v.Meta); err != nil {
+				if err := ex(`INSERT INTO document_versions(document_id, version, sha256, created_at, created_by, source, meta, restored_from)
+					VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, d.ID, v.Version, h[:], v.CreatedAt, v.CreatedBy, v.Source, v.Meta, v.RestoredFrom); err != nil {
 					return err
 				}
 			}

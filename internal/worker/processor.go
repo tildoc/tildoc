@@ -203,8 +203,21 @@ func (p *Processor) processPDF(ctx context.Context, sha blob.SHA256, path string
 	text := string(out)
 	pages, empty := pageStats(text)
 	if empty == 0 {
-		if err := p.Svc.StoreText(ctx, sha, "pdftotext", text); err != nil {
+		// tildoc's own OCR output used as content again (e.g. the OCR PDF
+		// uploaded as a new version): its text is ours, OCR again is waste
+		own, err := p.Svc.IsTildocOCR(ctx, sha)
+		if err != nil {
 			return err
+		}
+		method := "pdftotext"
+		if own {
+			method = "ocr"
+		}
+		if err := p.Svc.StoreText(ctx, sha, method, text); err != nil {
+			return err
+		}
+		if own {
+			return p.Svc.SetProcessing(ctx, sha, core.StatusDone, "pdf-tildoc-ocr", &pages, "")
 		}
 		if !p.foreignOCR(ctx, path, pages) {
 			return p.Svc.SetProcessing(ctx, sha, core.StatusDone, "pdf-digital", &pages, "")

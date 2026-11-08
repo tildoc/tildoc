@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -55,7 +56,7 @@ type Variant struct {
 	SearchText bool           `json:"search_text"` // its text is used for search and the text view
 }
 
-// VersionInfo describes one version.
+// VersionInfo describes one version with its own variant tree.
 type VersionInfo struct {
 	Version   int               `json:"version"`
 	SHA256    blob.SHA256       `json:"sha256"`
@@ -65,6 +66,42 @@ type VersionInfo struct {
 	CreatedBy string            `json:"created_by"`
 	Source    string            `json:"source"`
 	Meta      map[string]string `json:"meta,omitempty"`
+	Kind      string            `json:"kind"` // processing kind of its content (pdf-scanned, pdf-ocred, ...)
+	Variants  []Variant         `json:"variants"`
+	// RestoredFrom: this version re-added the content of an earlier one.
+	RestoredFrom *int `json:"restored_from,omitempty"`
+	// ContinuedFrom: the content equals a variant (or the original) of an
+	// earlier version, e.g. tildoc's OCR PDF uploaded as a new version.
+	// Derived from the content hashes, not stored.
+	ContinuedFrom *Continuation `json:"continued_from,omitempty"`
+}
+
+// Continuation points at the node of the history a version continues from.
+type Continuation struct {
+	Version int    `json:"version"`
+	Variant string `json:"variant,omitempty"` // "" = that version itself, else the variant kind
+}
+
+// linkHistory derives ContinuedFrom for versions sorted ascending: the
+// nearest earlier version whose original or variant has the same content.
+func linkHistory(vs []VersionInfo) {
+	for k := range vs {
+		if vs[k].RestoredFrom != nil {
+			continue
+		}
+		for j := k - 1; j >= 0 && vs[k].ContinuedFrom == nil; j-- {
+			if j < k-1 && vs[j].SHA256 == vs[k].SHA256 {
+				vs[k].ContinuedFrom = &Continuation{Version: vs[j].Version}
+				break
+			}
+			for _, v := range vs[j].Variants {
+				if v.SHA256 == vs[k].SHA256 {
+					vs[k].ContinuedFrom = &Continuation{Version: vs[j].Version, Variant: v.Kind}
+					break
+				}
+			}
+		}
+	}
 }
 
 // LinkRef is a place where a document appears.
@@ -108,23 +145,39 @@ func (s *Service) GetDocument(ctx context.Context, p *Principal, id string) (*Do
 	copy(d.SHA256[:], sha)
 	d.MD5 = hex.EncodeToString(md5)
 
-	rows, err := s.DB.Query(ctx, `SELECT v.version, v.sha256, b.size, b.mime, v.created_at, coalesce(u.username,''), v.source, v.meta
+	rows, err := s.DB.Query(ctx, `SELECT v.version, v.sha256, b.size, b.mime, v.created_at, coalesce(u.username,''), v.source, v.meta,
+		v.restored_from, coalesce(bp.kind, '')
 		FROM document_versions v JOIN blobs b ON b.sha256=v.sha256 LEFT JOIN users u ON u.id=v.created_by
-		WHERE v.document_id=$1 ORDER BY v.version DESC`, id)
+		LEFT JOIN blob_processing bp ON bp.sha256=v.sha256
+		WHERE v.document_id=$1 ORDER BY v.version`, id)
 	if err != nil {
 		return nil, err
 	}
+	var shas [][]byte
 	for rows.Next() {
 		var v VersionInfo
 		var vs []byte
-		if err := rows.Scan(&v.Version, &vs, &v.Size, &v.MIME, &v.CreatedAt, &v.CreatedBy, &v.Source, &v.Meta); err != nil {
+		if err := rows.Scan(&v.Version, &vs, &v.Size, &v.MIME, &v.CreatedAt, &v.CreatedBy, &v.Source, &v.Meta, &v.RestoredFrom, &v.Kind); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		copy(v.SHA256[:], vs)
 		d.Versions = append(d.Versions, v)
+		shas = append(shas, vs)
 	}
 	rows.Close()
+	variants, err := s.variantsOf(ctx, shas)
+	if err != nil {
+		return nil, err
+	}
+	for i := range d.Versions {
+		d.Versions[i].Variants = variants[d.Versions[i].SHA256]
+		if d.Versions[i].Variants == nil {
+			d.Versions[i].Variants = []Variant{}
+		}
+	}
+	linkHistory(d.Versions)
+	slices.Reverse(d.Versions) // newest first, as before
 
 	rows, err = s.DB.Query(ctx, `SELECT id::text, coalesce(parent_id::text,''), name,
 		CASE WHEN deleted_at IS NULL THEN folder_path(parent_id) || '/' || name ELSE deleted_path END,
@@ -178,26 +231,41 @@ func (s *Service) loadVariants(ctx context.Context, d *Document) error {
 	if err := s.DB.QueryRow(ctx, `SELECT ocr_preference FROM instance_settings`).Scan(&d.OCRPreference); err != nil {
 		return err
 	}
-	rows, err := s.DB.Query(ctx, `SELECT x.kind, x.derived_sha256, x.input_sha256, x.engine, x.meta, b.size, x.created_at,
-		x.derived_sha256 = text_sha(x.source_sha256)
-		FROM blob_derivatives x JOIN blobs b ON b.sha256 = x.derived_sha256
-		WHERE x.source_sha256 = $1 ORDER BY x.created_at`, d.SHA256[:])
+	vs, err := s.variantsOf(ctx, [][]byte{d.SHA256[:]})
 	if err != nil {
 		return err
 	}
+	d.Variants = vs[d.SHA256]
+	if d.Variants == nil {
+		d.Variants = []Variant{}
+	}
+	return nil
+}
+
+// variantsOf returns the derived variants of several contents, by source.
+func (s *Service) variantsOf(ctx context.Context, sources [][]byte) (map[blob.SHA256][]Variant, error) {
+	out := map[blob.SHA256][]Variant{}
+	rows, err := s.DB.Query(ctx, `SELECT x.source_sha256, x.kind, x.derived_sha256, x.input_sha256, x.engine, x.meta, b.size, x.created_at,
+		x.derived_sha256 = text_sha(x.source_sha256)
+		FROM blob_derivatives x JOIN blobs b ON b.sha256 = x.derived_sha256
+		WHERE x.source_sha256 = ANY($1) ORDER BY x.created_at`, sources)
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
-	d.Variants = []Variant{}
 	for rows.Next() {
 		var v Variant
-		var der, in []byte
-		if err := rows.Scan(&v.Kind, &der, &in, &v.Engine, &v.Meta, &v.Size, &v.CreatedAt, &v.SearchText); err != nil {
-			return err
+		var src, der, in []byte
+		if err := rows.Scan(&src, &v.Kind, &der, &in, &v.Engine, &v.Meta, &v.Size, &v.CreatedAt, &v.SearchText); err != nil {
+			return nil, err
 		}
 		copy(v.SHA256[:], der)
 		copy(v.Input[:], in)
-		d.Variants = append(d.Variants, v)
+		var key blob.SHA256
+		copy(key[:], src)
+		out[key] = append(out[key], v)
 	}
-	return rows.Err()
+	return out, rows.Err()
 }
 
 // ContentInfo describes content returned by OpenDocument.

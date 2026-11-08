@@ -266,8 +266,8 @@ func forkDocTx(ctx context.Context, tx pgx.Tx, p *Principal, docID, targetSpace 
 	if err != nil {
 		return "", err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO document_versions(document_id, version, sha256, created_at, created_by, source, meta)
-		SELECT $2, version, sha256, created_at, created_by, source, meta FROM document_versions WHERE document_id=$1`, docID, id); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO document_versions(document_id, version, sha256, created_at, created_by, source, meta, restored_from)
+		SELECT $2, version, sha256, created_at, created_by, source, meta, restored_from FROM document_versions WHERE document_id=$1`, docID, id); err != nil {
 		return "", err
 	}
 	return id, copyDocRelationsTx(ctx, tx, docID, id)
@@ -434,8 +434,8 @@ func (s *Service) RestoreVersion(ctx context.Context, p *Principal, docID string
 		if string(cur) == string(sha) {
 			return nil
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO document_versions(document_id, version, sha256, created_by, source, meta)
-			VALUES($1,$2,$3,$4,'restore',jsonb_build_object('restored_from', $5::text))`, docID, ver+1, sha, p.userRef(), fmt.Sprint(version)); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO document_versions(document_id, version, sha256, created_by, source, restored_from)
+			VALUES($1,$2,$3,$4,'restore',$5)`, docID, ver+1, sha, p.userRef(), version); err != nil {
 			return err
 		}
 		_, err = tx.Exec(ctx, `UPDATE documents SET current_version=$2, updated_at=now() WHERE id=$1`, docID, ver+1)

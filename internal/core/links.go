@@ -223,31 +223,53 @@ func mergeHistoryTx(ctx context.Context, tx pgx.Tx, into, from string) error {
 		return err
 	}
 	type ver struct {
-		sha       []byte
-		createdAt time.Time
-		createdBy *string
-		source    string
-		meta      map[string]any
+		sha          []byte
+		createdAt    time.Time
+		createdBy    *string
+		source       string
+		meta         map[string]any
+		doc          string // document the version came from
+		version      int    // its number there
+		restoredFrom *int   // in that numbering
 	}
 	rows, err := tx.Query(ctx, `
-		SELECT sha256, created_at, created_by::text, source, meta FROM (
-			SELECT sha256, created_at, created_by, source, meta, 0 AS o, version FROM document_versions WHERE document_id = $1
+		SELECT sha256, created_at, created_by::text, source, meta, document_id::text, version, restored_from FROM (
+			SELECT sha256, created_at, created_by, source, meta, 0 AS o, version, document_id, restored_from
+			FROM document_versions WHERE document_id = $1
 			UNION ALL
-			SELECT sha256, created_at, created_by, source, meta || jsonb_build_object('merged_from', document_id::text), 1, version
+			SELECT sha256, created_at, created_by, source, meta || jsonb_build_object('merged_from', document_id::text), 1, version, document_id, restored_from
 			FROM document_versions f WHERE document_id = $2
-			  AND NOT EXISTS (SELECT 1 FROM document_versions i WHERE i.document_id = $1 AND i.sha256 = f.sha256 AND i.created_at = f.created_at)
 		) x ORDER BY created_at, o, version`, into, from)
 	if err != nil {
 		return err
 	}
 	var all []ver
+	// renumbering: (document, old version) -> new version; a version of from
+	// that into already has (same content and time) maps to into's copy
+	type key struct {
+		doc string
+		v   int
+	}
+	newNum := map[key]int{}
+	seen := map[string]int{} // sha + time of into's versions -> new number
 	for rows.Next() {
 		var v ver
-		if err := rows.Scan(&v.sha, &v.createdAt, &v.createdBy, &v.source, &v.meta); err != nil {
+		if err := rows.Scan(&v.sha, &v.createdAt, &v.createdBy, &v.source, &v.meta, &v.doc, &v.version, &v.restoredFrom); err != nil {
 			rows.Close()
 			return err
 		}
+		id := string(v.sha) + v.createdAt.UTC().Format(time.RFC3339Nano)
+		if v.doc == from {
+			if n, dup := seen[id]; dup {
+				newNum[key{v.doc, v.version}] = n
+				continue
+			}
+		}
 		all = append(all, v)
+		newNum[key{v.doc, v.version}] = len(all)
+		if v.doc == into {
+			seen[id] = len(all)
+		}
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -257,8 +279,18 @@ func mergeHistoryTx(ctx context.Context, tx pgx.Tx, into, from string) error {
 		return err
 	}
 	for i, v := range all {
-		if _, err := tx.Exec(ctx, `INSERT INTO document_versions(document_id, version, sha256, created_at, created_by, source, meta)
-			VALUES($1,$2,$3,$4,$5,$6,$7)`, into, i+1, v.sha, v.createdAt, v.createdBy, v.source, v.meta); err != nil {
+		var restored *int
+		if v.restoredFrom != nil {
+			if n, ok := newNum[key{v.doc, *v.restoredFrom}]; ok && n < i+1 {
+				restored = &n
+			}
+		}
+		source := v.source
+		if source == "restore" && restored == nil {
+			source = "api" // cannot happen with consistent data; keeps the constraint
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO document_versions(document_id, version, sha256, created_at, created_by, source, meta, restored_from)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, into, i+1, v.sha, v.createdAt, v.createdBy, source, v.meta, restored); err != nil {
 			return err
 		}
 	}

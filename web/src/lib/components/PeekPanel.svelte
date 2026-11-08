@@ -113,6 +113,7 @@
 <style>
   .peek {
     position: relative; display: grid; grid-template-rows: auto minmax(220px, 1.25fr) auto minmax(150px, 1fr);
+    grid-template-columns: minmax(0, 1fr); /* long content never widens the panel */
     width: var(--w); min-width: 0; height: 100%; background: var(--surface); border-left: 1px solid var(--line);
   }
   .handle { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; }

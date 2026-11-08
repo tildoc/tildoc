@@ -21,7 +21,7 @@ import (
 // text). See docs/bundle-format.md.
 const (
 	BundleFormat  = "tildoc-bundle"
-	BundleVersion = 1
+	BundleVersion = 2
 	manifestName  = "manifest.json"
 	maxManifest   = 1 << 30
 )
@@ -159,6 +159,9 @@ type MVersion struct {
 	CreatedBy *string        `json:"created_by"`
 	Source    string         `json:"source"`
 	Meta      map[string]any `json:"meta"`
+	// RestoredFrom is set exactly for source "restore": the earlier version
+	// whose content was restored.
+	RestoredFrom *int `json:"restored_from,omitempty"`
 }
 
 // MLink is a place of a document.
@@ -315,7 +318,7 @@ func (b *manifestBuilder) documents(where string, arg any, withTrash bool) ([]MD
 	for i, d := range docs {
 		ids[i] = d.ID
 	}
-	vrows, err := b.tx.Query(b.ctx, `SELECT document_id::text, version, sha256, created_at, created_by::text, source, meta
+	vrows, err := b.tx.Query(b.ctx, `SELECT document_id::text, version, sha256, created_at, created_by::text, source, meta, restored_from
 		FROM document_versions WHERE document_id = ANY($1::uuid[]) ORDER BY document_id, version`, ids)
 	if err != nil {
 		return nil, err
@@ -324,7 +327,7 @@ func (b *manifestBuilder) documents(where string, arg any, withTrash bool) ([]MD
 		var docID string
 		var v MVersion
 		var sha []byte
-		if err := vrows.Scan(&docID, &v.Version, &sha, &v.CreatedAt, &v.CreatedBy, &v.Source, &v.Meta); err != nil {
+		if err := vrows.Scan(&docID, &v.Version, &sha, &v.CreatedAt, &v.CreatedBy, &v.Source, &v.Meta, &v.RestoredFrom); err != nil {
 			vrows.Close()
 			return nil, err
 		}

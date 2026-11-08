@@ -129,5 +129,9 @@ When the user requests a programming task, **do not start coding immediately.**
 - **API responses:** `writeJSON` adds ETag/gzip for GET; JSON stays
   `no-store`. Revisited views load with `cachedData` + `revalidate`
   (`api.js`). Navigate to the viewer with `openView` (`nav.js`).
+- **History graph:** layout is the pure function `web/src/lib/history.js`
+  (unit tests: `cd web && npm test`); restores are stored
+  (`document_versions.restored_from`), continuations are derived from
+  content hashes, never stored.
 - **Large lists:** `FileTable` renders a window of rows above 200 rows;
   rows must keep one fixed height.

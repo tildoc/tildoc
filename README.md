@@ -114,8 +114,18 @@ Format: [docs/bundle-format.md](docs/bundle-format.md).
 Scans without text get tildoc's OCR as an additional searchable PDF. Scans
 that arrive with someone else's OCR keep it; tildoc additionally strips the
 text to an image-only copy and runs its own OCR on it. *Administration → OCR*
-decides which text search uses. The document details show the variant tree
-and let you open or download each variant.
+decides which text search uses. When tildoc's own OCR PDF comes back as a
+new version (downloaded and uploaded again), it is recognised and not OCRed
+a second time.
+
+### History
+
+*History* in the document details shows versions and variants as one graph,
+oldest first: versions on the main line, derived variants branching off
+(original → image only → tildoc OCR), and lines joining back where a version
+continues from a variant (e.g. the OCR PDF uploaded as a new version) or
+restores an older version (dashed). Every node can be opened or downloaded;
+older versions can be viewed and restored.
 
 Glossary: **Team** (users + roles owner/admin/member/viewer), **Space**
 (container, = S3 bucket, = top-level WebDAV/SFTP folder), **Folder**,

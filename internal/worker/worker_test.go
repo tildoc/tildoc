@@ -353,6 +353,27 @@ func TestForeignOCRVariantTree(t *testing.T) {
 			t.Fatal("search text flag")
 		}
 	}
+	// tildoc's OCR PDF uploaded as a new version is recognised: no second
+	// image-only split and OCR, and the history shows where it came from
+	rd, _, err = f.env.Svc.OpenDocument(f.ctx, f.p, fi.DocumentID, 0, "searchable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.env.Svc.AddDocumentVersion(f.ctx, f.p, fi.DocumentID, rd, "web"); err != nil {
+		t.Fatal(err)
+	}
+	rd.Close()
+	f.drain(t)
+	d = f.doc(t, fi.DocumentID)
+	if d.Version != 2 || d.Kind != "pdf-tildoc-ocr" || d.Status != core.StatusDone || len(d.Variants) != 0 || d.TextMethod != "ocr" {
+		t.Fatalf("own OCR as version: v%d kind %s status %s variants %d method %s", d.Version, d.Kind, d.Status, len(d.Variants), d.TextMethod)
+	}
+	if c := d.Versions[0].ContinuedFrom; c == nil || c.Version != 1 || c.Variant != "searchable_pdf" {
+		t.Fatalf("continued from: %+v", c)
+	}
+	if f.search(t, "4711") != 1 {
+		t.Fatal("text of the own OCR version must be searchable")
+	}
 	// the whole tree is collected with the document
 	f.env.Svc.DeleteLink(f.ctx, f.p, fi.LinkID)
 	f.env.Svc.PurgeDocument(f.ctx, f.p, fi.DocumentID)

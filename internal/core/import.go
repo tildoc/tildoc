@@ -220,7 +220,8 @@ func validateManifest(m *Manifest, server bool) error {
 			}
 			docs[d.ID] = true
 			for i, v := range d.Versions {
-				if v.Version != i+1 || !blobs[v.SHA256] || !versionSources[v.Source] {
+				if v.Version != i+1 || !blobs[v.SHA256] || !versionSources[v.Source] ||
+					(v.Source == "restore") != (v.RestoredFrom != nil) || (v.RestoredFrom != nil && (*v.RestoredFrom < 1 || *v.RestoredFrom >= v.Version)) {
 					return bad("version %d of document %s", v.Version, d.ID)
 				}
 			}
@@ -674,8 +675,8 @@ func (s *Service) importDocumentTx(ctx context.Context, tx pgx.Tx, p *Principal,
 		if v.Meta == nil {
 			v.Meta = map[string]any{}
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO document_versions(document_id, version, sha256, created_at, created_by, source, meta)
-			VALUES($1,$2,$3,$4,$5,$6,$7)`, id, v.Version, h[:], v.CreatedAt, mapped(people, v.CreatedBy), v.Source, v.Meta); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO document_versions(document_id, version, sha256, created_at, created_by, source, meta, restored_from)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, id, v.Version, h[:], v.CreatedAt, mapped(people, v.CreatedBy), v.Source, v.Meta, v.RestoredFrom); err != nil {
 			return "", false, err
 		}
 	}

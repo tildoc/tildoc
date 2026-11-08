@@ -179,7 +179,11 @@ CREATE TABLE document_versions (
     created_by  uuid REFERENCES users ON DELETE SET NULL,
     source      text NOT NULL CHECK (source IN ('web', 'api', 'webdav', 'sftp', 's3', 'rename', 'copy', 'restore')),
     meta        jsonb NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(meta) = 'object'),
-    PRIMARY KEY (document_id, version)
+    -- a restore re-adds the content of an earlier version of the same document
+    restored_from integer CHECK (restored_from < version),
+    PRIMARY KEY (document_id, version),
+    FOREIGN KEY (document_id, restored_from) REFERENCES document_versions (document_id, version) DEFERRABLE INITIALLY DEFERRED,
+    CHECK ((source = 'restore') = (restored_from IS NOT NULL))
 );
 CREATE INDEX document_versions_sha ON document_versions(sha256);
 
@@ -327,7 +331,9 @@ $$;
 CREATE TABLE blob_processing (
     sha256     bytea PRIMARY KEY REFERENCES blobs ON DELETE CASCADE,
     status     text NOT NULL CHECK (status IN ('pending', 'processing', 'done', 'ocr_pending', 'unsupported', 'failed')),
-    kind       text NOT NULL DEFAULT '' CHECK (kind IN ('', 'text', 'pdf', 'pdf-digital', 'pdf-scanned', 'pdf-mixed', 'pdf-ocred')),
+    -- pdf-ocred: scan with someone else's OCR layer; pdf-tildoc-ocr: tildoc's
+    -- own OCR output (a searchable_pdf variant) used as content again
+    kind       text NOT NULL DEFAULT '' CHECK (kind IN ('', 'text', 'pdf', 'pdf-digital', 'pdf-scanned', 'pdf-mixed', 'pdf-ocred', 'pdf-tildoc-ocr')),
     pages      integer CHECK (pages >= 0),
     error      text NOT NULL DEFAULT '',
     updated_at timestamptz NOT NULL DEFAULT now()

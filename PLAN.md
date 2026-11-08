@@ -793,6 +793,76 @@ flowchart LR
 - [x] 15.6 Tests: events (filtering, dedup, transfer owner), ETag/gzip, compression headers, UI smoke (live status without polling, large folder, find), compose (SSE through nginx)
 - [x] 15.7 Docs: README (events, nginx), AGENTS.md
 
+### Phase 16 — History graph: versions and variants in one tree
+
+**Goal:** the document details show one graph instead of the separate
+"Versions" list and "Content variants" tree. Versions form the main line,
+derived variants branch off diagonally (like `git log --graph`), and a
+version that continues from a variant (or restores an old version) joins
+back from that node. Drawn with a small Svelte SVG component, no library.
+
+Example: v1 is a scan with foreign OCR, v2 came via WebDAV, v3 is tildoc's
+OCR PDF of v1 uploaded again, v4 restores v2.
+
+```mermaid
+flowchart TB
+  v1((v1 original)) --> v2((v2))
+  v1 -.->|split off| io1[image only]
+  io1 -.->|ocrmypdf| ocr1[tildoc OCR<br/>used for search]
+  v2 --> v3((v3))
+  ocr1 ==>|continued from| v3
+  v3 --> v4((v4 current))
+  v2 ==>|restored| v4
+```
+
+Intended drawing (oldest at the top, the original is the starting point):
+
+```
+●  v1  scan.pdf          12 Mar, web          [view] [⤓]
+│╲
+│ ○  image only          Ghostscript          [view] [⤓]
+│ │╲
+│ │ ◉  tildoc OCR       deu+eng, search      [view] [⤓]
+│ │ │
+●  ┊ │  v2               14 Mar, WebDAV       [view] [restore] [⤓]
+│  │ │
+● ─┊─╯  v3  continued from tildoc OCR of v1
+│  ┊
+●──╯    v4  current, restored from v2
+```
+
+**Data (no new tables):**
+- Per version its variant tree (`blob_derivatives` by the version's blob;
+  today only the current version's variants are returned).
+- "Continued from" is derived, not stored: a version whose content equals
+  a variant of an earlier version (same SHA-256) continues from that
+  variant; equal to an earlier version means re-upload of it.
+- "Restored from" today lives in `document_versions.meta` as text; becomes a
+  real column `restored_from integer` with a foreign key to the same
+  document's version (decision pending, see questions).
+
+**Layout:** lane 0 is the main line of versions; each variant chain gets the
+next free lane, branching diagonally from its input; a lane is held until
+its last use (a later version continuing from it) and then reused. Rows:
+each node one row, variants directly below their version. Nodes: filled =
+version, hollow = variant, ring = current / being viewed, marker = used for
+search. Labels and actions (view, download, restore) are HTML rows next to
+the SVG (keyboard and screen reader friendly); the SVG is decoration
+(`aria-hidden`), the list carries the meaning.
+
+#### Steps
+
+- [x] 16.1 Core/API: variants per version, `continued_from` (version + variant kind) and `restored_from` per version in the document JSON
+- [x] 16.2 Schema (if confirmed): `document_versions.restored_from` column + FK, restore writes it, bundles carry it (bundle format v2 or optional field)
+- [x] 16.3 UI: `lib/history.js` (lane layout, pure function, unit-testable), `HistoryGraph.svelte` (SVG + rows), replaces the Versions tab and the variants tree; compact mode for the peek panel
+- [x] 16.4 Worker (if confirmed): content that is already a tildoc variant is not OCRed again
+- [x] 16.5 Tests: layout function (lanes, reuse, merge back, restore), API, UI smoke (graph shows variants and versions, open a variant of an old version)
+- [x] 16.6 Docs: README (history), bundle format if changed
+
+Answers (2026-11-08): oldest at the top; one "History" tab; `restored_from`
+as a column with FK; tildoc's own OCR output is not OCRed again (kind
+`pdf-tildoc-ocr`). Decision 36.
+
 Open questions: see below.
 
 ---
@@ -876,6 +946,7 @@ Collected 2026-11-08; each becomes a phase or step when picked up.
 | 33 | Permissions | capabilities + roles; spaces can be shared with users and teams (`space_grants`) |
 | 34 | Live updates | PostgreSQL triggers + LISTEN/NOTIFY, Server-Sent Events filtered per subscriber; polling only as fallback |
 | 35 | HTTP caching | JSON `no-store` + ETag revalidated by the in-memory UI cache (no authenticated data in the browser disk cache) |
+| 36 | History | one graph of versions and variants, oldest first; restores stored (`restored_from`), continuations derived from content hashes |
 
 ## Open Questions
 

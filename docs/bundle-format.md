@@ -1,4 +1,4 @@
-# tildoc bundle format, version 1
+# tildoc bundle format, version 2
 
 A bundle moves spaces, collections or a whole server between tildoc
 instances. It is a POSIX tar stream (PAX headers); exports use the file
@@ -17,7 +17,7 @@ name, and treat the whole bundle as untrusted input.
 
 | Field | Content |
 |-------|---------|
-| `format`, `version` | `"tildoc-bundle"`, `1` |
+| `format`, `version` | `"tildoc-bundle"`, `2` |
 | `kind` | `space` (one space), `collection` (one collection, documents without folders), `server` (backup) |
 | `created_at`, `instance` | time and UUID of the exporting instance |
 | `backup` | server backups: `{id, mode: full\|differential, base_id}` |
@@ -34,7 +34,10 @@ name, and treat the whole bundle as untrusted input.
 A folder is `{id, parent_id, name, created_at, created_by}`; exactly one root
 per space (`parent_id` null, empty name). A document is `{id, created_at,
 updated_at, created_by, forked_from, deleted_at, current_version, versions,
-links, tags}`; versions are numbered from 1 without gaps and reference blobs;
+links, tags}`; versions are `{version, sha256, created_at, created_by, source,
+meta, restored_from}`, numbered from 1 without gaps and referencing blobs;
+`restored_from` (an earlier version number) is set exactly when `source` is
+`restore`;
 links (places) are `{id, folder_id, name, original_path, import_id,
 created_at, created_by, updated_at, deleted_at, deleted_path}`.
 
@@ -63,3 +66,13 @@ others). Restore reads the full backup and the newest differential:
 
 Reserved: exports pass through an optional sealing stage (planned: `age`)
 that wraps the whole stream; the tar format inside stays the same.
+
+## Version history of the format
+
+| Version | Change |
+|---------|--------|
+| 2 | `restored_from` on versions (restores are a column now, no longer `meta.restored_from`) |
+| 1 | initial format |
+
+A server reads only its own format version; there are no released bundles
+older than version 2.

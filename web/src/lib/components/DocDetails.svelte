@@ -4,6 +4,7 @@
   import Icon from './Icon.svelte';
   import TagEditor from './TagEditor.svelte';
   import CollectionPicker from './CollectionPicker.svelte';
+  import HistoryGraph from './HistoryGraph.svelte';
   import { get, post, api } from '../api.js';
   import { toast, errorToast, session, refreshCollections } from '../state.svelte.js';
   import { size, date, shortType, statusLabel } from '../format.js';
@@ -46,7 +47,6 @@
     }
   });
 
-  const contentURL = $derived(`/api/documents/${doc.id}/content`);
   const spaceSlug = (id) => session.spaces.find((s) => s.id === id)?.slug ?? '';
   const canWrite = $derived((session.spaces.find((s) => s.id === doc.space_id)?.perm ?? 0) >= 2);
 
@@ -87,7 +87,7 @@
 
   const tabs = $derived([
     ['details', 'Details'],
-    ['versions', doc.versions.length > 1 ? `Versions (${doc.versions.length})` : 'Versions'],
+    ['history', doc.versions.length > 1 ? `History (${doc.versions.length})` : 'History'],
     ['links', doc.links.length > 1 ? `Places (${doc.links.length})` : 'Places'],
     ['text', 'Text']
   ]);
@@ -134,56 +134,15 @@
           <input type="file" hidden bind:this={versionInput} onchange={newVersion} />
         </div>
       {/if}
-      {#if shown.variants?.length}
-        <h3 class="vh">Content variants</h3>
-        <ul class="tree">
-          <li>
-            <div class="node">
-              <strong>Original</strong>
-              <span class="muted small">{shown.foreign_ocr ? 'scan with an existing OCR layer' : shown.kind === 'pdf-digital' ? 'with a text layer' : 'scan without text'}</span>
-              {#if !shown.variants.some((v) => v.search_text)}<span class="pill">used for search</span>{/if}
-              <a class="btn small ghost" href={contentURL} download><Icon name="download" size={14} /></a>
-            </div>
-            {#snippet children(input)}
-              <ul>
-                {#each shown.variants.filter((v) => v.input === input && v.sha256 !== input) as v (v.sha256)}
-                  <li>
-                    <div class="node">
-                      <strong>{v.kind === 'image_only_pdf' ? 'Image only' : 'tildoc OCR'}</strong>
-                      <span class="muted small">{v.kind === 'image_only_pdf' ? 'existing text removed' : v.meta?.mode === 'skip-text' ? 'pages without text recognised' : 'all pages recognised'}{v.meta?.langs ? `, ${v.meta.langs}` : ''}, {v.engine}, {date(v.created_at)}</span>
-                      {#if v.search_text}<span class="pill">used for search</span>{/if}
-                      <a class="btn small ghost" href={`/view/${file?.link_id}?variant=${v.kind === 'image_only_pdf' ? 'image_only' : 'searchable'}`} title="Open this variant"><Icon name="open" size={14} /></a>
-                      <a class="btn small ghost" href={`${contentURL}?variant=${v.kind === 'image_only_pdf' ? 'image_only' : 'searchable'}`} download title="Download this variant"><Icon name="download" size={14} /></a>
-                    </div>
-                    {@render children(v.sha256)}
-                  </li>
-                {/each}
-              </ul>
-            {/snippet}
-            {@render children(shown.sha256)}
-          </li>
-        </ul>
+      {#if doc.versions.length > 1 || doc.variants?.length}
+        <p class="muted small summary">
+          Version {doc.version} of {doc.versions.length}{#if doc.variants?.length}, {doc.variants.length} derived {doc.variants.length === 1 ? 'variant' : 'variants'}{/if}.
+          <button class="link" onclick={() => (tab = 'history')}>Show history</button>
+        </p>
       {/if}
       {#if doc.forked_from}<p class="muted small">This document was split off from another one when it was changed through one of several places (copy-on-write).</p>{/if}
-    {:else if tab === 'versions'}
-      <ol class="list" reversed>
-        {#each [...doc.versions].reverse() as v (v.version)}
-          <li class:viewing={viewVersion === v.version || (!viewVersion && v.version === doc.version)}>
-            <div class="vhead">
-              <strong>Version {v.version}</strong>
-              {#if v.version === doc.version}<span class="pill">current</span>{/if}
-            </div>
-            <span class="muted small">{date(v.created_at)}, {size(v.size)}, by {v.created_by || 'system'} via {v.source}</span>
-            <div class="row">
-              {#if v.version !== doc.version}
-                <button class="small" onclick={() => (viewVersion = viewVersion === v.version ? 0 : v.version)}>{viewVersion === v.version ? 'Show current' : 'View'}</button>
-                {#if canWrite}<button class="small" onclick={() => restore(v.version)}>Restore</button>{/if}
-              {/if}
-              <a class="btn small ghost" href={`${contentURL}?version=${v.version}`} download><Icon name="download" size={14} /> Download</a>
-            </div>
-          </li>
-        {/each}
-      </ol>
+    {:else if tab === 'history'}
+      <HistoryGraph {doc} {file} {canWrite} bind:viewVersion onrestore={restore} />
     {:else if tab === 'links'}
       <p class="muted small">The same document appears in these places. “Upload new version” changes it everywhere. Overwriting the file in just one place, for example from Dolphin, splits that place off into its own document.</p>
       <ul class="list">
@@ -211,11 +170,6 @@
 {#if picking}<CollectionPicker onpick={collect} onclose={() => (picking = false)} />{/if}
 
 <style>
-  .vh { font-size: var(--t-sm); margin: 6px 0 6px; }
-  .tree, .tree :global(ul) { list-style: none; margin: 0; padding: 0; }
-  .tree :global(ul) { padding-left: 18px; border-left: 1px solid var(--line); margin-left: 6px; }
-  .node { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 0; }
-  .node .btn { min-height: 24px; min-width: 24px; padding: 0 4px; }
   .org { display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; align-items: center; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line-soft); }
   .org .lbl { color: var(--ink-2); font-size: var(--t-sm); }
   .colls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -233,10 +187,9 @@
   .hash { font-size: 0.72rem; line-height: 1.4; }
   .path { overflow-wrap: anywhere; }
   .actions { margin-bottom: 10px; }
+  .summary { margin: 0 0 10px; }
   .list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
   .list li { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
   .list li:last-child { border-bottom: 0; }
-  .list li.viewing { box-shadow: inset 3px 0 0 var(--accent); padding-left: 10px; }
-  .vhead { display: flex; align-items: center; gap: 8px; }
   .text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--t-sm); line-height: 1.6; margin: 0; }
 </style>

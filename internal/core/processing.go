@@ -98,6 +98,14 @@ func (s *Service) ProcessingState(ctx context.Context, sha blob.SHA256) (string,
 	return st, err
 }
 
+// IsTildocOCR reports whether a blob is one of tildoc's own OCR results
+// (a searchable_pdf variant), e.g. when it is uploaded as a new version.
+func (s *Service) IsTildocOCR(ctx context.Context, sha blob.SHA256) (bool, error) {
+	var ok bool
+	err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM blob_derivatives WHERE derived_sha256=$1 AND kind='searchable_pdf')`, sha[:]).Scan(&ok)
+	return ok, err
+}
+
 // SetProcessing records the processing result of a blob.
 func (s *Service) SetProcessing(ctx context.Context, sha blob.SHA256, status, kind string, pages *int, errMsg string) error {
 	if len(errMsg) > 2000 {
