@@ -111,6 +111,11 @@ func (s *Service) PutStaged(ctx context.Context, p *Principal, spaceID string, s
 		if fold != "" {
 			return errf(ErrIsFolder, "%q is a folder", name)
 		}
+		if existing == "" {
+			if existing, err = s.reviveTx(ctx, tx, p, folderID, name); err != nil {
+				return err
+			}
+		}
 		if existing != "" {
 			linkID = existing
 			changed, forked, err := s.writeVersionTx(ctx, tx, p, existing, st.SHA256, opt.Protocol, opt.Meta)

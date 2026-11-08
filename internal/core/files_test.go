@@ -376,3 +376,35 @@ func TestPermissions(t *testing.T) {
 	_, err = f.svc.PutFile(f.ctx, kp, f.home.ID, []string{"x.txt"}, strings.NewReader("x"), core.PutOptions{})
 	wantKind(t, err, core.ErrForbidden)
 }
+
+func TestReviveOnDeleteAndRecreate(t *testing.T) {
+	f := newFixture(t)
+	sp := f.home.ID
+	_, sec := ck2(f.svc.CreateAccessKey(f.ctx, f.alice, "sftp", "", false))
+	cl := ck(f.svc.AuthenticateAppPassword(f.ctx, "alice", sec))
+	orig := f.put(t, cl, sp, "/doc.txt", "v1")
+	f.env.Pool.Exec(f.ctx, `UPDATE documents SET created_at = now() - interval '1 hour'`)
+
+	// client deletes the file, then uploads a temp file and renames it into place
+	noErr(t, f.svc.DeleteLink(f.ctx, cl, orig.File.LinkID))
+	part := f.put(t, cl, sp, "/doc.txt.part", "v2")
+	res := ck(f.svc.MoveLink(f.ctx, cl, part.File.LinkID, "", "doc.txt", false))
+	if res.DocumentID != orig.File.DocumentID || res.Version != 2 || res.LinkID != orig.File.LinkID {
+		t.Fatalf("revive via rename: %+v", res)
+	}
+	// delete + direct upload
+	noErr(t, f.svc.DeleteLink(f.ctx, cl, res.LinkID))
+	r := f.put(t, cl, sp, "/doc.txt", "v3")
+	if r.File.DocumentID != orig.File.DocumentID || r.File.Version != 3 {
+		t.Fatalf("revive via upload: %+v", r.File)
+	}
+	if tr := ck(f.svc.ListTrash(f.ctx, f.alice, "")); len(tr) != 0 {
+		t.Fatalf("trash: %+v", tr)
+	}
+	// UI deletes are final (no revive for session principals)
+	noErr(t, f.svc.DeleteLink(f.ctx, f.alice, r.File.LinkID))
+	r2 := f.put(t, f.alice, sp, "/doc.txt", "v4")
+	if r2.File.DocumentID == orig.File.DocumentID {
+		t.Fatal("session upload must not revive")
+	}
+}

@@ -65,6 +65,33 @@ func (s *Service) retireLinkTx(ctx context.Context, tx pgx.Tx, l *linkRow) error
 // link's provenance.
 func (p *Principal) fileProtocol() bool { return p.Via == "accesskey" || p.Via == "ssh" }
 
+// reviveTx handles clients that replace files via DELETE + upload (or
+// DELETE + rename of a temp file): if a protocol client writes to a path
+// whose link was deleted within the provenance window and whose document
+// is still in the trash, that link and document are restored so the write
+// becomes a new version instead of a new document. Returns the revived
+// link id or "".
+func (s *Service) reviveTx(ctx context.Context, tx pgx.Tx, p *Principal, folderID, name string) (string, error) {
+	if !p.fileProtocol() {
+		return "", nil
+	}
+	var linkID, docID string
+	err := tx.QueryRow(ctx, `SELECT l.id::text, l.document_id::text FROM links l JOIN documents d ON d.id = l.document_id
+		WHERE l.folder_id=$1 AND l.name=$2 AND l.deleted_at > now() - make_interval(secs => $3) AND d.deleted_at IS NOT NULL
+		ORDER BY l.deleted_at DESC LIMIT 1 FOR UPDATE OF l, d`, folderID, name, s.Cfg.ProvenanceWindow.Seconds()).Scan(&linkID, &docID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE links SET deleted_at=NULL, deleted_path=NULL, updated_at=now() WHERE id=$1`, linkID); err != nil {
+		return "", err
+	}
+	_, err = tx.Exec(ctx, `UPDATE documents SET deleted_at=NULL WHERE id=$1`, docID)
+	return linkID, err
+}
+
 // moveLinkTx moves/renames a link. With overwrite, an existing file at the
 // destination receives the content as a new version (history preserved).
 func (s *Service) moveLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, linkID, dstFolderID, newName string, overwrite bool) (string, error) {
@@ -91,6 +118,14 @@ func (s *Service) moveLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, linkI
 	}
 	if other == linkID {
 		return linkID, nil
+	}
+	if other == "" && dstSpace == l.SpaceID {
+		if other, err = s.reviveTx(ctx, tx, p, dstFolderID, newName); err != nil {
+			return "", err
+		}
+		if other != "" {
+			overwrite = true
+		}
 	}
 	if other != "" {
 		if !overwrite {
