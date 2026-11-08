@@ -1,6 +1,7 @@
 <script>
   import { untrack } from 'svelte';
   import Icon from './Icon.svelte';
+  import TagChips from './TagChips.svelte';
   import { COLUMNS, loadView, saveView } from '../columns.js';
   import { iconFor, size, date } from '../format.js';
 
@@ -192,6 +193,7 @@
                     <small class="mobile-meta">{row.kind === 'folder' ? 'Folder' : `${size(row.size)}, ${date(row.modified_at)}`}</small>
                   </span>
                   {#if row.link_count > 1}<span class="badge" title="Appears in {row.link_count} places"><Icon name="link" size={12} />{row.link_count}</span>{/if}
+                  {#if row.tags?.length}<span class="tags"><TagChips tags={row.tags} small /></span>{/if}
                 </div></td>
               {:else}
                 <td class="c-{c} secondary" class:right={COLUMNS[c].align === 'right'} class:muted={c === 'path' || c === 'original'}>
@@ -240,6 +242,7 @@
   .ic { display: inline-flex; color: var(--ink-2); flex: none; }
   .ic.folder { color: var(--manila); }
   .ic.pdf { color: var(--err); }
+  .tags { display: inline-flex; min-width: 0; overflow: hidden; }
   .badge { display: inline-flex; align-items: center; gap: 3px; font-size: 0.75rem; border: 1px solid var(--line); border-radius: 99px; padding: 0 6px; color: var(--ink-2); flex: none; }
   .muted { color: var(--ink-2); }
   .secondary { color: var(--ink-2); font-size: var(--t-sm); }

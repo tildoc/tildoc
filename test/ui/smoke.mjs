@@ -129,6 +129,52 @@ await step('row click previews, name opens', async () => {
   await page.locator('tr.sel', { hasText: 'notes.txt' }).waitFor();
 });
 
+await step('tag a document', async () => {
+  await row('Handbuch.pdf').locator('td').nth(2).click();
+  await page.locator('aside.peek').getByRole('tab', { name: 'Details' }).click();
+  const input = page.locator('aside.peek').getByLabel('Add tag');
+  await input.fill('Steuer 2025');
+  await input.press('Enter');
+  await page.locator('aside.peek .tageditor .chip', { hasText: 'Steuer 2025' }).waitFor();
+  await row('Handbuch.pdf').locator('.tags .chip', { hasText: 'Steuer 2025' }).waitFor();
+});
+
+await step('collection across documents', async () => {
+  await row('Quartalsbericht.pdf').locator('td').nth(2).click();
+  await row('Handbuch.pdf').locator('td').nth(2).click({ modifiers: ['Control'] });
+  await page.getByRole('button', { name: 'Add to collection' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'New collection' }).click();
+  await page.getByRole('dialog').getByLabel('Name').fill('Steuer 2025');
+  await page.getByRole('button', { name: 'Create collection' }).click();
+  await toast('Added 2 documents to Steuer 2025');
+  await page.locator('nav.rail a.coll', { hasText: 'Steuer 2025' }).locator('.cnt', { hasText: '2' }).waitFor();
+  await page.locator('nav.rail a.coll', { hasText: 'Steuer 2025' }).click();
+  await page.waitForURL('**/c/**');
+  await row('Handbuch.pdf').waitFor();
+  await row('Quartalsbericht.pdf').waitFor();
+});
+
+await step('viewer inside a collection', async () => {
+  await row('Handbuch.pdf').getByRole('button', { name: 'Handbuch.pdf' }).click();
+  await page.waitForURL('**/view/**c=**');
+  await page.locator('.viewer .where', { hasText: 'In collection Steuer 2025' }).waitFor();
+  await page.keyboard.press(']');
+  await page.locator('.viewer h1', { hasText: 'Quartalsbericht.pdf' }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.waitForURL('**/c/**');
+  await page.locator('tr.sel', { hasText: 'Quartalsbericht.pdf' }).waitFor();
+});
+
+await step('search by tag', async () => {
+  await page.goto(BASE + '/search');
+  await page.getByLabel('Tag').selectOption({ label: 'Steuer 2025 (1)' });
+  await page.locator('.total', { hasText: '1 document' }).waitFor();
+  await page.locator('.results').getByRole('button', { name: 'Handbuch.pdf' }).waitFor();
+  if ((await page.locator('.results li').count()) !== 1) throw new Error('tag filter returned more than one document');
+  await page.goto(BASE + '/');
+  await row('Handbuch.pdf').waitFor();
+});
+
 await step('viewer opens whole pdf', async () => {
   await row('Handbuch.pdf').click();
   await page.locator('aside.peek .pg canvas').first().waitFor();
@@ -182,9 +228,9 @@ await step('viewer closes to folder', async () => {
 
 await step('quick search opens hit page', async () => {
   await page.keyboard.press('Control+k');
-  await page.getByRole('combobox').fill('Zebra');
+  await page.getByRole('combobox', { name: 'Search names and contents' }).fill('Zebra');
   await page.getByRole('option', { name: /Handbuch\.pdf/ }).locator('.pg', { hasText: 'page 4' }).waitFor({ timeout: 20000 });
-  await page.getByRole('combobox').press('Enter');
+  await page.getByRole('combobox', { name: 'Search names and contents' }).press('Enter');
   await page.waitForURL('**/view/**');
   await page.locator('.textLayer .hl.current').waitFor();
   await page.waitForFunction(() => document.querySelector('.pager input').value === '4');
@@ -194,7 +240,7 @@ await step('quick search opens hit page', async () => {
 
 await step('search page', async () => {
   await page.keyboard.press('Control+k');
-  await page.getByRole('combobox').fill('Umsatz');
+  await page.getByRole('combobox', { name: 'Search names and contents' }).fill('Umsatz');
   await page.getByRole('option', { name: /Show/ }).waitFor();
   await page.getByRole('option', { name: /Show/ }).click();
   await page.waitForURL('**/search?**');
@@ -286,6 +332,7 @@ await step('teams and team space', async () => {
 await step('admin', async () => {
   await page.getByRole('link', { name: 'Administration' }).click();
   await page.locator('.facts').waitFor();
+  await page.locator('.tagname', { hasText: 'Steuer 2025' }).waitFor();
   await page.getByLabel('Username').fill('bob');
   await page.getByLabel(/^First password/).fill('bobpass12');
   await page.getByRole('button', { name: 'Add person' }).click();

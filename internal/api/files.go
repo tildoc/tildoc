@@ -385,6 +385,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 		Q: q.Get("q"), SpaceID: q.Get("space"), FolderID: q.Get("folder"), MIME: q.Get("mime"),
 		Status: q.Get("status"), Sort: q.Get("sort"), Desc: q.Get("order") == "desc",
 		Limit: queryInt(r, "limit", 100), Offset: queryInt(r, "offset", 0),
+		TagIDs: q["tag"], CollectionID: q.Get("collection"),
 	})
 	if err != nil {
 		return err

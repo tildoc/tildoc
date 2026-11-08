@@ -2,12 +2,19 @@
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { get } from '#lib/api.js';
-  import { session, errorToast } from '#lib/state.svelte.js';
+  import { session, errorToast, refreshTags } from '#lib/state.svelte.js';
   import { size, date, shortType, statusLabel, iconFor } from '#lib/format.js';
   import Icon from '#lib/components/Icon.svelte';
+  import TagChips from '#lib/components/TagChips.svelte';
 
   let result = $state(null);
   let space = $state(''), mime = $state(''), status = $state('');
+  let tag = $state(page.url.searchParams.get('tag') ?? '');
+  let coll = $state(page.url.searchParams.get('collection') ?? '');
+
+  $effect(() => {
+    refreshTags().catch(() => {});
+  });
   let offset = $state(0);
   let input = $state(page.url.searchParams.get('q') ?? '');
   const limit = 50;
@@ -25,6 +32,8 @@
     if (folder && !space) params.set('folder', folder);
     if (mime) params.set('mime', mime);
     if (status) params.set('status', status);
+    if (tag) params.set('tag', tag);
+    if (coll) params.set('collection', coll);
     try {
       result = await get(`/search?${params}`);
     } catch (e) {
@@ -33,7 +42,7 @@
   }
 
   $effect(() => {
-    q; folder; space; mime; status; offset;
+    q; folder; space; mime; status; tag; coll; offset;
     load();
   });
 
@@ -62,7 +71,7 @@
 
 <div class="page">
   <header>
-    <h1>{q ? 'Search' : 'All documents'}</h1>
+    <h1>{q || tag || coll ? 'Search' : 'All documents'}</h1>
   </header>
 
   <form class="searchbar" onsubmit={submit} role="search">
@@ -90,6 +99,16 @@
       <option value="unsupported">Stored only</option>
       <option value="failed">Failed</option>
     </select>
+    <select bind:value={tag} aria-label="Tag" onchange={() => (offset = 0)}>
+      <option value="">Any tag</option>
+      {#each session.tags.filter((t) => t.count > 0 || t.id === tag) as t (t.id)}<option value={t.id}>{t.name} ({t.count})</option>{/each}
+    </select>
+    {#if session.collections.length}
+      <select bind:value={coll} aria-label="Collection" onchange={() => (offset = 0)}>
+        <option value="">In any collection or none</option>
+        {#each session.collections as c (c.id)}<option value={c.id}>{c.name}{c.team_name ? ` (${c.team_name})` : ''}</option>{/each}
+      </select>
+    {/if}
     {#if result}<span class="muted total" aria-live="polite">{result.total} {result.total === 1 ? 'document' : 'documents'}</span>{/if}
   </div>
 
@@ -107,6 +126,7 @@
                 <span>{shortType(h.mime, h.name)}, {size(h.size)}</span>
                 <span>changed {date(h.modified_at)}</span>
                 {#if h.status !== 'done'}<span class="pill status {h.status}">{statusLabel[h.status] ?? h.status}</span>{/if}
+                <TagChips tags={h.tags} small onpick={(t) => { tag = t.id; offset = 0; }} />
                 <button class="link where" onclick={() => goto(`/f/${h.folder_id}?sel=${h.link_id}`)} title="Show in folder">{slug(h.space_id)}{dir(h)}</button>
               </div>
             </div>

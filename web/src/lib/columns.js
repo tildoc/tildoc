@@ -18,7 +18,8 @@ export const COLUMNS = {
 
 export const DEFAULT_COLUMNS = {
   folder: ['name', 'type', 'size', 'modified', 'status', 'links'],
-  search: ['name', 'space', 'path', 'type', 'size', 'modified', 'status']
+  search: ['name', 'space', 'path', 'type', 'size', 'modified', 'status'],
+  collection: ['name', 'space', 'path', 'type', 'size', 'modified']
 };
 
 function storageKey(view) {

@@ -1,6 +1,7 @@
 <script>
   // Side preview of the selected file: the whole document scrolls here, details
   // below. Resizable; "Open" morphs it into the full viewer.
+  import { untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import DocView from './viewer/DocView.svelte';
   import DocDetails from './DocDetails.svelte';
@@ -22,13 +23,17 @@
     }
   }
 
+  // reload only when the document or its version changes, not when the
+  // parent list refreshes the same row
+  let docKey = $derived(`${file.document_id}:${file.version}`);
   $effect(() => {
-    file.document_id;
-    file.version;
-    doc = null;
-    viewVersion = 0;
-    page = 1;
-    load();
+    docKey;
+    untrack(() => {
+      doc = null;
+      viewVersion = 0;
+      page = 1;
+      load();
+    });
   });
 
   $effect(() => {

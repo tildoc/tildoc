@@ -449,6 +449,13 @@ Verified by tests (`internal/core/storage_test.go`):
 
 ### Phase 10 — Tags and Collections
 
+- [x] 10.1 Core: tags (create by anyone, rename/merge/delete by admins, per-caller counts), document tags, S3-style replace by names
+- [x] 10.2 Core: collections (personal/team, view/edit/manage by role, tag rule, items filtered by readable spaces), search filters `tag`/`collection`
+- [x] 10.3 Protocols: read-only `/@collections/<name>/` in WebDAV/SFTP (name clashes "name (2).ext", team suffix for duplicate names), S3 object tagging, WebDAV `tildoc:tags`
+- [x] 10.4 REST: `/api/tags`, `/api/documents/{id}/tags`, `/api/collections`
+- [x] 10.5 UI: tags in details and file lists, collections in the rail, collection page, "Add to collection", viewer prev/next within a collection, tag/collection search filters, tag administration
+- [x] 10.6 Tests: core (permissions, isolation, tag rule, moves/trash), vfs read-only, e2e (aws tagging, rclone WebDAV/SFTP collections), UI smoke (32 steps)
+
 **Tags** (central vocabulary per server instance):
 
 ```mermaid

@@ -87,6 +87,14 @@ step "dedup check (duplicate.txt and hello.txt share one document)"
 SEARCH=$(curl -sf "http://$HTTP/api/search?q=hello" -H "Authorization: Bearer $TOKEN")
 echo "$SEARCH" | grep -q '"link_count":2' || fail "expected deduplicated document with 2 links: $SEARCH"
 
+step "aws-cli: object tagging maps to tildoc tags"
+"${AWS[@]}" s3api put-object-tagging --bucket alice --key aws/Notes/duplicate.txt \
+  --tagging '{"TagSet":[{"Key":"Steuer 2025","Value":""},{"Key":"Belege","Value":""}]}' || fail "put-object-tagging"
+"${AWS[@]}" s3api get-object-tagging --bucket alice --key aws/Notes/duplicate.txt | tee "$WORK/tags.json"
+grep -q '"Steuer 2025"' "$WORK/tags.json" && grep -q '"Belege"' "$WORK/tags.json" || fail "get-object-tagging"
+curl -sf "http://$HTTP/api/tags" -H "Authorization: Bearer $TOKEN" | grep -q '"name":"Steuer 2025","color":"","count":1' \
+  || fail "tag not visible in the API"
+
 RC=(docker run --rm --network host --user "$(id -u):$(id -g)" -v "$WORK:/w" -e RCLONE_CONFIG=/w/rclone.conf rclone/rclone)
 cat >"$WORK/rclone.conf" <<EOF
 [s3]
@@ -138,6 +146,19 @@ step "versions kept on overwrite (sftp)"
 ROOTF=$(curl -sf "http://$HTTP/api/spaces" -H "Authorization: Bearer $TOKEN" | sed -E 's/.*"root_folder_id":"([^"]+)".*/\1/')
 curl -sf "http://$HTTP/api/folders/$ROOTF" -H "Authorization: Bearer $TOKEN" | grep -q '"name":"ver.txt"[^}]*"version":2' \
   || fail "expected version 2 for ver.txt"
+
+step "collections are read-only folders in WebDAV and SFTP"
+DOC=$(curl -sf "http://$HTTP/api/search?q=ver.txt" -H "Authorization: Bearer $TOKEN" | sed -E 's/.*"document_id":"([^"]+)".*/\1/')
+COLL=$(curl -sf -X POST "http://$HTTP/api/collections" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"Steuer 2025"}' | sed -E 's/.*"id":"([^"]+)".*/\1/')
+curl -sf -X POST "http://$HTTP/api/collections/$COLL/items" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"document_ids\":[\"$DOC\"]}" >/dev/null || fail "add to collection"
+for R in dav sftp; do
+  "${RC[@]}" lsf "$R:" | grep -q "@collections/" || fail "rclone $R: /@collections missing"
+  "${RC[@]}" lsf "$R:@collections/Steuer 2025" | grep -qx "ver.txt" || fail "rclone $R: collection listing"
+  "${RC[@]}" cat "$R:@collections/Steuer 2025/ver.txt" | grep -q "second version" || fail "rclone $R: collection read"
+  "${RC[@]}" copyto /w/v2.txt "$R:@collections/Steuer 2025/new.txt" 2>/dev/null && fail "rclone $R: wrote into a collection"
+done
 
 step "worker processed text files"
 for i in $(seq 1 30); do

@@ -163,7 +163,7 @@
     if (raf) return;
     raf = requestAnimationFrame(() => {
       raf = 0;
-      if (!sizes.length) return;
+      if (!sizes.length || !scroller) return;
       const st = scroller.scrollTop, vh = scroller.clientHeight, end = st + vh;
       let lo = 0, hi = tops.length - 1;
       while (lo < hi) {
@@ -194,7 +194,7 @@
   let raf = 0;
 
   export function goTo(n) {
-    if (!sizes.length) return;
+    if (!sizes.length || !scroller) return;
     n = Math.max(1, Math.min(sizes.length, Math.round(n)));
     anchor = { page: n, frac: 0 };
     pinned = n;
@@ -268,13 +268,14 @@
       const rot = (p.rotate + myRot) % 360;
       const base = p.getViewport({ scale: CSS_UNITS, rotation: rot });
       const s = sizes[n - 1];
+      if (!scroller) return;
       if (s && (Math.abs(s.w - base.width) > 0.5 || Math.abs(s.h - base.height) > 0.5)) {
         const above = tops[n - 1] < scroller.scrollTop;
         const delta = (base.height - s.h) * myScale;
         sizes[n - 1] = { w: base.width, h: base.height };
         if (above) {
           await tick();
-          scroller.scrollTop += delta;
+          if (scroller) scroller.scrollTop += delta;
         }
       }
       const vp = p.getViewport({ scale: myScale * CSS_UNITS, rotation: rot });
@@ -478,7 +479,7 @@
       touched.add(d);
     }
     r.marked = touched;
-    if (curEl && scrollToCurrent) {
+    if (curEl && scrollToCurrent && scroller) {
       scrollToCurrent = false;
       curEl.scrollIntoView({ block: 'center', inline: 'nearest' });
     }
@@ -584,6 +585,7 @@
     );
     for (const el of slots.values()) io.observe(el);
     const ro = new ResizeObserver(() => {
+      if (!scroller) return;
       cw = scroller.clientWidth;
       ch = scroller.clientHeight;
     });

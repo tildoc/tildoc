@@ -500,15 +500,21 @@ func (f *file) Readdir(count int) ([]fs.FileInfo, error) {
 
 var linksProp = xml.Name{Space: "urn:tildoc", Local: "links"}
 var docProp = xml.Name{Space: "urn:tildoc", Local: "document-id"}
+var tagsProp = xml.Name{Space: "urn:tildoc", Local: "tags"}
 
 // DeadProps implements webdav.DeadPropsHolder: exposes tildoc:links (all
-// paths the document appears at) and tildoc:document-id.
+// paths the document appears at), tildoc:document-id and tildoc:tags.
 func (f *file) DeadProps() (map[xml.Name]webdav.Property, error) {
 	if f.node.File == nil {
 		return nil, nil
 	}
+	var tags strings.Builder
+	for _, t := range f.node.File.Tags {
+		tags.WriteString("<tag>" + xmlEscape(t.Name) + "</tag>")
+	}
 	props := map[xml.Name]webdav.Property{
-		docProp: {XMLName: docProp, InnerXML: []byte(xmlEscape(f.node.File.DocumentID))},
+		docProp:  {XMLName: docProp, InnerXML: []byte(xmlEscape(f.node.File.DocumentID))},
+		tagsProp: {XMLName: tagsProp, InnerXML: []byte(tags.String())},
 	}
 	if f.node.File.LinkCount > 1 {
 		d, err := f.fs.fs.Svc.GetDocument(f.ctx, principal(f.ctx), f.node.File.DocumentID)

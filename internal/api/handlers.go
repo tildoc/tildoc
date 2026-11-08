@@ -73,6 +73,22 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("POST /api/documents/{id}/versions", s.authed(s.addVersion))
 	h("POST /api/documents/{id}/versions/{v}/restore", s.authed(s.restoreVersion))
 	h("POST /api/documents/{id}/reprocess", s.authed(s.reprocess))
+	h("POST /api/documents/{id}/tags", s.authed(s.tagDocument))
+	h("DELETE /api/documents/{id}/tags/{tag}", s.authed(s.untagDocument))
+
+	h("GET /api/tags", s.authed(s.listTags))
+	h("POST /api/tags", s.authed(s.createTag))
+	h("PATCH /api/tags/{id}", s.authed(s.updateTag))
+	h("DELETE /api/tags/{id}", s.authed(s.deleteTag))
+	h("POST /api/tags/{id}/merge", s.authed(s.mergeTag))
+
+	h("GET /api/collections", s.authed(s.listCollections))
+	h("POST /api/collections", s.authed(s.createCollection))
+	h("GET /api/collections/{id}", s.authed(s.getCollection))
+	h("PATCH /api/collections/{id}", s.authed(s.updateCollection))
+	h("DELETE /api/collections/{id}", s.authed(s.deleteCollection))
+	h("POST /api/collections/{id}/items", s.authed(s.addCollectionItems))
+	h("DELETE /api/collections/{id}/items/{doc}", s.authed(s.removeCollectionItem))
 
 	h("POST /api/bulk/move", s.authed(s.bulkMove))
 	h("POST /api/bulk/delete", s.authed(s.bulkDelete))

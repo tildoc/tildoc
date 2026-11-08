@@ -16,6 +16,7 @@
   let error = $state('');
   let siblings = $state([]);
   let backTo = null;
+  let collectionName = $state('');
 
   let page = $state(1), numPages = $state(0);
   let zoom = $state('auto'), scale = $state(1);
@@ -70,6 +71,15 @@
 
   async function loadSiblings(f) {
     if (siblings.some((s) => s.link_id === f.link_id)) return;
+    const coll = route.url.searchParams.get('c');
+    if (coll) {
+      try {
+        const d = await get(`/collections/${coll}`);
+        siblings = d.items;
+        collectionName = d.collection.name;
+        return;
+      } catch {}
+    }
     try {
       const d = await get(`/folders/${f.folder_id}`);
       const cfg = loadView('folder');
@@ -92,11 +102,15 @@
     if (!s) return;
     const q = new URLSearchParams();
     if (query) q.set('q', query);
+    const coll = route.url.searchParams.get('c');
+    if (coll) q.set('c', coll);
     goto(`/view/${s.link_id}${q.size ? '?' + q : ''}`, { replaceState: true, keepFocus: true });
   }
 
   function close() {
-    if (backTo?.startsWith('/search')) history.back();
+    const coll = route.url.searchParams.get('c');
+    if (coll) goto(`/c/${coll}?sel=${linkId}`, { replaceState: true });
+    else if (backTo?.startsWith('/search')) history.back();
     else if (file) goto(`/f/${file.folder_id}?sel=${linkId}`, { replaceState: true });
     else history.back();
   }
@@ -196,7 +210,7 @@
       {#if file}
         <div class="title">
           <h1 title={file.name}>{file.name}</h1>
-          <span class="where" title="{spaceSlug}{file.path}">{spaceSlug}{file.path.slice(0, file.path.length - file.name.length - 1) || '/'}</span>
+          <span class="where" title="{spaceSlug}{file.path}">{collectionName ? `In collection ${collectionName}, from ` : ''}{spaceSlug}{file.path.slice(0, file.path.length - file.name.length - 1) || '/'}</span>
         </div>
       {/if}
     </div>
@@ -236,8 +250,8 @@
         {/if}
         {#if caps.find}<button class="icon" class:on={findOpen} onclick={() => (findOpen ? closeFind() : openFind())} aria-label="Find in document" title="Find in document (Ctrl+F)"><Icon name="search" /></button>{/if}
         {#if siblings.length > 1}
-          <button class="icon" onclick={() => openSibling(prevDoc)} disabled={!prevDoc} aria-label="Previous document" title="Previous document in folder ([)"><Icon name="left" /></button>
-          <button class="icon" onclick={() => openSibling(nextDoc)} disabled={!nextDoc} aria-label="Next document" title="Next document in folder (])"><Icon name="right" /></button>
+          <button class="icon" onclick={() => openSibling(prevDoc)} disabled={!prevDoc} aria-label="Previous document" title={collectionName ? 'Previous document in collection ([)' : 'Previous document in folder ([)'}><Icon name="left" /></button>
+          <button class="icon" onclick={() => openSibling(nextDoc)} disabled={!nextDoc} aria-label="Next document" title={collectionName ? 'Next document in collection (])' : 'Next document in folder (])'}><Icon name="right" /></button>
         {/if}
         <button class="icon" class:on={info} onclick={toggleInfo} aria-pressed={info} aria-label="Document details" title="Details (I)"><Icon name="panel" /></button>
         <a class="btn icon" href={`/api/files/${linkId}/content`} download aria-label="Download original" title="Download the original file"><Icon name="download" /></a>

@@ -573,11 +573,7 @@ func (s *Server) objectOp(w http.ResponseWriter, r *http.Request, bucket, key st
 		case has(q, "acl"):
 			return s.acl(w, r)
 		case has(q, "tagging"):
-			return writeXML(w, 200, struct {
-				XMLName xml.Name `xml:"Tagging"`
-				Xmlns   string   `xml:"xmlns,attr"`
-				TagSet  string   `xml:"TagSet"`
-			}{Xmlns: xmlns})
+			return s.getTagging(w, r, bucket, key)
 		}
 		return s.getObject(w, r, bucket, key)
 	case http.MethodPut:
@@ -587,7 +583,9 @@ func (s *Server) objectOp(w http.ResponseWriter, r *http.Request, bucket, key st
 				return errNotImplemented()
 			}
 			return s.uploadPart(w, r, bucket, key, q.Get("uploadId"), q.Get("partNumber"))
-		case has(q, "acl"), has(q, "tagging"):
+		case has(q, "tagging"):
+			return s.putTagging(w, r, bucket, key)
+		case has(q, "acl"):
 			w.WriteHeader(200)
 			return nil
 		case r.Header.Get("X-Amz-Copy-Source") != "":
@@ -597,6 +595,9 @@ func (s *Server) objectOp(w http.ResponseWriter, r *http.Request, bucket, key st
 	case http.MethodDelete:
 		if id := q.Get("uploadId"); id != "" {
 			return s.abortUpload(w, r, id)
+		}
+		if has(q, "tagging") {
+			return s.deleteTagging(w, r, bucket, key)
 		}
 		return s.deleteObject(w, r, bucket, key)
 	case http.MethodPost:

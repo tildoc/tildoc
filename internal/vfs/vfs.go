@@ -3,6 +3,7 @@
 //	/                         all spaces the caller can read
 //	/<space-slug>             root folder of a space
 //	/<space-slug>/a/b/x.pdf   folders and files (links)
+//	/@collections/<name>/x.pdf  collections, read-only
 //
 // WebDAV, SFTP and S3 adapters build on this package.
 package vfs
@@ -10,7 +11,10 @@ package vfs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,18 +31,26 @@ const (
 	KindSpace
 	KindFolder
 	KindFile
+	KindCollections // the read-only /@collections directory
+	KindCollection  // one collection
 )
+
+// CollectionsDir is the top-level directory listing the caller's
+// collections. '@' cannot start a space slug, so it never clashes.
+const CollectionsDir = "@collections"
 
 // Node is a resolved path.
 type Node struct {
-	Kind    Kind
-	Name    string
-	Path    string
-	Space   *core.Space
-	Folder  *core.FolderInfo // KindSpace (root folder) and KindFolder
-	File    *core.FileInfo   // KindFile
-	ModTime time.Time
-	Size    int64
+	Kind       Kind
+	Name       string
+	Path       string
+	Space      *core.Space
+	Folder     *core.FolderInfo // KindSpace (root folder) and KindFolder
+	File       *core.FileInfo   // KindFile
+	Collection *core.Collection // KindCollection
+	ReadOnly   bool             // inside /@collections
+	ModTime    time.Time
+	Size       int64
 }
 
 // IsDir reports whether the node is a directory.
@@ -78,6 +90,9 @@ func (fs *FS) Stat(ctx context.Context, p *core.Principal, path string) (*Node, 
 	}
 	if slug == "" {
 		return &Node{Kind: KindRoot, Name: "/", Path: "/", ModTime: startTime}, nil
+	}
+	if slug == CollectionsDir {
+		return fs.statCollections(ctx, p, segs)
 	}
 	sp, err := fs.space(ctx, p, slug)
 	if err != nil {
@@ -126,12 +141,28 @@ func (fs *FS) List(ctx context.Context, p *core.Principal, path string) ([]Node,
 		if err != nil {
 			return nil, err
 		}
-		out := make([]Node, 0, len(spaces))
+		out := make([]Node, 0, len(spaces)+1)
 		for i := range spaces {
 			sp := &spaces[i]
 			out = append(out, Node{Kind: KindSpace, Name: sp.Slug, Path: "/" + sp.Slug, Space: sp, ModTime: sp.CreatedAt})
 		}
+		if cols, _, err := fs.collections(ctx, p); err == nil && len(cols) > 0 {
+			out = append(out, *collectionsNode())
+		}
 		return out, nil
+	case KindCollections:
+		cols, names, err := fs.collections(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]Node, 0, len(cols))
+		for _, name := range names {
+			c := cols[name]
+			out = append(out, *collectionNode(name, &c))
+		}
+		return out, nil
+	case KindCollection:
+		return fs.collectionFiles(ctx, p, n)
 	}
 	_, folders, files, err := fs.Svc.ListFolder(ctx, p, n.Folder.ID)
 	if err != nil {
@@ -168,7 +199,7 @@ func (fs *FS) target(ctx context.Context, p *core.Principal, path string) (*core
 	if err != nil {
 		return nil, nil, err
 	}
-	if slug == "" || len(segs) == 0 {
+	if slug == "" || len(segs) == 0 || slug == CollectionsDir {
 		return nil, nil, core.ErrForbidden
 	}
 	sp, err := fs.space(ctx, p, slug)
@@ -237,6 +268,9 @@ func (fs *FS) Remove(ctx context.Context, p *core.Principal, path string) error 
 	if err != nil {
 		return err
 	}
+	if n.ReadOnly {
+		return core.ErrForbidden
+	}
 	switch n.Kind {
 	case KindFile:
 		return fs.Svc.DeleteLink(ctx, p, n.File.LinkID)
@@ -293,7 +327,7 @@ func (fs *FS) Rename(ctx context.Context, p *core.Principal, from, to string, ov
 	if err != nil {
 		return err
 	}
-	if src.Kind == KindRoot || src.Kind == KindSpace {
+	if src.Kind == KindRoot || src.Kind == KindSpace || src.ReadOnly || src.Kind == KindCollections {
 		return core.ErrForbidden
 	}
 	_, parent, name, existing, err := fs.destination(ctx, p, to)
@@ -333,7 +367,7 @@ func (fs *FS) Copy(ctx context.Context, p *core.Principal, from, to string, over
 	if err != nil {
 		return err
 	}
-	if src.Kind == KindRoot || src.Kind == KindSpace {
+	if src.Kind == KindRoot || src.Kind == KindSpace || src.Kind == KindCollections || src.Kind == KindCollection {
 		return core.ErrForbidden
 	}
 	_, parent, name, existing, err := fs.destination(ctx, p, to)
@@ -362,4 +396,105 @@ func (fs *FS) Copy(ctx context.Context, p *core.Principal, from, to string, over
 	}
 	_, err = fs.Svc.CopyFolder(ctx, p, src.Folder.ID, parent.ID, name)
 	return err
+}
+
+// ---------------------------------------------------------------- collections
+
+func collectionsNode() *Node {
+	return &Node{Kind: KindCollections, Name: CollectionsDir, Path: "/" + CollectionsDir, ModTime: startTime, ReadOnly: true}
+}
+
+func collectionNode(name string, c *core.Collection) *Node {
+	return &Node{Kind: KindCollection, Name: name, Path: "/" + CollectionsDir + "/" + name, Collection: c,
+		ModTime: c.CreatedAt, ReadOnly: true}
+}
+
+// collections returns the caller's collections by directory name. A team
+// collection whose name is also used by another collection is shown as
+// "name (team)".
+func (fs *FS) collections(ctx context.Context, p *core.Principal) (map[string]core.Collection, []string, error) {
+	cols, err := fs.Svc.ListCollections(ctx, p)
+	if err != nil {
+		return nil, nil, err
+	}
+	used := map[string]int{}
+	for _, c := range cols {
+		used[c.Name]++
+	}
+	out := map[string]core.Collection{}
+	var names []string
+	for _, c := range cols {
+		name := c.Name
+		if used[name] > 1 && c.OwnerTeamID != nil {
+			name = fmt.Sprintf("%s (%s)", c.Name, c.TeamName)
+		}
+		if _, dup := out[name]; dup {
+			continue
+		}
+		out[name] = c
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return out, names, nil
+}
+
+func (fs *FS) statCollections(ctx context.Context, p *core.Principal, segs []string) (*Node, error) {
+	if len(segs) == 0 {
+		return collectionsNode(), nil
+	}
+	cols, _, err := fs.collections(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	c, ok := cols[segs[0]]
+	if !ok {
+		return nil, core.ErrNotFound
+	}
+	dir := collectionNode(segs[0], &c)
+	switch len(segs) {
+	case 1:
+		return dir, nil
+	case 2:
+		files, err := fs.collectionFiles(ctx, p, dir)
+		if err != nil {
+			return nil, err
+		}
+		for i := range files {
+			if files[i].Name == segs[1] {
+				return &files[i], nil
+			}
+		}
+	}
+	return nil, core.ErrNotFound
+}
+
+// collectionFiles lists the documents of a collection under unique names
+// ("name (2).ext" for clashes).
+func (fs *FS) collectionFiles(ctx context.Context, p *core.Principal, dir *Node) ([]Node, error) {
+	items, err := fs.Svc.CollectionItems(ctx, p, dir.Collection.ID)
+	if err != nil {
+		return nil, err
+	}
+	spaces, err := fs.Svc.ListSpaces(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	bySpace := map[string]*core.Space{}
+	for i := range spaces {
+		bySpace[spaces[i].ID] = &spaces[i]
+	}
+	used := map[string]bool{}
+	out := make([]Node, 0, len(items))
+	for i := range items {
+		f := items[i].FileInfo
+		name := f.Name
+		ext := path.Ext(name)
+		for n := 2; used[name]; n++ {
+			name = fmt.Sprintf("%s (%d)%s", strings.TrimSuffix(f.Name, ext), n, ext)
+		}
+		used[name] = true
+		out = append(out, Node{Kind: KindFile, Name: name, Path: dir.Path + "/" + name, Space: bySpace[f.SpaceID],
+			File: &f, ModTime: f.ModifiedAt, Size: f.Size, ReadOnly: true})
+	}
+	return out, nil
 }

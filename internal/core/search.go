@@ -8,15 +8,17 @@ import (
 
 // SearchQuery filters and sorts files.
 type SearchQuery struct {
-	Q        string // websearch syntax over extracted text + names
-	SpaceID  string // optional
-	FolderID string // optional: restrict to subtree
-	MIME     string // optional prefix, e.g. "application/pdf" or "text/"
-	Status   string // optional processing status
-	Sort     string // relevance | name | modified | created | size
-	Desc     bool
-	Limit    int
-	Offset   int
+	Q            string   // websearch syntax over extracted text + names
+	SpaceID      string   // optional
+	FolderID     string   // optional: restrict to subtree
+	MIME         string   // optional prefix, e.g. "application/pdf" or "text/"
+	Status       string   // optional processing status
+	TagIDs       []string // optional: documents carrying all of these tags
+	CollectionID string   // optional: documents of this collection (view permission required)
+	Sort         string   // relevance | name | modified | created | size
+	Desc         bool
+	Limit        int
+	Offset       int
 }
 
 // SearchHit is a matching file.
@@ -55,6 +57,18 @@ func (s *Service) Search(ctx context.Context, p *Principal, q SearchQuery) (*Sea
 	if q.SpaceID != "" && len(ids) == 0 {
 		return nil, errf(ErrNotFound, "space not found")
 	}
+	tagIDs := []string{}
+	for _, t := range q.TagIDs {
+		if !looksLikeUUID(t) {
+			return nil, errf(ErrInvalid, "invalid tag id")
+		}
+		tagIDs = append(tagIDs, t)
+	}
+	if q.CollectionID != "" {
+		if _, err := s.GetCollection(ctx, p, q.CollectionID); err != nil {
+			return nil, err
+		}
+	}
 	if q.Limit <= 0 || q.Limit > 500 {
 		q.Limit = 100
 	}
@@ -89,7 +103,7 @@ func (s *Service) Search(ctx context.Context, p *Principal, q SearchQuery) (*Sea
 			       l.name, folder_path(l.parent_id) || '/' || l.name AS path,
 			       b.size, b.sha256, b.md5, b.mime, d.current_version, coalesce(bp.status,'pending') AS status,
 			       (SELECT count(*) FROM entries x WHERE x.document_id = d.id AND x.deleted_at IS NULL) AS link_count,
-			       l.created_at, d.updated_at, l.original_path, l.import_id::text AS import_id,
+			       l.created_at, d.updated_at, l.original_path, l.import_id::text AS import_id, `+tagsColumn+` AS tags,
 			       (CASE WHEN $2 = '' THEN 0 ELSE
 			         coalesce(ts_rank(t.tsv, websearch_to_tsquery('simple', $2)), 0)
 			         + CASE WHEN l.name ILIKE '%' || $3 || '%' ESCAPE '\' THEN 1 ELSE 0 END END)::real AS rank,
@@ -106,6 +120,9 @@ func (s *Service) Search(ctx context.Context, p *Principal, q SearchQuery) (*Sea
 			  AND ($4 = '' OR l.parent_id IN (SELECT id FROM sub))
 			  AND ($5 = '' OR b.mime LIKE $5 || '%')
 			  AND ($6 = '' OR coalesce(bp.status,'pending') = $6)
+			  AND (cardinality($9::uuid[]) = 0 OR (SELECT count(*) FROM document_tags dt
+			       WHERE dt.document_id = d.id AND dt.tag_id = ANY($9::uuid[])) = cardinality($9::uuid[]))
+			  AND ($10 = '' OR d.id IN (SELECT collection_documents(nullif($10,'')::uuid)))
 			ORDER BY `+order+`, l.id
 			LIMIT $7 OFFSET $8
 		)
@@ -114,7 +131,7 @@ func (s *Service) Search(ctx context.Context, p *Principal, q SearchQuery) (*Sea
 			       'MaxFragments=2,MinWords=6,MaxWords=20,StartSel=<<,StopSel=>>,FragmentDelimiter= … ')
 			FROM blob_texts bt WHERE bt.sha256 = h.sha256 AND bt.tsv @@ websearch_to_tsquery('simple', $2)), '') END
 		FROM hits h`,
-		ids, q.Q, likeEscape(q.Q), q.FolderID, q.MIME, q.Status, q.Limit, q.Offset)
+		ids, q.Q, likeEscape(q.Q), q.FolderID, q.MIME, q.Status, q.Limit, q.Offset, tagIDs, q.CollectionID)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +143,7 @@ func (s *Service) Search(ctx context.Context, p *Principal, q SearchQuery) (*Sea
 		var folder *string
 		var total int
 		if err := rows.Scan(&h.LinkID, &h.DocumentID, &h.SpaceID, &folder, &h.Name, &h.Path, &h.Size, &sha, &md5, &h.MIME,
-			&h.Version, &h.Status, &h.LinkCount, &h.CreatedAt, &h.ModifiedAt, &h.OriginalPath, &h.ImportID,
+			&h.Version, &h.Status, &h.LinkCount, &h.CreatedAt, &h.ModifiedAt, &h.OriginalPath, &h.ImportID, &h.Tags,
 			&h.Rank, &total, &h.Snippet); err != nil {
 			return nil, err
 		}

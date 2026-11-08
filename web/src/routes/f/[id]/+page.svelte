@@ -2,7 +2,7 @@
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { get, post, patch, del } from '#lib/api.js';
-  import { toast, errorToast, bumpTree, session, stored, store } from '#lib/state.svelte.js';
+  import { toast, errorToast, bumpTree, session, stored, store, refreshCollections } from '#lib/state.svelte.js';
   import { collectDrop, collectInput, uploadAll } from '#lib/upload.js';
   import { moveKeys, splitKeys } from '#lib/actions.js';
   import FileTable from '#lib/components/FileTable.svelte';
@@ -11,6 +11,7 @@
   import Prompt from '#lib/components/Prompt.svelte';
   import Confirm from '#lib/components/Confirm.svelte';
   import FolderPicker from '#lib/components/FolderPicker.svelte';
+  import CollectionPicker from '#lib/components/CollectionPicker.svelte';
 
   let data = $state(null);
   let error = $state('');
@@ -89,6 +90,18 @@
     if (row.kind !== 'file' || peekOpen) return;
     peekOpen = true;
     store('peek', true);
+  }
+
+  async function addToCollection(c) {
+    const docs = [...new Set(selRows.filter((r) => r.kind === 'file').map((r) => r.document_id))];
+    dialog = null;
+    try {
+      await post(`/collections/${c.id}/items`, { document_ids: docs });
+      await refreshCollections();
+      toast(`Added ${docs.length} ${docs.length === 1 ? 'document' : 'documents'} to ${c.name}`, 'success');
+    } catch (e) {
+      errorToast(e);
+    }
   }
 
   function closePeek() {
@@ -231,6 +244,7 @@
           {#if canWrite && selRows.some((r) => r.kind === 'file' && r.original_path !== r.path)}
             <button class="ghost" onclick={restoreOriginal} title="Move back to where it was imported"><Icon name="restore" size={16} /> Move to original place</button>
           {/if}
+          {#if selRows.some((r) => r.kind === 'file')}<button class="ghost" onclick={() => (dialog = { kind: 'collect' })}><Icon name="collection" size={16} /> Add to collection</button>{/if}
           {#if canDelete}<button class="ghost" onclick={() => (dialog = { kind: 'delete' })}><Icon name="trash" size={16} /> Delete</button>{/if}
         {/if}
         {#if single?.kind === 'file' && !peekOpen}
@@ -265,7 +279,9 @@
   {/if}
 </div>
 
-{#if dialog?.kind === 'mkdir'}
+{#if dialog?.kind === 'collect'}
+  <CollectionPicker count={selRows.filter((r) => r.kind === 'file').length} onpick={addToCollection} onclose={() => (dialog = null)} />
+{:else if dialog?.kind === 'mkdir'}
   <Prompt title="New folder" confirm="Create" onsubmit={mkdir} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'rename'}
   <Prompt title="Rename" value={single.name} confirm="Rename" onsubmit={rename} onclose={() => (dialog = null)} />

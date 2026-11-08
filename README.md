@@ -31,6 +31,20 @@ Esc to close. Ctrl+K searches everywhere; a hit opens on the right page with
 the terms highlighted. PDFs are rendered with pdf.js; the browser's built-in
 viewer can be chosen instead under *Settings and access → Opening documents*.
 
+### Tags and collections
+
+**Tags** are one list for the whole server. Anyone can create a tag while
+tagging a document; administrators rename, merge and delete tags. A tag sits
+on the document, so every place it appears shows it. Search filters by tag,
+S3 clients can use object tagging (`aws s3api put-object-tagging`, the tag key
+is the name), WebDAV exposes `tildoc:tags`.
+
+**Collections** group documents across spaces, for example all bills for the
+tax return from your personal space and a team space. They are personal or
+belong to a team, can include every document with a given tag, and never
+grant access: everyone only sees the documents of spaces they can read.
+In WebDAV and SFTP they appear read-only under `/@collections/<name>/`.
+
 Glossary: **Team** (users + roles owner/admin/member/viewer), **Space**
 (container, = S3 bucket, = top-level WebDAV/SFTP folder), **Folder**,
 **Document**, **Link**, **Version**, **Blob** (internal). See [PLAN.md](PLAN.md)

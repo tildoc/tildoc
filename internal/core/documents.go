@@ -13,27 +13,29 @@ import (
 
 // Document is the identity of a piece of content in a space.
 type Document struct {
-	ID            string        `json:"id"`
-	SpaceID       string        `json:"space_id"`
-	Version       int           `json:"version"`
-	SHA256        blob.SHA256   `json:"sha256"`
-	MD5           string        `json:"md5"`
-	Size          int64         `json:"size"`
-	MIME          string        `json:"mime"`
-	Status        string        `json:"status"`
-	Kind          string        `json:"kind"`
-	Pages         *int          `json:"pages"`
-	ProcessError  string        `json:"process_error,omitempty"`
-	CreatedAt     time.Time     `json:"created_at"`
-	UpdatedAt     time.Time     `json:"updated_at"`
-	DeletedAt     *time.Time    `json:"deleted_at"`
-	ForkedFrom    *string       `json:"forked_from"`
-	HasText       bool          `json:"has_text"`
-	TextMethod    string        `json:"text_method,omitempty"`
-	HasSearchable bool          `json:"has_searchable"`
-	Versions      []VersionInfo `json:"versions"`
-	Links         []LinkRef     `json:"links"`
-	Name          string        `json:"name"` // name of the first live link (or last deleted)
+	ID            string          `json:"id"`
+	SpaceID       string          `json:"space_id"`
+	Version       int             `json:"version"`
+	SHA256        blob.SHA256     `json:"sha256"`
+	MD5           string          `json:"md5"`
+	Size          int64           `json:"size"`
+	MIME          string          `json:"mime"`
+	Status        string          `json:"status"`
+	Kind          string          `json:"kind"`
+	Pages         *int            `json:"pages"`
+	ProcessError  string          `json:"process_error,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+	DeletedAt     *time.Time      `json:"deleted_at"`
+	ForkedFrom    *string         `json:"forked_from"`
+	HasText       bool            `json:"has_text"`
+	TextMethod    string          `json:"text_method,omitempty"`
+	HasSearchable bool            `json:"has_searchable"`
+	Versions      []VersionInfo   `json:"versions"`
+	Links         []LinkRef       `json:"links"`
+	Tags          []TagRef        `json:"tags"`
+	Collections   []CollectionRef `json:"collections"` // the caller's collections containing it
+	Name          string          `json:"name"`        // name of the first live link (or last deleted)
 }
 
 // VersionInfo describes one version.
@@ -136,7 +138,19 @@ func (s *Service) GetDocument(ctx context.Context, p *Principal, id string) (*Do
 		d.Name = lastDeleted
 	}
 	d.MIME = displayMIME(d.Name, d.MIME)
-	return d, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	if d.Tags, err = documentTags(ctx, s.DB, id); err != nil {
+		return nil, err
+	}
+	if p.UserID != "" {
+		if d.Collections, err = s.documentCollections(ctx, p, id); err != nil {
+			return nil, err
+		}
+	}
+	return d, nil
 }
 
 // ContentInfo describes content returned by OpenDocument.

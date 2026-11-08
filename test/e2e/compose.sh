@@ -45,7 +45,7 @@ WJS=$("${DC[@]}" exec -T nginx sh -c 'ls /usr/share/nginx/html/_app/immutable/as
 [ -n "$WJS" ] || fail "pdf.js worker missing from the build"
 curl -skI "$B/_app/immutable/assets/$WJS" | grep -qi '^content-type: text/javascript' || fail "worker .mjs MIME"
 curl -skI "$B/vendor/pdfjs/wasm/openjpeg.wasm" | grep -qi '^content-type: application/wasm' || fail "wasm MIME"
-curl -skI "$B/vendor/fonts/literata-latin-wght-normal.woff2" | grep -qi '^content-type: font/woff2' || fail "font"
+curl -skI "$B/vendor/fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2" | grep -qi '^content-type: font/woff2' || fail "font"
 curl -skf "$B/" | grep -q "wasm-unsafe-eval" || fail "CSP lacks wasm-unsafe-eval"
 
 step "setup + access key"

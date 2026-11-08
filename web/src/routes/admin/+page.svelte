@@ -6,6 +6,52 @@
   let stats = $state(null);
   let users = $state([]);
   let nu = $state({ username: '', password: '', display_name: '', is_admin: false });
+  let tags = $state([]);
+  let mergeFrom = $state(null), mergeInto = $state('');
+
+  async function loadTags() {
+    tags = await get('/tags');
+  }
+  $effect(() => { loadTags().catch(errorToast); });
+
+  async function renameTag(t) {
+    const name = prompt('New name for the tag', t.name);
+    if (!name || name === t.name) return;
+    try {
+      await patch(`/tags/${t.id}`, { name });
+      loadTags();
+    } catch (e) {
+      errorToast(e);
+    }
+  }
+  async function colorTag(t, color) {
+    try {
+      await patch(`/tags/${t.id}`, { color });
+      loadTags();
+    } catch (e) {
+      errorToast(e);
+    }
+  }
+  async function mergeTag() {
+    try {
+      await post(`/tags/${mergeFrom.id}/merge`, { into: mergeInto });
+      toast(`Merged ${mergeFrom.name} into ${tags.find((x) => x.id === mergeInto)?.name}`, 'success');
+      mergeFrom = null;
+      mergeInto = '';
+      loadTags();
+    } catch (e) {
+      errorToast(e);
+    }
+  }
+  async function deleteTag(t) {
+    if (!confirm(`Delete the tag ${t.name}? It is removed from every document on this server.`)) return;
+    try {
+      await del(`/tags/${t.id}`);
+      loadTags();
+    } catch (e) {
+      errorToast(e);
+    }
+  }
 
   async function load() {
     stats = await get('/admin/stats');
@@ -93,6 +139,45 @@
     </section>
   {/if}
   <section class="section">
+    <h2>Tags</h2>
+    <p>One tag list for the whole server. Everyone can create tags; only administrators rename, merge or delete them. Usage counts cover your own spaces only.</p>
+    {#if tags.length}
+      <div class="table-wrap">
+        <table class="plain">
+          <thead><tr><th>Tag</th><th>Colour</th><th>Used in your spaces</th><th></th></tr></thead>
+          <tbody>
+            {#each tags as t (t.id)}
+              <tr>
+                <td><span class="tagname"><span class="dot" style:background={t.color || null}></span>{t.name}</span></td>
+                <td><input type="color" aria-label="Colour of {t.name}" value={t.color || '#56636b'} onchange={(e) => colorTag(t, e.currentTarget.value)} /></td>
+                <td>{t.count}</td>
+                <td class="actions">
+                  <button class="small" onclick={() => renameTag(t)}>Rename</button>
+                  <button class="small" onclick={() => { mergeFrom = t; mergeInto = ''; }} disabled={tags.length < 2}>Merge into…</button>
+                  <button class="small ghost" onclick={() => deleteTag(t)}>Delete</button>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+      {#if mergeFrom}
+        <form class="row merge" onsubmit={(e) => { e.preventDefault(); mergeTag(); }}>
+          <span>Merge <strong>{mergeFrom.name}</strong> into</span>
+          <select bind:value={mergeInto} required aria-label="Target tag">
+            <option value="" disabled>Choose a tag</option>
+            {#each tags.filter((x) => x.id !== mergeFrom.id) as x (x.id)}<option value={x.id}>{x.name}</option>{/each}
+          </select>
+          <button class="primary" disabled={!mergeInto}>Merge tags</button>
+          <button type="button" onclick={() => (mergeFrom = null)}>Cancel</button>
+        </form>
+      {/if}
+    {:else}
+      <p class="muted">No tags yet. Tags are added on documents, in the details of the preview or viewer.</p>
+    {/if}
+  </section>
+
+  <section class="section">
     <h2>People</h2>
     <div class="table-wrap">
       <table class="plain">
@@ -129,6 +214,11 @@
 </div>
 
 <style>
+  .tagname { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-2); }
+  input[type='color'] { width: 44px; min-height: 28px; padding: 2px; }
+  .merge { margin-top: 12px; }
+  .merge select { width: auto; }
   .facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 24px; margin: 8px 0 0; }
   .facts dt { color: var(--ink-2); }
   .facts dd { margin: 0; font-weight: 600; }

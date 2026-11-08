@@ -268,6 +268,13 @@ CREATE TABLE collection_items (
 );
 CREATE INDEX collection_items_document ON collection_items(document_id);
 
+-- collection_documents: manual items plus documents carrying the collection's tag.
+CREATE FUNCTION collection_documents(cid uuid) RETURNS SETOF uuid LANGUAGE sql STABLE AS $$
+    SELECT document_id FROM collection_items WHERE collection_id = cid
+    UNION
+    SELECT dt.document_id FROM collections c JOIN document_tags dt ON dt.tag_id = c.tag_id WHERE c.id = cid
+$$;
+
 -- ---------------------------------------------------------------- derived (per blob)
 CREATE TABLE blob_processing (
     sha256     bytea PRIMARY KEY REFERENCES blobs ON DELETE CASCADE,

@@ -48,7 +48,12 @@ type FileInfo struct {
 	OriginalPath string            `json:"original_path"`
 	ImportID     *string           `json:"import_id"`
 	Meta         map[string]string `json:"meta,omitempty"`
+	Tags         []TagRef          `json:"tags"`
 }
+
+// tagsColumn aggregates the tags of document d as JSON (fileSelect, search).
+const tagsColumn = `(SELECT coalesce(jsonb_agg(jsonb_build_object('id', t.id, 'name', t.name, 'color', t.color) ORDER BY lower(t.name)), '[]')
+	FROM document_tags dt JOIN tags t ON t.id = dt.tag_id WHERE dt.document_id = d.id)`
 
 // ETag returns the S3/HTTP style entity tag (MD5 hex).
 func (f *FileInfo) ETag() string { return `"` + f.MD5 + `"` }
@@ -58,7 +63,7 @@ SELECT l.id::text, l.document_id::text, l.space_id::text, l.parent_id::text, l.n
        folder_path(l.parent_id) || '/' || l.name,
        b.size, b.sha256, b.md5, b.mime, d.current_version, coalesce(bp.status, 'pending'),
        (SELECT count(*) FROM entries x WHERE x.document_id = d.id AND x.deleted_at IS NULL),
-       l.created_at, d.updated_at, l.original_path, l.import_id::text, d.meta
+       l.created_at, d.updated_at, l.original_path, l.import_id::text, d.meta, ` + tagsColumn + `
 FROM entries l
 JOIN document_heads d ON d.id = l.document_id
 JOIN blobs b ON b.sha256 = d.sha256
@@ -69,7 +74,7 @@ func scanFile(row pgx.Row) (*FileInfo, error) {
 	var sha, md5 []byte
 	var folder *string
 	err := row.Scan(&f.LinkID, &f.DocumentID, &f.SpaceID, &folder, &f.Name, &f.Path, &f.Size, &sha, &md5,
-		&f.MIME, &f.Version, &f.Status, &f.LinkCount, &f.CreatedAt, &f.ModifiedAt, &f.OriginalPath, &f.ImportID, &f.Meta)
+		&f.MIME, &f.Version, &f.Status, &f.LinkCount, &f.CreatedAt, &f.ModifiedAt, &f.OriginalPath, &f.ImportID, &f.Meta, &f.Tags)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errf(ErrNotFound, "file not found")
 	}

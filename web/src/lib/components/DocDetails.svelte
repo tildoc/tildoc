@@ -2,12 +2,34 @@
   // Details, versions, links and extracted text of one document. Shared by the
   // peek panel and the viewer's info drawer.
   import Icon from './Icon.svelte';
+  import TagEditor from './TagEditor.svelte';
+  import CollectionPicker from './CollectionPicker.svelte';
   import { get, post, api } from '../api.js';
-  import { toast, errorToast, session } from '../state.svelte.js';
+  import { toast, errorToast, session, refreshCollections } from '../state.svelte.js';
   import { size, date, shortType, statusLabel } from '../format.js';
   import { goto } from '$app/navigation';
 
   let { doc, file, viewVersion = $bindable(0), onchanged, compact = false } = $props();
+  let picking = $state(false);
+  let local = $state(null); // document after a tag change (until the parent reloads)
+  let shown = $derived(local && local.id === doc.id ? local : doc);
+
+  $effect(() => {
+    doc;
+    local = null;
+  });
+
+  async function collect(c) {
+    picking = false;
+    try {
+      await post(`/collections/${c.id}/items`, { document_ids: [doc.id] });
+      await refreshCollections();
+      toast(`Added to ${c.name}`, 'success');
+      onchanged?.();
+    } catch (e) {
+      errorToast(e);
+    }
+  }
   let tab = $state('details');
   let text = $state(null);
   let versionInput = $state();
@@ -80,6 +102,15 @@
 
   <div class="body">
     {#if tab === 'details'}
+      <div class="org">
+        <span class="lbl">Tags</span>
+        <TagEditor doc={shown} {canWrite} onchange={(d) => { local = d; onchanged?.(); }} />
+        <span class="lbl">Collections</span>
+        <div class="colls">
+          {#each shown.collections as c (c.id)}<a class="pill" href={`/c/${c.id}`}><Icon name="collection" size={13} /> {c.name}</a>{/each}
+          <button class="small ghost" onclick={() => (picking = true)}><Icon name="plus" size={14} /> Add to collection</button>
+        </div>
+      </div>
       <dl>
         <dt>Type</dt><dd>{shortType(doc.mime, file?.name ?? doc.name)} <span class="muted">({doc.mime})</span></dd>
         <dt>Size</dt><dd>{size(doc.size)}</dd>
@@ -147,7 +178,14 @@
   </div>
 </div>
 
+{#if picking}<CollectionPicker onpick={collect} onclose={() => (picking = false)} />{/if}
+
 <style>
+  .org { display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; align-items: center; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line-soft); }
+  .org .lbl { color: var(--ink-2); font-size: var(--t-sm); }
+  .colls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .colls .pill { color: var(--ink); text-decoration: none; }
+  .colls .pill:hover { background: var(--accent-soft); }
   .details { display: flex; flex-direction: column; min-height: 0; height: 100%; }
   .tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--line); overflow-x: auto; flex: none; }
   .tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 10px 6px; min-height: 0; color: var(--ink-2); font-size: var(--t-sm); }

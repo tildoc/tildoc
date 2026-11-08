@@ -8,9 +8,11 @@
   import Icon from '#lib/components/Icon.svelte';
   import FolderTree from '#lib/components/FolderTree.svelte';
   import QuickSearch from '#lib/components/QuickSearch.svelte';
+  import CollectionForm from '#lib/components/CollectionForm.svelte';
   import { moveKeys } from '#lib/actions.js';
 
   let { children } = $props();
+  let newCollection = $state(false);
   const publicRoutes = ['/login', '/setup'];
 
   onMount(async () => {
@@ -98,11 +100,31 @@
       </button>
 
       <h2 class="group">Spaces</h2>
-      <ul class="tree" role="tree" aria-label="Folders">
-        {#each session.spaces as s (s.id)}
-          <FolderTree space={s} current={currentFolder} ondropon={dropOnTree} />
-        {/each}
-      </ul>
+      <div class="scrollpart">
+        <ul class="tree" role="tree" aria-label="Folders">
+          {#each session.spaces as s (s.id)}
+            <FolderTree space={s} current={currentFolder} ondropon={dropOnTree} />
+          {/each}
+        </ul>
+
+        <div class="grouprow">
+          <h2 class="group">Collections</h2>
+          <button class="icon add" onclick={() => (newCollection = true)} aria-label="New collection" title="New collection"><Icon name="plus" size={15} /></button>
+        </div>
+        <ul class="colls">
+          {#each session.collections as c (c.id)}
+            <li>
+              <a class="nav coll" class:active={path === `/c/${c.id}`} href={`/c/${c.id}`} aria-current={path === `/c/${c.id}` ? 'page' : undefined}>
+                <Icon name="collection" size={16} /><span class="cn">{c.name}</span>
+                {#if c.team_name}<small class="team">{c.team_name}</small>{/if}
+                <small class="cnt">{c.count}</small>
+              </a>
+            </li>
+          {:else}
+            <li class="none">Group documents from several spaces, for example all bills for your tax return.</li>
+          {/each}
+        </ul>
+      </div>
 
       <div class="foot">
         {#each nav as [href, icon, label] (href)}
@@ -121,6 +143,7 @@
 {/if}
 
 {#if ui.palette && session.user}<QuickSearch onclose={() => (ui.palette = false)} />{/if}
+{#if newCollection}<CollectionForm onsaved={(c) => { newCollection = false; goto(`/c/${c.id}`); }} onclose={() => (newCollection = false)} />{/if}
 
 <div class="toasts" role="status" aria-live="polite">
   {#each ui.toasts as t (t.id)}<div class="toast {t.kind}">{t.message}</div>{/each}
@@ -152,7 +175,18 @@
   @media (prefers-color-scheme: dark) { :global(:root:not([data-theme='light'])) .searchbtn { background: var(--board); } }
   .searchbtn span { flex: 1; text-align: left; }
   .group { font-size: var(--t-sm); font-weight: 600; color: var(--ink-2); margin: 4px 8px 6px; }
-  .tree { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; min-height: 80px; }
+  .scrollpart { flex: 1; min-height: 80px; overflow: auto; }
+  .tree { list-style: none; margin: 0; padding: 0; }
+  .grouprow { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
+  .grouprow .group { margin-bottom: 2px; }
+  .add { min-height: 26px; min-width: 26px; }
+  .colls { list-style: none; margin: 0; padding: 0; }
+  .coll { padding: 4px 8px 4px 10px; font-size: var(--t-base); }
+  .coll :global(svg) { color: var(--ink-2); flex: none; }
+  .cn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .team { color: var(--ink-2); font-size: 0.75rem; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cnt { color: var(--ink-2); font-size: 0.75rem; min-width: 1.5em; text-align: right; }
+  .none { color: var(--ink-2); font-size: var(--t-sm); padding: 2px 10px 6px; }
   .foot { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; display: flex; flex-direction: column; gap: 1px; }
   .nav { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: var(--r-control); color: var(--ink); font-size: var(--t-base); }
   .nav:hover { background: var(--surface-2); text-decoration: none; }

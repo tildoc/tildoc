@@ -1,7 +1,7 @@
 // Global client state (Svelte 5 runes).
 import { get, patch, setUnauthorizedHandler } from './api.js';
 
-export const session = $state({ user: null, ready: false, spaces: [], info: null, teams: [] });
+export const session = $state({ user: null, ready: false, spaces: [], info: null, teams: [], collections: [], tags: [] });
 export const ui = $state({ toasts: [], uploads: [], sidebarOpen: false, treeVersion: 0, palette: false, returnTo: null });
 
 setUnauthorizedHandler(() => {
@@ -26,6 +26,7 @@ export async function loadSession() {
   try {
     session.user = await get('/me', { noRedirect: true });
     await refreshSpaces();
+    await refreshCollections();
     session.info ??= await get('/info');
   } catch {
     session.user = null;
@@ -35,6 +36,19 @@ export async function loadSession() {
 
 export async function refreshSpaces() {
   session.spaces = await get('/spaces');
+}
+
+export async function refreshCollections() {
+  try {
+    session.collections = await get('/collections');
+  } catch {
+    session.collections = [];
+  }
+}
+
+export async function refreshTags() {
+  session.tags = await get('/tags');
+  return session.tags;
 }
 
 export function spaceById(id) {
