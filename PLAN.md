@@ -175,20 +175,20 @@ flowchart LR
 ## Phases
 
 ### Phase 0 — Foundation
-- [ ] git init, `.gitignore`, Go module, layout (`cmd/tildoc`, `internal/*`, `web/`, `deploy/`, `test/`)
-- [ ] Config from env (`deploy/.env.example` template, `.env` gitignored), slog logging
-- [ ] Migrations (embedded SQL, own runner)
-- [ ] Test harness: Postgres in Docker, per-test database from template
+- [x] git init, `.gitignore`, Go module, layout (`cmd/tildoc`, `internal/*`, `web/`, `deploy/`, `test/`)
+- [x] Config from env (`deploy/.env.example` template, `.env` gitignored), slog logging
+- [x] Migrations (embedded SQL, own runner)
+- [x] Test harness: Postgres in Docker, per-test database from template
 
 ### Phase 1 — Data Model & Blob Store
-- [ ] Schema: users, sessions, access_keys, ssh_keys, teams, team_members, spaces, folders, blobs, documents, document_versions, links, imports, blob_processing, blob_texts, blob_derivatives, jobs, multipart uploads
-- [ ] Blob store: streaming stage (SHA-256 + MD5 + sniff), atomic commit, open (ReadSeeker + ReaderAt)
-- [ ] Tests
+- [x] Schema: users, sessions, access_keys, ssh_keys, teams, team_members, spaces, folders, blobs, documents, document_versions, links, imports, blob_processing, blob_texts, blob_derivatives, jobs, multipart uploads
+- [x] Blob store: streaming stage (SHA-256 + MD5 + sniff), atomic commit, open (ReadSeeker + ReaderAt)
+- [x] Tests
 
 ### Phase 2 — Auth & AuthZ
-- [ ] Users, argon2id, sessions, access keys (encrypted secrets), SSH keys, rate limiter
-- [ ] Teams, members, roles, spaces, permission checks
-- [ ] Tests
+- [x] Users, argon2id, sessions, access keys (encrypted secrets), SSH keys, rate limiter
+- [x] Teams, members, roles, spaces, permission checks
+- [x] Tests
 
 ### Phase 3 — Core: Ingest, Folders, Links, Trash
 - [ ] Ingest with dedup / versioning / copy-on-write / provenance; job enqueue

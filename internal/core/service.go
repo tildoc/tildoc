@@ -50,7 +50,7 @@ type Principal struct {
 }
 
 // SystemPrincipal is used by background jobs.
-var SystemPrincipal = &Principal{UserID: "", Username: "system", Via: "system"}
+var SystemPrincipal = &Principal{UserID: "00000000-0000-0000-0000-000000000000", Username: "system", Via: "system"}
 
 // Permission levels on a space.
 type Perm int
