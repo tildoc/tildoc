@@ -227,7 +227,7 @@ func userCmd(ctx context.Context, cfg *config.Config, log *slog.Logger, args []s
 		if err != nil {
 			return err
 		}
-		adm := &core.Principal{UserID: core.SystemPrincipal.UserID, IsAdmin: true, Via: "system"}
+		adm := &core.Principal{UserID: core.SystemPrincipal.UserID, Inst: core.InstCap(^uint16(0)), Via: "system"}
 		if _, err := svc.UpdateUser(ctx, adm, u.ID, core.UserUpdate{Password: &pw}); err != nil {
 			return err
 		}

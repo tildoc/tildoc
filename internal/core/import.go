@@ -403,8 +403,8 @@ func (s *Service) applyImport(ctx context.Context, tx pgx.Tx, p *Principal, br *
 			if err != nil {
 				return err
 			}
-			if roleRank(role) < roleRank("admin") {
-				return errf(ErrForbidden, "only team owners and admins can create team spaces")
+			if role != "manager" {
+				return errf(ErrForbidden, "only team managers can create team spaces")
 			}
 			owner, team = "", opt.TeamID
 		}

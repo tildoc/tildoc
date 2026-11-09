@@ -1,4 +1,4 @@
-# tildoc bundle format, version 2
+# tildoc bundle format, version 3
 
 A bundle moves spaces, collections or a whole server between tildoc
 instances. It is a POSIX tar stream (PAX headers); exports use the file
@@ -17,15 +17,15 @@ name, and treat the whole bundle as untrusted input.
 
 | Field | Content |
 |-------|---------|
-| `format`, `version` | `"tildoc-bundle"`, `2` |
+| `format`, `version` | `"tildoc-bundle"`, `3` |
 | `kind` | `space` (one space), `collection` (one collection, documents without folders), `server` (backup) |
 | `created_at`, `instance` | time and UUID of the exporting instance |
 | `backup` | server backups: `{id, mode: full\|differential, base_id}` |
 | `settings` | server backups: instance id, OCR preference, backup retention |
 | `people` | users referenced by the bundle (`id`, `username`); imports map them by username |
-| `users`, `teams`, `imports`, `access_keys`, `ssh_keys` | server backups only (password hashes; access key secrets stay encrypted with the master key) |
+| `users`, `identities`, `teams`, `roles`, `grants`, `share_links`, `api_keys`, `imports`, `access_keys`, `ssh_keys` | server backups only (passwords, link tokens and API keys only as hashes; access key secrets stay encrypted with the master key) |
 | `tags` | `{id, name, color, created_by, created_at}` |
-| `spaces` | `{id, slug, name, owner_user_id, owner_team_id, created_at, folders, documents, grants}` |
+| `spaces` | `{id, slug, name, owner_user_id, owner_team_id, created_at, folders, documents}` |
 | `documents` | collection bundles: documents with one place each |
 | `collections` | `{id, name, owner_user_id, owner_team_id, tag_id, items: [{document_id, added_by, added_at}]}` |
 | `blobs` | `{sha256, md5, size, mime, created_at, included, processing, text_method}`; `included=false` = bytes not in this archive (differential backups) |
@@ -72,8 +72,9 @@ that wraps the whole stream; the tar format inside stays the same.
 
 | Version | Change |
 |---------|--------|
+| 3 | roles and grants instead of per-space grants; identities, share links, API keys; team members have `is_manager` |
 | 2 | `restored_from` on versions (restores are a column now, no longer `meta.restored_from`) |
 | 1 | initial format |
 
 A server reads only its own format version; there are no released bundles
-older than version 2.
+older than version 3.

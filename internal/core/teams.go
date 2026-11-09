@@ -15,7 +15,7 @@ import (
 type Team struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
-	Role      string    `json:"role"` // caller's role ("" for system admins without membership)
+	Role      string    `json:"role"` // the caller: manager, member, or "" (instance administrators)
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -27,15 +27,17 @@ type Member struct {
 	Role        string `json:"role"`
 }
 
-var validRoles = map[string]bool{"owner": true, "admin": true, "member": true, "viewer": true}
+var validRoles = map[string]bool{"manager": true, "member": true}
+
+const memberRole = `CASE WHEN tm.is_manager THEN 'manager' ELSE 'member' END`
 
 func (s *Service) teamRole(ctx context.Context, q db.Querier, p *Principal, teamID string) (string, error) {
 	var role string
-	err := q.QueryRow(ctx, `SELECT role FROM team_members WHERE team_id=$1 AND user_id=$2`, teamID, p.UserID).Scan(&role)
+	err := q.QueryRow(ctx, `SELECT `+memberRole+` FROM team_members tm WHERE team_id=$1 AND user_id=$2`, teamID, p.UserID).Scan(&role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var exists bool
 		q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM teams WHERE id=$1)`, teamID).Scan(&exists)
-		if !exists || !p.IsAdmin {
+		if !exists || !p.Can(InstTeams) {
 			return "", errf(ErrNotFound, "team not found")
 		}
 		return "", nil
@@ -43,12 +45,16 @@ func (s *Service) teamRole(ctx context.Context, q db.Querier, p *Principal, team
 	return role, err
 }
 
+// canManageTeam: the team's managers, and instance administrators.
+func canManageTeam(p *Principal, role string) bool { return role == "manager" || p.Can(InstTeams) }
+
 func requireSession(p *Principal) error {
 	if p == nil {
 		return ErrUnauthorized
 	}
-	if p.Via == "accesskey" || p.Via == "ssh" {
-		return errf(ErrForbidden, "not allowed with access keys")
+	switch p.Via {
+	case "accesskey", "ssh", "apikey":
+		return errf(ErrForbidden, "not allowed with keys")
 	}
 	return nil
 }
@@ -58,11 +64,14 @@ func (s *Service) CreateTeam(ctx context.Context, p *Principal, name string) (*T
 	if err := requireSession(p); err != nil {
 		return nil, err
 	}
+	if !p.Can(InstTeamsCreate) && !p.Can(InstTeams) {
+		return nil, errf(ErrForbidden, "not allowed to create teams")
+	}
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 100 {
 		return nil, errf(ErrInvalid, "team name must be 1-100 characters")
 	}
-	t := &Team{Name: name, Role: "owner"}
+	t := &Team{Name: name, Role: "manager"}
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `INSERT INTO teams(name) VALUES($1) RETURNING id::text, created_at`, name).Scan(&t.ID, &t.CreatedAt)
 		if db.IsUniqueViolation(err) {
@@ -71,7 +80,7 @@ func (s *Service) CreateTeam(ctx context.Context, p *Principal, name string) (*T
 		if err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO team_members(team_id, user_id, role) VALUES($1,$2,'owner')`, t.ID, p.UserID)
+		_, err = tx.Exec(ctx, `INSERT INTO team_members(team_id, user_id, is_manager) VALUES($1,$2,true)`, t.ID, p.UserID)
 		return err
 	})
 	return t, err
@@ -80,10 +89,10 @@ func (s *Service) CreateTeam(ctx context.Context, p *Principal, name string) (*T
 // ListTeams lists the caller's teams (all teams for system admins).
 func (s *Service) ListTeams(ctx context.Context, p *Principal) ([]Team, error) {
 	rows, err := s.DB.Query(ctx, `
-		SELECT t.id::text, t.name, coalesce(tm.role,''), t.created_at
+		SELECT t.id::text, t.name, CASE WHEN tm.user_id IS NULL THEN '' ELSE `+memberRole+` END, t.created_at
 		FROM teams t LEFT JOIN team_members tm ON tm.team_id=t.id AND tm.user_id=$1
 		WHERE tm.user_id IS NOT NULL OR $2
-		ORDER BY t.name`, p.UserID, p.IsAdmin)
+		ORDER BY t.name`, p.UserID, p.Can(InstTeams))
 	if err != nil {
 		return nil, err
 	}
@@ -119,8 +128,8 @@ func (s *Service) RenameTeam(ctx context.Context, p *Principal, id, name string)
 	if err != nil {
 		return err
 	}
-	if role != "owner" && role != "admin" {
-		return errf(ErrForbidden, "team admin required")
+	if !canManageTeam(p, role) {
+		return errf(ErrForbidden, "team manager required")
 	}
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 100 {
@@ -143,8 +152,8 @@ func (s *Service) DeleteTeam(ctx context.Context, p *Principal, id string) error
 		if err != nil {
 			return err
 		}
-		if role != "owner" && !p.IsAdmin {
-			return errf(ErrForbidden, "team owner required")
+		if !canManageTeam(p, role) {
+			return errf(ErrForbidden, "team manager required")
 		}
 		var live bool
 		tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM documents d JOIN spaces s ON s.id=d.space_id
@@ -162,7 +171,7 @@ func (s *Service) ListMembers(ctx context.Context, p *Principal, teamID string) 
 	if _, err := s.teamRole(ctx, s.DB, p, teamID); err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.Query(ctx, `SELECT u.id::text, u.username, u.display_name, tm.role
+	rows, err := s.DB.Query(ctx, `SELECT u.id::text, u.username, u.display_name, `+memberRole+`
 		FROM team_members tm JOIN users u ON u.id=tm.user_id WHERE tm.team_id=$1 ORDER BY u.username`, teamID)
 	if err != nil {
 		return nil, err
@@ -179,38 +188,34 @@ func (s *Service) ListMembers(ctx context.Context, p *Principal, teamID string) 
 	return out, rows.Err()
 }
 
-// SetMember adds a member or changes its role. Admins manage members/viewers/
-// admins; only owners grant or revoke the owner role.
+// SetMember adds a member or changes whether they manage the team.
 func (s *Service) SetMember(ctx context.Context, p *Principal, teamID, userID, role string) error {
 	if err := requireSession(p); err != nil {
 		return err
 	}
 	if !validRoles[role] {
-		return errf(ErrInvalid, "invalid role %q", role)
+		return errf(ErrInvalid, "role must be manager or member")
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
 		myRole, err := s.teamRole(ctx, tx, p, teamID)
 		if err != nil {
 			return err
 		}
-		if myRole != "owner" && myRole != "admin" && !p.IsAdmin {
-			return errf(ErrForbidden, "team admin required")
+		if !canManageTeam(p, myRole) {
+			return errf(ErrForbidden, "team manager required")
 		}
-		var current string
-		err = tx.QueryRow(ctx, `SELECT role FROM team_members WHERE team_id=$1 AND user_id=$2 FOR UPDATE`, teamID, userID).Scan(&current)
+		var manager bool
+		err = tx.QueryRow(ctx, `SELECT is_manager FROM team_members WHERE team_id=$1 AND user_id=$2 FOR UPDATE`, teamID, userID).Scan(&manager)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		if (role == "owner" || current == "owner") && myRole != "owner" && !p.IsAdmin {
-			return errf(ErrForbidden, "only owners manage owners")
-		}
-		if current == "owner" && role != "owner" {
-			if err := lastOwnerCheck(ctx, tx, teamID); err != nil {
+		if manager && role != "manager" {
+			if err := lastManagerCheck(ctx, tx, teamID); err != nil {
 				return err
 			}
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO team_members(team_id, user_id, role) VALUES($1,$2,$3)
-			ON CONFLICT (team_id, user_id) DO UPDATE SET role=EXCLUDED.role`, teamID, userID, role)
+		_, err = tx.Exec(ctx, `INSERT INTO team_members(team_id, user_id, is_manager) VALUES($1,$2,$3)
+			ON CONFLICT (team_id, user_id) DO UPDATE SET is_manager=EXCLUDED.is_manager`, teamID, userID, role == "manager")
 		if db.IsForeignKeyViolation(err) {
 			return errf(ErrNotFound, "user not found")
 		}
@@ -218,7 +223,7 @@ func (s *Service) SetMember(ctx context.Context, p *Principal, teamID, userID, r
 	})
 }
 
-// RemoveMember removes a member (team admin, or the member itself).
+// RemoveMember removes a member (a team manager, or the member itself).
 func (s *Service) RemoveMember(ctx context.Context, p *Principal, teamID, userID string) error {
 	if err := requireSession(p); err != nil {
 		return err
@@ -228,23 +233,19 @@ func (s *Service) RemoveMember(ctx context.Context, p *Principal, teamID, userID
 		if err != nil {
 			return err
 		}
-		var current string
-		err = tx.QueryRow(ctx, `SELECT role FROM team_members WHERE team_id=$1 AND user_id=$2 FOR UPDATE`, teamID, userID).Scan(&current)
+		var manager bool
+		err = tx.QueryRow(ctx, `SELECT is_manager FROM team_members WHERE team_id=$1 AND user_id=$2 FOR UPDATE`, teamID, userID).Scan(&manager)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errf(ErrNotFound, "member not found")
 		}
 		if err != nil {
 			return err
 		}
-		self := userID == p.UserID
-		if !self && myRole != "owner" && myRole != "admin" && !p.IsAdmin {
-			return errf(ErrForbidden, "team admin required")
+		if userID != p.UserID && !canManageTeam(p, myRole) {
+			return errf(ErrForbidden, "team manager required")
 		}
-		if current == "owner" {
-			if !self && myRole != "owner" && !p.IsAdmin {
-				return errf(ErrForbidden, "only owners remove owners")
-			}
-			if err := lastOwnerCheck(ctx, tx, teamID); err != nil {
+		if manager {
+			if err := lastManagerCheck(ctx, tx, teamID); err != nil {
 				return err
 			}
 		}
@@ -253,13 +254,13 @@ func (s *Service) RemoveMember(ctx context.Context, p *Principal, teamID, userID
 	})
 }
 
-func lastOwnerCheck(ctx context.Context, tx pgx.Tx, teamID string) error {
+func lastManagerCheck(ctx context.Context, tx pgx.Tx, teamID string) error {
 	var n int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM team_members WHERE team_id=$1 AND role='owner'`, teamID).Scan(&n); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM team_members WHERE team_id=$1 AND is_manager`, teamID).Scan(&n); err != nil {
 		return err
 	}
 	if n <= 1 {
-		return errf(ErrInvalid, "a team needs at least one owner")
+		return errf(ErrInvalid, "a team needs at least one manager")
 	}
 	return nil
 }

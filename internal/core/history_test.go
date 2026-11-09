@@ -115,7 +115,7 @@ func TestSameContentPlaces(t *testing.T) {
 	team := ck(f.svc.CreateTeam(f.ctx, f.alice, "T"))
 	ts := ck(f.svc.CreateSpace(f.ctx, f.alice, "shared", "", team.ID))
 	bob := ck(f.svc.UserByName(f.ctx, "bob"))
-	noErr(t, f.svc.SetMember(f.ctx, f.alice, team.ID, bob.ID, "viewer"))
+	noErr(t, f.svc.SetMember(f.ctx, f.alice, team.ID, bob.ID, "member"))
 
 	mine := f.put(t, f.alice, f.home.ID, "/Privat/rechnung.pdf", "%PDF same invoice")
 	shared := f.put(t, f.alice, ts.ID, "/Rechnungen/rechnung.pdf", "%PDF same invoice")

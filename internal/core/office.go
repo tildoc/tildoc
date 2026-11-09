@@ -37,14 +37,15 @@ func (e *OfficeLockConflict) Unwrap() error { return ErrConflict }
 
 // OfficeFile is what Collabora needs to know about a file and its user.
 type OfficeFile struct {
-	Name     string
-	OwnerID  string
-	Size     int64
-	Version  string // changes with the content
-	UserID   string
-	UserName string
-	CanWrite bool
-	Modified time.Time
+	Name        string
+	OwnerID     string
+	Size        int64
+	Version     string // changes with the content
+	UserID      string
+	UserName    string
+	CanWrite    bool
+	CanDownload bool // false: the office server offers no download, print or copy
+	Modified    time.Time
 }
 
 // OfficeMIME tells whether a type may open in the office server: not the
@@ -82,7 +83,7 @@ func (s *Service) CreateOfficeToken(ctx context.Context, p *Principal, docID str
 	if d, err = s.officeDocument(ctx, p, docID); err != nil {
 		return
 	}
-	canWrite = s.requirePerm(ctx, s.DB, p, d.SpaceID, PermWrite) == nil
+	canWrite = s.requireDocCap(ctx, s.DB, p, docID, d.SpaceID, CapWrite) == nil
 	token = randomToken(32)
 	expires = s.now().Add(OfficeTokenTTL)
 	_, err = s.DB.Exec(ctx, `INSERT INTO wopi_tokens(token_hash, document_id, session_hash, expires_at) VALUES($1,$2,$3,$4)`,
@@ -96,10 +97,10 @@ func (s *Service) OfficePrincipal(ctx context.Context, token, docID string) (*Pr
 		return nil, ErrUnauthorized
 	}
 	p := &Principal{Via: "wopi"}
-	err := s.DB.QueryRow(ctx, `SELECT u.id::text, u.username, u.is_admin
+	err := s.DB.QueryRow(ctx, `SELECT u.id::text, u.username
 		FROM wopi_tokens t JOIN sessions se ON se.token_hash = t.session_hash JOIN users u ON u.id = se.user_id
 		WHERE t.token_hash = $1 AND t.document_id = $2 AND t.expires_at > now() AND se.expires_at > now() AND NOT u.disabled`,
-		tokenHash(token), docID).Scan(&p.UserID, &p.Username, &p.IsAdmin)
+		tokenHash(token), docID).Scan(&p.UserID, &p.Username)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errf(ErrUnauthorized, "invalid token")
 	}
@@ -127,7 +128,8 @@ func (s *Service) OfficeFileInfo(ctx context.Context, p *Principal, docID string
 		return nil, err
 	}
 	f := &OfficeFile{Name: d.Name, OwnerID: d.SpaceID, Size: d.Size, Version: d.SHA256.Hex(), UserID: p.UserID, Modified: d.UpdatedAt,
-		CanWrite: s.requirePerm(ctx, s.DB, p, d.SpaceID, PermWrite) == nil}
+		CanWrite:    s.requireDocCap(ctx, s.DB, p, docID, d.SpaceID, CapWrite) == nil,
+		CanDownload: s.requireDocCap(ctx, s.DB, p, docID, d.SpaceID, CapDownload) == nil}
 	if err := s.DB.QueryRow(ctx, `SELECT coalesce(nullif(display_name, ''), username) FROM users WHERE id = $1`, p.UserID).Scan(&f.UserName); err != nil {
 		return nil, err
 	}
@@ -246,7 +248,7 @@ func (s *Service) LockOffice(ctx context.Context, p *Principal, docID, lock, old
 	if err != nil {
 		return err
 	}
-	if err := s.requirePerm(ctx, s.DB, p, d.SpaceID, PermWrite); err != nil {
+	if err := s.requireDocCap(ctx, s.DB, p, docID, d.SpaceID, CapWrite); err != nil {
 		return err
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
@@ -335,7 +337,7 @@ func (s *Service) SaveOffice(ctx context.Context, p *Principal, docID, lock stri
 	if err != nil {
 		return saved, err
 	}
-	if err := s.requirePerm(ctx, s.DB, p, d.SpaceID, PermWrite); err != nil {
+	if err := s.requireDocCap(ctx, s.DB, p, docID, d.SpaceID, CapWrite); err != nil {
 		return saved, err
 	}
 	st, err := s.Blobs.Stage(body, s.Cfg.MaxUploadBytes)

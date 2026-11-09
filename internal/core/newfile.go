@@ -3,7 +3,10 @@ package core
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"mime"
+	"path"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -57,10 +60,12 @@ func (s *Service) CreateEmptyFile(ctx context.Context, p *Principal, folderID, n
 	if err != nil {
 		return nil, err
 	}
-	return s.createStagedEmpty(ctx, p, folder, name, st)
+	return s.createStaged(ctx, p, folder, name, st, "web", false)
 }
 
-func (s *Service) createStagedEmpty(ctx context.Context, p *Principal, folder *FolderInfo, name string, st *blob.Staged) (*FileInfo, error) {
+// createStaged adds staged content as a new document of its own. With
+// uniqueName an existing name gets a counter instead of an error.
+func (s *Service) createStaged(ctx context.Context, p *Principal, folder *FolderInfo, name string, st *blob.Staged, source string, uniqueName bool) (*FileInfo, error) {
 	c := s.claim(st)
 	defer c.discardUnused()
 	var linkID string
@@ -74,18 +79,26 @@ func (s *Service) createStagedEmpty(ctx context.Context, p *Principal, folder *F
 		if _, err := lockFolder(ctx, tx, folder.ID); err != nil {
 			return err
 		}
-		fold, link, err := child(ctx, tx, folder.ID, name)
+		final := name
+		for i := 2; ; i++ {
+			fold, link, err := child(ctx, tx, folder.ID, final)
+			if err != nil {
+				return err
+			}
+			if fold == "" && link == "" {
+				break
+			}
+			if !uniqueName {
+				return errf(ErrConflict, "%q already exists in this folder", name)
+			}
+			ext := path.Ext(name)
+			final = fmt.Sprintf("%s (%d)%s", strings.TrimSuffix(name, ext), i, ext)
+		}
+		docID, err := createDocTx(ctx, tx, p, folder.SpaceID, st.SHA256, source, nil)
 		if err != nil {
 			return err
 		}
-		if fold != "" || link != "" {
-			return errf(ErrConflict, "%q already exists in this folder", name)
-		}
-		docID, err := createDocTx(ctx, tx, p, folder.SpaceID, st.SHA256, "web", nil)
-		if err != nil {
-			return err
-		}
-		linkID, err = createLinkTx(ctx, tx, p, docID, folder.ID, name, nil, folder.Path+"/"+name)
+		linkID, err = createLinkTx(ctx, tx, p, docID, folder.ID, final, nil, strings.TrimRight(folder.Path, "/")+"/"+final)
 		return err
 	})
 	if err != nil {

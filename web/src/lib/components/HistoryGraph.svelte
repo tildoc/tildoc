@@ -1,4 +1,5 @@
 <script>
+  import { canDownload } from '../perms.js';
   // History of a document as one graph: versions on the main line, derived
   // variants branching off diagonally, joins where a version continues from a
   // variant or restores an older version. Layout: lib/history.js. The SVG is
@@ -89,7 +90,7 @@
             {#if relation(v)}<span class="rel">{relation(v)}</span>{/if}
             <span class="acts">
               {#if v.version !== doc.version && canWrite}<button class="small ghost" onclick={() => onrestore?.(v.version)}>Restore</button>{/if}
-              <a class="btn small ghost" href={`${contentURL}?version=${v.version}`} download title="Download version {v.version}" aria-label="Download version {v.version}"><Icon name="download" size={14} /></a>
+              {#if canDownload(doc)}<a class="btn small ghost" href={`${contentURL}?version=${v.version}`} download title="Download version {v.version}" aria-label="Download version {v.version}"><Icon name="download" size={14} /></a>{/if}
             </span>
           </div>
           <span class="meta" title={versionTip(v)}>{versionInfo(v)}</span>
@@ -99,8 +100,8 @@
             <span class="vname">{VARIANT_LABEL[r.variant] ?? r.variant}</span>
             {#if vx.search_text && r.version === doc.version}<span class="pill search">used for search</span>{/if}
             <span class="acts">
-              <a class="btn small ghost" href={`${contentURL}?${variantQuery(r)}`} download
-                title="Download this variant" aria-label="Download {VARIANT_LABEL[r.variant]} of version {r.version}"><Icon name="download" size={14} /></a>
+              {#if canDownload(doc)}<a class="btn small ghost" href={`${contentURL}?${variantQuery(r)}`} download
+                title="Download this variant" aria-label="Download {VARIANT_LABEL[r.variant]} of version {r.version}"><Icon name="download" size={14} /></a>{/if}
             </span>
           </div>
           <span class="meta" title={variantTip(vx)}>{variantInfo(vx)}</span>

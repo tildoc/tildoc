@@ -9,12 +9,16 @@
   import Icon from '../Icon.svelte';
   import { prefs, session } from '../../state.svelte.js';
   import { size as fmtSize, shortType, textVariant, opensInOffice } from '../../format.js';
+  import { canDownload } from '../../perms.js';
 
   let {
     file, // {document_id, name, mime, size}
     doc = null, // the document (optional): enables the fast in-document search
     edit = false, // text and office files open for editing (full viewer, current version)
     officeEdit = false, // a PDF was asked to open in the office server
+    contentBase = '', // share links read from their own endpoint
+    contentParams = {},
+    noDownload = false, // restricted: nothing here offers the file itself
     onsaved, // editor saved a new version
     variant = 'original',
     version = 0,
@@ -35,18 +39,19 @@
   let inner = $state();
 
   const mime = $derived(file?.mime ?? '');
+  const canGet = $derived(!noDownload && canDownload(doc));
   // an empty file the office server fills from its template shows no content yet
   const inOffice = $derived(opensInOffice(file.name, mime, file.size, session.office));
   const kind = $derived(
     inOffice ? 'other'
-    : mime.startsWith('application/pdf') ? (prefs().pdf_viewer === 'native' ? 'native' : 'pdf')
+    : mime.startsWith('application/pdf') ? (prefs().pdf_viewer === 'native' && canGet ? 'native' : 'pdf')
     : /^image\/(png|jpeg|gif|webp)/.test(mime) ? 'image'
     : mime.startsWith('text/') || mime.includes('json') || file.size === 0 ? 'text'
     : 'other'
   );
-  const base = $derived(`/api/documents/${file.document_id}/content`);
+  const base = $derived(contentBase || `/api/documents/${file.document_id}/content`);
   const url = $derived.by(() => {
-    const q = new URLSearchParams({ inline: '1' });
+    const q = new URLSearchParams({ inline: '1', ...contentParams });
     if (variant && variant !== 'original') q.set('variant', variant);
     if (version) q.set('version', String(version));
     if (kind === 'native') q.set('viewer', 'native');
@@ -102,9 +107,9 @@
       {:else if inOffice}
         <p>No preview for this format. Open it to view and edit.</p>
       {:else}
-        <p>There is no preview for this type. The file is stored unchanged and can be downloaded.</p>
+        <p>There is no preview for this type.{canGet ? ' The file is stored unchanged and can be downloaded.' : ''}</p>
       {/if}
-      <a class="btn primary" href={base} download><Icon name="download" size={16} /> Download</a>
+      {#if canGet}<a class="btn primary" href={`${base}${contentParams.file ? `?file=${contentParams.file}` : ''}`} download><Icon name="download" size={16} /> Download</a>{/if}
     </div>
   </div>
 {/if}

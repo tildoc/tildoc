@@ -21,7 +21,7 @@ import (
 // text). See docs/bundle-format.md.
 const (
 	BundleFormat  = "tildoc-bundle"
-	BundleVersion = 2
+	BundleVersion = 3
 	manifestName  = "manifest.json"
 	maxManifest   = 1 << 30
 )
@@ -37,7 +37,12 @@ type Manifest struct {
 	Settings    *MSettings    `json:"settings,omitempty"`
 	People      []MPerson     `json:"people"`
 	Users       []MUser       `json:"users,omitempty"`
+	Identities  []MIdentity   `json:"identities,omitempty"`
 	Teams       []MTeam       `json:"teams,omitempty"`
+	Roles       []MRole       `json:"roles,omitempty"`
+	Grants      []MGrant      `json:"grants,omitempty"`
+	ShareLinks  []MShareLink  `json:"share_links,omitempty"`
+	APIKeys     []MAPIKey     `json:"api_keys,omitempty"`
 	Tags        []MTag        `json:"tags"`
 	Spaces      []MSpace      `json:"spaces"`
 	Documents   []MDocument   `json:"documents,omitempty"` // collection bundles: documents outside a folder structure
@@ -61,6 +66,7 @@ type MSettings struct {
 	InstanceID    string `json:"instance_id"`
 	OCRPreference string `json:"ocr_preference"`
 	BackupKeep    int    `json:"backup_keep"`
+	PublicLinks   bool   `json:"public_links"`
 }
 
 // MPerson is a user referenced by a bundle (author of versions etc.).
@@ -71,14 +77,12 @@ type MPerson struct {
 
 // MUser is a full user (server backups only).
 type MUser struct {
-	ID           string    `json:"id"`
-	Username     string    `json:"username"`
-	DisplayName  string    `json:"display_name"`
-	PasswordHash string    `json:"password_hash"`
-	IsAdmin      bool      `json:"is_admin"`
-	Disabled     bool      `json:"disabled"`
-	PDFViewer    string    `json:"pdf_viewer"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID          string    `json:"id"`
+	Username    string    `json:"username"`
+	DisplayName string    `json:"display_name"`
+	Disabled    bool      `json:"disabled"`
+	PDFViewer   string    `json:"pdf_viewer"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // MTeam is a team with members (server backups only).
@@ -92,8 +96,59 @@ type MTeam struct {
 // MMember is a team membership.
 type MMember struct {
 	UserID    string    `json:"user_id"`
-	Role      string    `json:"role"`
+	IsManager bool      `json:"is_manager"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// MIdentity is how a user logs in (server backups only).
+type MIdentity struct {
+	ID           string     `json:"id"`
+	UserID       string     `json:"user_id"`
+	Provider     string     `json:"provider"`
+	Subject      string     `json:"subject"`
+	PasswordHash *string    `json:"password_hash"`
+	CreatedAt    time.Time  `json:"created_at"`
+	LastLoginAt  *time.Time `json:"last_login_at"`
+}
+
+// MRole is a role (server backups only).
+type MRole struct {
+	Slug        string   `json:"slug"`
+	Name        string   `json:"name"`
+	Scope       string   `json:"scope"`
+	BuiltIn     bool     `json:"built_in"`
+	Permissions []string `json:"permissions"`
+}
+
+// MShareLink is a share link (server backups only; tokens stay hashed).
+type MShareLink struct {
+	ID           string     `json:"id"`
+	TokenHash    []byte     `json:"token_hash"`
+	SpaceID      *string    `json:"space_id"`
+	DocumentID   *string    `json:"document_id"`
+	FolderID     *string    `json:"folder_id"`
+	Kind         string     `json:"kind"`
+	Preset       string     `json:"preset"`
+	Label        string     `json:"label"`
+	PasswordHash *string    `json:"password_hash"`
+	ExpiresAt    *time.Time `json:"expires_at"`
+	CreatedBy    string     `json:"created_by"`
+	CreatedAt    time.Time  `json:"created_at"`
+	RevokedAt    *time.Time `json:"revoked_at"`
+}
+
+// MAPIKey is an API key (server backups only; the secret stays hashed).
+type MAPIKey struct {
+	ID          string     `json:"id"`
+	UserID      string     `json:"user_id"`
+	SecretHash  []byte     `json:"secret_hash"`
+	Label       string     `json:"label"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	LastUsedAt  *time.Time `json:"last_used_at"`
+	RevokedAt   *time.Time `json:"revoked_at"`
+	Permissions []string   `json:"permissions"`
+	SpaceIDs    []string   `json:"space_ids"`
 }
 
 // MTag is a tag.
@@ -115,7 +170,6 @@ type MSpace struct {
 	CreatedAt   time.Time   `json:"created_at"`
 	Folders     []MFolder   `json:"folders"`
 	Documents   []MDocument `json:"documents"`
-	Grants      []MGrant    `json:"grants,omitempty"`
 }
 
 // MFolder is a folder; the root has no parent and an empty name.
@@ -127,14 +181,17 @@ type MFolder struct {
 	CreatedBy *string   `json:"created_by"`
 }
 
-// MGrant shares a space (server backups only).
+// MGrant is one matrix row (server backups only).
 type MGrant struct {
-	ID        string    `json:"id"`
-	UserID    *string   `json:"user_id"`
-	TeamID    *string   `json:"team_id"`
-	Role      string    `json:"role"`
-	CreatedBy *string   `json:"created_by"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          string    `json:"id"`
+	SpaceID     *string   `json:"space_id"`
+	DocumentID  *string   `json:"document_id"`
+	UserID      *string   `json:"user_id"`
+	TeamID      *string   `json:"team_id"`
+	Role        *string   `json:"role"` // slug
+	Permissions []string  `json:"permissions"`
+	CreatedBy   *string   `json:"created_by"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // MDocument is a document with its full history and places.

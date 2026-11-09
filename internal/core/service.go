@@ -41,13 +41,16 @@ func (s *Service) tx(ctx context.Context, fn func(tx pgx.Tx) error) error {
 type Principal struct {
 	UserID   string
 	Username string
-	IsAdmin  bool
+	Inst     InstCap // instance permissions
 	// Restrictions coming from an access key.
 	ScopeSpaceID string
 	ReadOnly     bool
 	Via          string // session | accesskey | ssh | system
 	KeyID        string
-	SessionHash  []byte // Via session: the login session
+	KeyCaps      Cap      // Via apikey: at most these
+	KeySpaces    []string // Via apikey: only these spaces (empty: all)
+	SessionHash  []byte   // Via session: the login session
+	IdentityID   string   // how the user logged in
 }
 
 // SystemPrincipal is used by background jobs.

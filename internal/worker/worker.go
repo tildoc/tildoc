@@ -109,6 +109,7 @@ func (w *Worker) maintenance(ctx context.Context) {
 		}
 		w.Svc.PruneJobs(ctx, 7*24*time.Hour)
 		w.Svc.PruneEditLeases(ctx)
+		w.Svc.PruneShareSessions(ctx)
 		if n, err := w.Svc.ExpireOfficeSessions(ctx); err != nil {
 			w.Log.Warn("expire office sessions", "err", err)
 		} else if n > 0 {

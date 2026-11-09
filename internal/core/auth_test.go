@@ -214,25 +214,25 @@ func TestTeamsAndSpaces(t *testing.T) {
 	if err := svc.SetMember(ctx, alp, team.ID, bob.ID, "member"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.SetMember(ctx, alp, team.ID, carol.ID, "viewer"); err != nil {
+	if err := svc.SetMember(ctx, alp, team.ID, carol.ID, "member"); err != nil {
 		t.Fatal(err)
 	}
 	if sp := ck(svc.GetSpace(ctx, bp, "finance")); sp.Perm != core.PermWrite {
 		t.Fatalf("bob perm %v", sp.Perm)
 	}
+	ck(svc.SetGrant(ctx, alp, ts.ID, "", team.ID, "viewer"))
 	if sp := ck(svc.GetSpace(ctx, cp, ts.ID)); sp.Perm != core.PermRead {
 		t.Fatalf("carol perm %v", sp.Perm)
 	}
 	// member cannot manage members or create team spaces
-	wantKind(t, svc.SetMember(ctx, bp, team.ID, carol.ID, "admin"), core.ErrForbidden)
+	wantKind(t, svc.SetMember(ctx, bp, team.ID, carol.ID, "manager"), core.ErrForbidden)
 	_, err = svc.CreateSpace(ctx, bp, "finance-2", "", team.ID)
 	wantKind(t, err, core.ErrForbidden)
-	// admin cannot create owners
-	noErr(t, svc.SetMember(ctx, alp, team.ID, bob.ID, "admin"))
-	wantKind(t, svc.SetMember(ctx, bp, team.ID, carol.ID, "owner"), core.ErrForbidden)
-	// last owner protection
+	wantKind(t, svc.SetMember(ctx, alp, team.ID, carol.ID, "owner"), core.ErrInvalid)
+	// last manager protection
 	wantKind(t, svc.RemoveMember(ctx, alp, team.ID, alice.ID), core.ErrInvalid)
-	wantKind(t, svc.SetMember(ctx, alp, team.ID, alice.ID, "admin"), core.ErrInvalid)
+	wantKind(t, svc.SetMember(ctx, alp, team.ID, alice.ID, "member"), core.ErrInvalid)
+	noErr(t, svc.SetMember(ctx, alp, team.ID, bob.ID, "manager"))
 	// carol can leave
 	if err := svc.RemoveMember(ctx, cp, team.ID, carol.ID); err != nil {
 		t.Fatal(err)
@@ -259,7 +259,7 @@ func TestTeamsAndSpaces(t *testing.T) {
 	wantKind(t, svc.DeleteSpace(ctx, bp, home.ID), core.ErrInvalid)
 
 	teams := ck(svc.ListTeams(ctx, bp))
-	if len(teams) != 1 || teams[0].Role != "admin" {
+	if len(teams) != 1 || teams[0].Role != "manager" {
 		t.Fatalf("teams: %+v", teams)
 	}
 	if err := svc.DeleteTeam(ctx, alp, team.ID); err != nil {

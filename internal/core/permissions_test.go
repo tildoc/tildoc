@@ -47,26 +47,26 @@ func TestSpaceSharing(t *testing.T) {
 		t.Fatalf("viewer shared: %v", err)
 	}
 	// upgrade: member writes, admin shares but never above itself
-	ck(f.svc.SetGrant(f.ctx, f.alice, f.home.ID, "bob", "", "member"))
+	ck(f.svc.SetGrant(f.ctx, f.alice, f.home.ID, "bob", "", "editor"))
 	ck(f.svc.Mkdir(f.ctx, f.bob, hroot.ID, "von-bob"))
-	ck(f.svc.SetGrant(f.ctx, f.alice, f.home.ID, "bob", "", "admin"))
-	ck(f.svc.SetGrant(f.ctx, f.bob, f.home.ID, "carol", "", "admin"))
+	ck(f.svc.SetGrant(f.ctx, f.alice, f.home.ID, "bob", "", "manager"))
+	ck(f.svc.SetGrant(f.ctx, f.bob, f.home.ID, "carol", "", "manager"))
 	if _, err := f.svc.SetGrant(f.ctx, f.bob, f.home.ID, "dave", "", "owner"); core.KindOf(err) != core.ErrInvalid {
 		t.Fatalf("owner grant: %v", err)
 	}
-	if err := f.svc.DeleteSpace(f.ctx, f.bob, f.home.ID); core.KindOf(err) != core.ErrForbidden {
-		t.Fatalf("admin grantee deleted the space: %v", err)
+	if err := f.svc.DeleteSpace(f.ctx, f.bob, f.home.ID); core.KindOf(err) != core.ErrNotEmpty {
+		t.Fatalf("manager deleted a space with documents: %v", err)
 	}
 	if grants := ck(f.svc.ListGrants(f.ctx, cp, f.home.ID)); len(grants) != 2 {
 		t.Fatalf("grants: %+v", grants)
 	}
 
-	// team share: members get the grant role, capped by their team role
+	// team share: every member gets what the team's row says
 	team := ck(f.svc.CreateTeam(f.ctx, f.bob, "Steuerberatung"))
-	if err := f.svc.SetMember(f.ctx, f.bob, team.ID, dave.ID, "viewer"); err != nil {
+	if err := f.svc.SetMember(f.ctx, f.bob, team.ID, dave.ID, "member"); err != nil {
 		t.Fatal(err)
 	}
-	ck(f.svc.SetGrant(f.ctx, f.bob, f.home.ID, "", team.ID, "member"))
+	ck(f.svc.SetGrant(f.ctx, f.bob, f.home.ID, "", team.ID, "viewer"))
 	if sp := spaceFor(t, f, dp, f.home.ID); sp == nil || sp.Role != "viewer" {
 		t.Fatalf("team viewer through member grant: %+v", sp)
 	}
@@ -91,8 +91,8 @@ func TestSpaceSharing(t *testing.T) {
 	if err := f.svc.DeleteGrant(f.ctx, f.alice, f.home.ID, g.ID); err != nil {
 		t.Fatal(err)
 	}
-	if sp := spaceFor(t, f, f.bob, f.home.ID); sp == nil || sp.Role != "member" {
-		t.Fatalf("bob keeps member access through his team's grant: %+v", sp)
+	if sp := spaceFor(t, f, f.bob, f.home.ID); sp == nil || sp.Role != "viewer" {
+		t.Fatalf("bob keeps access through his team's grant: %+v", sp)
 	}
 	for _, gr := range ck(f.svc.ListGrants(f.ctx, f.alice, f.home.ID)) {
 		if gr.TeamID != nil {

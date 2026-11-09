@@ -186,14 +186,15 @@ func (s *Server) listGrants(w http.ResponseWriter, r *http.Request) error {
 
 func (s *Server) setGrant(w http.ResponseWriter, r *http.Request) error {
 	var b struct {
-		User   string `json:"user"`
-		TeamID string `json:"team_id"`
-		Role   string `json:"role"`
+		User        string   `json:"user"`
+		TeamID      string   `json:"team_id"`
+		Role        string   `json:"role"`
+		Permissions []string `json:"permissions"`
 	}
 	if err := readJSON(r, &b); err != nil {
 		return err
 	}
-	g, err := s.Svc.SetGrant(r.Context(), principal(r), r.PathValue("id"), b.User, b.TeamID, b.Role)
+	g, err := s.Svc.SetGrant(r.Context(), principal(r), r.PathValue("id"), b.User, b.TeamID, b.Role, b.Permissions...)
 	if err != nil {
 		return err
 	}

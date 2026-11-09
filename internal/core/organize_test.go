@@ -121,7 +121,7 @@ func TestCollections(t *testing.T) {
 	if err := f.svc.SetMember(f.ctx, f.alice, team.ID, ck(f.svc.UserByName(f.ctx, "bob")).ID, "member"); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.svc.SetMember(f.ctx, f.alice, team.ID, carol.ID, "viewer"); err != nil {
+	if err := f.svc.SetMember(f.ctx, f.alice, team.ID, carol.ID, "member"); err != nil {
 		t.Fatal(err)
 	}
 	ts := ck(f.svc.CreateSpace(f.ctx, f.alice, "belege", "Belege", team.ID))
@@ -157,9 +157,6 @@ func TestCollections(t *testing.T) {
 	if err := f.svc.AddToCollection(f.ctx, f.bob, tc.ID, []string{bobs.File.DocumentID}); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.svc.AddToCollection(f.ctx, cp, tc.ID, []string{shared.File.DocumentID}); core.KindOf(err) != core.ErrForbidden {
-		t.Fatalf("viewer edited collection: %v", err)
-	}
 	if items := ck(f.svc.CollectionItems(f.ctx, f.alice, tc.ID)); len(items) != 2 {
 		t.Fatalf("alice sees %d team items (her private doc and the shared one, not bob's)", len(items))
 	}
@@ -172,7 +169,7 @@ func TestCollections(t *testing.T) {
 			t.Fatal("collection leaked alice's private document to bob")
 		}
 	}
-	if c := ck(f.svc.GetCollection(f.ctx, cp, tc.ID)); c.Count != 1 || c.CanEdit {
+	if c := ck(f.svc.GetCollection(f.ctx, cp, tc.ID)); c.Count != 1 {
 		t.Fatalf("viewer view: %+v", c)
 	}
 	if h := f.hits(t, f.bob, core.SearchQuery{CollectionID: tc.ID}); len(h) != 2 {

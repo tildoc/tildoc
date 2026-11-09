@@ -10,6 +10,8 @@
   import { shownVariant, hasVariant, opensInOffice, extOf } from '#lib/format.js';
   import Icon from '#lib/components/Icon.svelte';
   import DocView from '#lib/components/viewer/DocView.svelte';
+  import ShareDialog from '#lib/components/ShareDialog.svelte';
+  import { canDownload, canShareAny } from '#lib/perms.js';
   import DocDetails from '#lib/components/DocDetails.svelte';
   import { watchBusy, isBusy } from '#lib/poll.svelte.js';
   import { watchLive } from '#lib/events.svelte.js';
@@ -34,6 +36,8 @@
   let variant = $derived(doc ? shownVariant(doc, viewVersion, viewVariant) : 'original');
   // the text editor and Collabora hold unsaved work: never rebuilt on new versions
   let officeEdit = $state(false); // this PDF is open in the office server
+  let sharing = $state(false);
+  let canShareFile = $derived(!!doc && canShareAny(doc.caps?.filter((c) => c.startsWith('share.file.'))));
   let isPdf = $derived((doc?.mime ?? '').startsWith('application/pdf') && doc?.size > 0);
   let canOfficeEdit = $derived(isPdf && !viewVersion && session.office.editable.includes(extOf(file?.name))
     && session.spaces.find((s) => s.id === doc?.space_id)?.perm >= 2);
@@ -98,6 +102,7 @@
   watchLive((ev) => ev.type === 'space' && !!doc && ev.documents?.includes(doc.id), () => reloadDoc(true));
 
   async function loadSiblings(f) {
+    if (!f.folder_id) return; // shared as a single file
     if (siblings.some((s) => s.link_id === f.link_id)) return;
     const coll = route.url.searchParams.get('c');
     if (coll) {
@@ -139,6 +144,7 @@
     const coll = route.url.searchParams.get('c');
     if (coll) goto(`/c/${coll}?sel=${linkId}`, { replaceState: true });
     else if (backTo?.startsWith('/search')) history.back();
+    else if (file && !file.folder_id) goto('/shared', { replaceState: true });
     else if (file) goto(`/f/${file.folder_id}?sel=${linkId}`, { replaceState: true });
     else history.back();
   }
@@ -271,6 +277,7 @@
       </div>
 
       <div class="right">
+        {#if canShareFile}<button class="icon" onclick={() => (sharing = true)} aria-label="Share" title="Share this file"><Icon name="link" /></button>{/if}
         {#if canOfficeEdit}
           <button class:on={officeEdit} onclick={() => (officeEdit = !officeEdit)} title="A new version follows when you leave the editor">{officeEdit ? 'Back to PDF viewer' : 'Edit in Office'}</button>
         {/if}
@@ -280,7 +287,9 @@
           <button class="icon" onclick={() => openSibling(nextDoc)} disabled={!nextDoc} aria-label="Next document" title={collectionName ? 'Next document in collection (])' : 'Next document in folder (])'}><Icon name="right" /></button>
         {/if}
         <button class="icon" class:on={info} onclick={toggleInfo} aria-pressed={info} aria-label="Document details" title="Details (I)"><Icon name="panel" /></button>
+        {#if canDownload(doc)}
         <a class="btn icon" href={`/api/files/${linkId}/content`} download aria-label="Download original" title="Download the original file"><Icon name="download" /></a>
+        {/if}
       </div>
     {/if}
   </header>
@@ -324,6 +333,8 @@
     </aside>
   {/if}
 </div>
+
+{#if sharing && doc}<ShareDialog {doc} name={file?.name} onclose={() => (sharing = false)} />{/if}
 
 <style>
   .viewer {

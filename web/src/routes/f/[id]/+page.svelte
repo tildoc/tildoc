@@ -12,6 +12,8 @@
   import Icon from '#lib/components/Icon.svelte';
   import Prompt from '#lib/components/Prompt.svelte';
   import NewFileMenu from '#lib/components/NewFileMenu.svelte';
+  import ShareDialog from '#lib/components/ShareDialog.svelte';
+  import { canShareAny } from '#lib/perms.js';
   import Confirm from '#lib/components/Confirm.svelte';
   import FolderPicker from '#lib/components/FolderPicker.svelte';
   import CollectionPicker from '#lib/components/CollectionPicker.svelte';
@@ -274,6 +276,7 @@
           <button class="ghost" onclick={() => (dialog = { kind: 'mkdir' })}><Icon name="plus" size={16} /> New folder</button>
           <NewFileMenu onpick={(t) => (dialog = { kind: 'newfile', ...t })} />
         {/if}
+        {#if canShareAny(data.space.caps)}<button class="ghost" onclick={() => (dialog = { kind: 'share' })}><Icon name="link" size={16} /> Share</button>{/if}
         {#if !selected.length}
           <span class="divider" aria-hidden="true"></span>
           {#if data.space.caps?.includes('export')}<a class="btn ghost" href={`/api/folders/${folderId}/export`} download title="This folder with all subfolders as a ZIP archive"><Icon name="download" size={16} /> Export as ZIP</a>{/if}
@@ -283,7 +286,7 @@
           <span class="divider" aria-hidden="true"></span>
           {#if single?.kind === 'file'}
             <button class="ghost" onclick={() => open(single)}><Icon name="open" size={16} /> Open</button>
-            <a class="btn ghost" href={`/api/files/${single.link_id}/content`} download><Icon name="download" size={16} /> Download</a>
+            {#if data.space.caps?.includes('download')}<a class="btn ghost" href={`/api/files/${single.link_id}/content`} download><Icon name="download" size={16} /> Download</a>{/if}
           {/if}
           {#if canWrite && single}<button class="ghost" onclick={() => (dialog = { kind: 'rename' })}><Icon name="edit" size={16} /> Rename</button>{/if}
           {#if canWrite}<button class="ghost" onclick={() => (dialog = { kind: 'pick', mode: 'move' })}><Icon name="move" size={16} /> Move</button>{/if}
@@ -333,6 +336,8 @@
   <CollectionPicker count={selRows.filter((r) => r.kind === 'file').length} onpick={addToCollection} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'mkdir'}
   <Prompt title="New folder" confirm="Create" onsubmit={mkdir} onclose={() => (dialog = null)} />
+{:else if dialog?.kind === 'share'}
+  <ShareDialog space={data.space} folder={data.breadcrumbs.length === 1 ? null : data.folder} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'newfile'}
   <Prompt title={`New ${dialog.label}`} value={`Untitled.${dialog.ext || 'txt'}`} confirm="Create" onsubmit={newFile} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'rename'}

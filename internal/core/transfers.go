@@ -135,10 +135,12 @@ func (s *Service) ListTransfers(ctx context.Context, p *Principal) ([]Transfer, 
 // acting on behalf of the user who started them).
 func (s *Service) principalOf(ctx context.Context, userID string) (*Principal, error) {
 	p := &Principal{UserID: userID, Via: "session"}
-	err := s.DB.QueryRow(ctx, `SELECT username, is_admin FROM users WHERE id=$1 AND NOT disabled`, userID).Scan(&p.Username, &p.IsAdmin)
+	var inst []string
+	err := s.DB.QueryRow(ctx, `SELECT username, instance_permissions(id) FROM users WHERE id=$1 AND NOT disabled`, userID).Scan(&p.Username, &inst)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errf(ErrForbidden, "user no longer active")
 	}
+	p.Inst = instFromNames(inst)
 	return p, err
 }
 

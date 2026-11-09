@@ -420,10 +420,11 @@ await step('share a space', async () => {
   await page.getByRole('link', { name: 'Spaces' }).click();
   await row('Ada Admin').getByRole('button', { name: 'Share' }).click();
   const dlg = page.getByRole('dialog');
-  await dlg.getByLabel('Username').fill('bob');
-  await dlg.getByLabel('Role').selectOption('viewer');
-  await dlg.getByRole('button', { name: 'Share', exact: true }).click();
-  await dlg.locator('.grants li', { hasText: 'bob' }).locator('.pill', { hasText: 'Viewer' }).waitFor();
+  await dlg.getByLabel('User to add').fill('bob');
+  await dlg.getByLabel('Role', { exact: true }).selectOption('viewer');
+  await dlg.getByRole('button', { name: 'Add', exact: true }).click();
+  await dlg.locator('.grants li', { hasText: 'bob' }).locator('select').waitFor();
+  if ((await dlg.locator('.grants li', { hasText: 'bob' }).locator('select').inputValue()) !== 'viewer') throw new Error('share row');
   await dlg.getByRole('button', { name: 'Done' }).click();
 });
 
@@ -847,6 +848,110 @@ await step('new file: text with any ending, office formats, PDF edit', async () 
   await page.locator('aside.peek').getByText('No preview for this format').waitFor();
 });
 
+await step('sharing: restricted viewer, public link, drop link', async () => {
+  const spaces = await api('GET', '/spaces');
+  const mine = spaces.find((x) => x.slug === 'admin') ?? spaces[0];
+  const f = await api('POST', '/folders', { parent_id: mine.root_folder_id, name: 'Geteilt' });
+  const up = await api('PUT', `/folders/${f.id}/files?path=vertraulich.txt`, 'Vertrauliche Zeilen');
+  await api('PATCH', '/admin/settings', { public_links: true });
+
+  // restricted viewer: can read, nothing offers the file
+  await api('POST', '/users', { username: 'rita', password: 'ritapass12' });
+  await api('POST', `/spaces/${mine.id}/grants`, { user: 'rita', role: 'restricted_viewer' });
+  const rc = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const rp = await rc.newPage();
+  await rp.request.post(BASE + '/api/auth/login', { data: { username: 'rita', password: 'ritapass12' } });
+  await rp.goto(`${BASE}/f/${f.id}`);
+  await rp.locator('tbody tr', { hasText: 'vertraulich.txt' }).click();
+  await rp.locator('aside.peek').getByText('Vertrauliche Zeilen').waitFor();
+  for (const name of ['Download', 'Export as ZIP']) {
+    if (await rp.getByRole('link', { name }).count()) throw new Error(`restricted viewer is offered ${name}`);
+  }
+  if ((await rp.request.get(`${BASE}/api/files/${up.file.link_id}/content`)).status() !== 403) throw new Error('download not refused');
+  await rc.close();
+
+  // public link, view only: no account, token only in the fragment
+  const pub = await api('POST', '/share-links', { document_id: up.file.document_id, kind: 'public', preset: 'restricted' });
+  if (!pub.url.includes('/s#')) throw new Error(`token not in the fragment: ${pub.url}`);
+  const ac = await browser.newContext();
+  const ap = await ac.newPage();
+  await ap.goto(pub.url);
+  await ap.getByText('Vertrauliche Zeilen').waitFor();
+  if (await ap.getByRole('link', { name: 'Download' }).count()) throw new Error('view-only link offers a download');
+
+  // password link
+  const pw = await api('POST', '/share-links', { document_id: up.file.document_id, kind: 'public', preset: 'view', password: 'geheim123' });
+  await ap.goto('about:blank');
+  await ap.goto(pw.url);
+  await ap.getByLabel('This link needs a password').fill('falsch');
+  await ap.getByRole('button', { name: 'Open' }).click();
+  await ap.getByText('Wrong password').waitFor();
+  await ap.getByLabel('This link needs a password').fill('geheim123');
+  await ap.getByRole('button', { name: 'Open' }).click();
+  await ap.getByRole('link', { name: 'Download' }).waitFor();
+
+  // drop link: upload only
+  const drop = await api('POST', '/share-links', { space_id: mine.id, folder_id: f.id, kind: 'drop' });
+  await ap.goto('about:blank');
+  await ap.goto(drop.url);
+  await ap.getByLabel('Files to upload').setInputFiles({ name: 'eingereicht.txt', mimeType: 'text/plain', buffer: Buffer.from('von aussen') });
+  await ap.getByText('Uploaded eingereicht.txt').waitFor();
+  if (await ap.getByText('vertraulich.txt').count()) throw new Error('drop link shows files');
+  await ac.close();
+  await page.goto(`${BASE}/f/${f.id}`);
+  await row('eingereicht.txt').waitFor();
+
+  // share dialog from the folder: the link can be created in the UI
+  await page.getByRole('button', { name: 'Share' }).first().click();
+  const dlg = page.getByRole('dialog');
+  await dlg.getByLabel('Type of link').selectOption('drop');
+  await dlg.getByRole('button', { name: 'Create link' }).click();
+  await dlg.getByLabel('New link').waitFor();
+  await dlg.getByRole('button', { name: 'Done' }).click();
+});
+
+await step('transfer a space, shared with me', async () => {
+  const sp = await api('POST', '/spaces', { slug: 'uebergabe', name: 'Übergabe' });
+  const up = await api('PUT', `/folders/${sp.root_folder_id}/files?path=akte.txt`, 'Aktentext');
+  await api('POST', `/documents/${up.file.document_id}/grants`, { user: 'mia', role: 'viewer' });
+  const mc = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const mp = await mc.newPage();
+  await mp.request.post(BASE + '/api/auth/login', { data: { username: 'mia', password: 'miapass12' } });
+  await mp.goto(`${BASE}/shared`);
+  await mp.getByRole('button', { name: 'akte.txt' }).click();
+  await mp.getByText('Aktentext').waitFor();
+  await mp.getByRole('button', { name: 'Close viewer' }).click();
+  await mp.waitForURL('**/shared');
+  await mc.close();
+
+  await page.goto(`${BASE}/spaces`);
+  await row('Übergabe').getByRole('button', { name: 'Transfer' }).click();
+  const dlg = page.getByRole('dialog');
+  await dlg.getByLabel('New owner').fill('mia');
+  await dlg.getByLabel('What you keep').selectOption('viewer');
+  await dlg.getByLabel(/to confirm/).fill('uebergabe');
+  await dlg.getByRole('button', { name: 'Transfer' }).click();
+  await dlg.waitFor({ state: 'detached' });
+  await row('Übergabe').getByRole('button', { name: 'Shared with' }).waitFor();
+});
+
+await step('roles matrix and API key', async () => {
+  await page.goto(`${BASE}/admin`);
+  await page.getByLabel('New role').fill('Prüfer');
+  await page.getByRole('button', { name: 'Add role' }).click();
+  await page.getByLabel('View for Prüfer').check();
+  await page.waitForFunction(async () => (await (await fetch('/api/roles')).json()).find((r) => r.name === 'Prüfer')?.permissions.includes('view'));
+  await page.goto(`${BASE}/settings`);
+  await page.getByRole('checkbox', { name: 'View', exact: true }).check();
+  await page.getByLabel('API key label').fill('skript');
+  await page.getByRole('button', { name: 'Create API key' }).click();
+  const token = await page.getByLabel('New API key').inputValue();
+  const anon = await browser.newContext();
+  const r = await anon.request.get(`${BASE}/api/spaces`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok() || !(await r.json()).length) throw new Error('API key rejected');
+  await anon.close();
+});
+
 await step('text editor: edit, keys, review and save', async () => {
   const sp = await home();
   const f = await api('POST', '/folders', { parent_id: sp.root_folder_id, name: 'Editor' });
@@ -892,7 +997,7 @@ await step('text editor: one editor at a time, live hand-over', async () => {
   const spaces = await api('GET', '/spaces');
   const team = spaces.find((x) => x.name === 'Belege');
   const up = await api('PUT', `/folders/${team.root_folder_id}/files?path=protokoll.txt`, 'Punkt 1\nPunkt 2\n');
-  await api('POST', `/spaces/${team.id}/grants`, { user: 'mia', role: 'member' });
+  await api('POST', `/spaces/${team.id}/grants`, { user: 'mia', role: 'editor' });
   // admin edits
   await page.goto(`${BASE}/view/${up.file.link_id}`);
   await page.locator('.editor .bar .state', { hasText: 'Saved' }).waitFor();

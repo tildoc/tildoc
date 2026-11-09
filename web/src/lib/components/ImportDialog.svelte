@@ -19,7 +19,7 @@
   let transfer = $state(null);
 
   $effect(() => {
-    if (!folder) get('/teams').then((t) => (teams = t.filter((x) => x.role === 'owner' || x.role === 'admin'))).catch(() => {});
+    if (!folder) get('/teams').then((t) => (teams = t.filter((x) => x.role === 'manager'))).catch(() => {});
   });
 
   const isZip = $derived(file?.name?.toLowerCase().endsWith('.zip'));

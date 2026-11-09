@@ -14,7 +14,7 @@
 
   $effect(() => {
     refreshTags().catch(() => {});
-    if (!collection) get('/teams').then((t) => (teams = t.filter((x) => x.role === 'owner' || x.role === 'admin'))).catch(() => {});
+    if (!collection) get('/teams').then((t) => (teams = t.filter((x) => x.role === 'manager'))).catch(() => {});
   });
 
   async function save(e) {

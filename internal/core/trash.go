@@ -126,7 +126,7 @@ func (s *Service) PurgeDocument(ctx context.Context, p *Principal, docID string)
 	if d.DeletedAt == nil {
 		return errf(ErrInvalid, "document is not in trash")
 	}
-	if err := s.requirePerm(ctx, s.DB, p, d.SpaceID, PermDelete); err != nil {
+	if err := s.requireCap(ctx, s.DB, p, d.SpaceID, CapPurge); err != nil {
 		return err
 	}
 	_, err = s.purgeDocuments(ctx, `id=$1`, docID)
@@ -166,7 +166,7 @@ func (s *Service) purgeDocuments(ctx context.Context, cond string, args ...any) 
 
 // EmptyTrash purges all trashed documents of a space.
 func (s *Service) EmptyTrash(ctx context.Context, p *Principal, spaceID string) (int, error) {
-	if err := s.requirePerm(ctx, s.DB, p, spaceID, PermDelete); err != nil {
+	if err := s.requireCap(ctx, s.DB, p, spaceID, CapPurge); err != nil {
 		return 0, err
 	}
 	return s.purgeDocuments(ctx, `space_id=$1`, spaceID)

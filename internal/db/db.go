@@ -137,7 +137,7 @@ func IsUniqueViolation(err error) bool {
 // IsForeignKeyViolation reports whether err is a FK violation.
 func IsForeignKeyViolation(err error) bool {
 	var pe *pgconn.PgError
-	return errors.As(err, &pe) && pe.Code == "23503"
+	return errors.As(err, &pe) && (pe.Code == "23503" || pe.Code == "23001")
 }
 
 // MigrationsHash returns a short hash over all embedded migrations. Test

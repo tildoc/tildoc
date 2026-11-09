@@ -20,7 +20,8 @@ CREATE TABLE instance_settings (
     instance_id    uuid NOT NULL DEFAULT uuidv7(),
     ocr_preference text NOT NULL DEFAULT 'existing' CHECK (ocr_preference IN ('existing', 'tildoc')),
     backup_keep    integer NOT NULL DEFAULT 3 CHECK (backup_keep BETWEEN 1 AND 100),
-    updated_at     timestamptz NOT NULL DEFAULT now()
+    updated_at     timestamptz NOT NULL DEFAULT now(),
+    public_links   boolean NOT NULL DEFAULT false
 );
 INSERT INTO instance_settings DEFAULT VALUES;
 
@@ -29,16 +30,30 @@ CREATE TABLE users (
     id            uuid PRIMARY KEY DEFAULT uuidv7(),
     username      text NOT NULL UNIQUE CHECK (username ~ '^[a-z0-9][a-z0-9._-]{1,31}$'),
     display_name  text NOT NULL DEFAULT '',
-    password_hash text NOT NULL,
-    is_admin      boolean NOT NULL DEFAULT false,
     disabled      boolean NOT NULL DEFAULT false,
     pdf_viewer    text NOT NULL DEFAULT 'pdfjs' CHECK (pdf_viewer IN ('pdfjs', 'native')),
     created_at    timestamptz NOT NULL DEFAULT now()
 );
 
+-- how a user logs in: one row per provider (local password, later OIDC).
+-- Accounts are matched by (provider, subject), never by e-mail address.
+CREATE TABLE identities (
+    id            uuid PRIMARY KEY DEFAULT uuidv7(),
+    user_id       uuid NOT NULL REFERENCES users ON DELETE CASCADE,
+    provider      text NOT NULL CHECK (provider ~ '^[a-z0-9-]{1,40}$'),
+    subject       text NOT NULL CHECK (subject <> ''),
+    password_hash text,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    last_login_at timestamptz,
+    UNIQUE (provider, subject),
+    CHECK ((provider = 'local') = (password_hash IS NOT NULL))
+);
+CREATE INDEX identities_user ON identities(user_id);
+
 CREATE TABLE sessions (
     token_hash   bytea PRIMARY KEY CHECK (length(token_hash) = 32),
     user_id      uuid NOT NULL REFERENCES users ON DELETE CASCADE,
+    identity_id  uuid REFERENCES identities ON DELETE CASCADE,
     created_at   timestamptz NOT NULL DEFAULT now(),
     last_seen_at timestamptz NOT NULL DEFAULT now(),
     expires_at   timestamptz NOT NULL
@@ -54,9 +69,17 @@ CREATE TABLE teams (
 CREATE TABLE team_members (
     team_id    uuid NOT NULL REFERENCES teams ON DELETE CASCADE,
     user_id    uuid NOT NULL REFERENCES users ON DELETE CASCADE,
-    role       text NOT NULL CHECK (role IN ('owner', 'admin', 'member', 'viewer')),
+    is_manager boolean NOT NULL DEFAULT false,
+    source_provider text, -- set: maintained by that login provider's group sync
     created_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (team_id, user_id)
+);
+-- provider groups mapped to teams (filled once a provider supports it)
+CREATE TABLE team_links (
+    team_id        uuid NOT NULL REFERENCES teams ON DELETE CASCADE,
+    provider       text NOT NULL,
+    external_group text NOT NULL CHECK (external_group <> ''),
+    PRIMARY KEY (provider, external_group)
 );
 CREATE INDEX team_members_user ON team_members(user_id);
 
@@ -65,7 +88,7 @@ CREATE TABLE spaces (
     slug          text NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$' AND strpos(slug, '--') = 0
                                               AND slug NOT IN ('api', 'dav')),
     name          text NOT NULL CHECK (btrim(name) = name AND name <> ''),
-    owner_user_id uuid REFERENCES users ON DELETE CASCADE,
+    owner_user_id uuid REFERENCES users ON DELETE RESTRICT,
     owner_team_id uuid REFERENCES teams ON DELETE CASCADE,
     created_at    timestamptz NOT NULL DEFAULT now(),
     CHECK ((owner_user_id IS NULL) <> (owner_team_id IS NULL))
@@ -75,39 +98,138 @@ CREATE INDEX spaces_owner_team ON spaces(owner_team_id);
 
 -- A space can additionally be shared with single users or whole teams.
 -- Grants never confer ownership.
-CREATE TABLE space_grants (
-    id         uuid PRIMARY KEY DEFAULT uuidv7(),
-    space_id   uuid NOT NULL REFERENCES spaces ON DELETE CASCADE,
-    user_id    uuid REFERENCES users ON DELETE CASCADE,
-    team_id    uuid REFERENCES teams ON DELETE CASCADE,
-    role       text NOT NULL CHECK (role IN ('viewer', 'member', 'admin')),
-    created_by uuid REFERENCES users ON DELETE SET NULL,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    CHECK ((user_id IS NULL) <> (team_id IS NULL))
+-- PERMISSIONS: a fixed catalogue; roles are editable sets of it; grants are
+-- the rows of a matrix (subject x permissions) on a space, a document or, with
+-- neither, the instance. Everything only adds up, there are no deny entries.
+CREATE TABLE permissions (
+    name  text PRIMARY KEY,
+    scope text NOT NULL CHECK (scope IN ('space', 'instance'))
 );
-CREATE UNIQUE INDEX space_grants_user ON space_grants(space_id, user_id) WHERE user_id IS NOT NULL;
-CREATE UNIQUE INDEX space_grants_team ON space_grants(space_id, team_id) WHERE team_id IS NOT NULL;
-CREATE INDEX space_grants_user_lookup ON space_grants(user_id) WHERE user_id IS NOT NULL;
-CREATE INDEX space_grants_team_lookup ON space_grants(team_id) WHERE team_id IS NOT NULL;
+INSERT INTO permissions(name, scope)
+SELECT n, 'space' FROM unnest(ARRAY['view', 'download', 'export', 'write', 'move', 'delete', 'purge', 'manage', 'transfer',
+    'share.space.people', 'share.space.login_link', 'share.space.public_link', 'share.space.drop_link',
+    'share.file.people', 'share.file.login_link', 'share.file.public_link']) n
+UNION ALL
+SELECT n, 'instance' FROM unnest(ARRAY['users.manage', 'teams.manage', 'teams.create', 'roles.manage', 'spaces.create',
+    'spaces.recover', 'tags.manage', 'backups.manage', 'settings.manage']) n;
 
-CREATE FUNCTION role_rank(r text) RETURNS integer LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
-    SELECT CASE r WHEN 'owner' THEN 4 WHEN 'admin' THEN 3 WHEN 'member' THEN 2 WHEN 'viewer' THEN 1 ELSE 0 END
+CREATE TABLE roles (
+    id         uuid PRIMARY KEY DEFAULT uuidv7(),
+    slug       text NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9_-]{1,40}$'),
+    name       text NOT NULL UNIQUE CHECK (btrim(name) = name AND name <> ''),
+    scope      text NOT NULL CHECK (scope IN ('space', 'instance')),
+    built_in   boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE role_permissions (
+    role_id    uuid NOT NULL REFERENCES roles ON DELETE CASCADE,
+    permission text NOT NULL REFERENCES permissions,
+    PRIMARY KEY (role_id, permission)
+);
+CREATE FUNCTION role_permission_scope() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF (SELECT scope FROM roles WHERE id = NEW.role_id) <> (SELECT scope FROM permissions WHERE name = NEW.permission) THEN
+        RAISE EXCEPTION 'permission % has another scope than its role', NEW.permission;
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER role_permission_scope BEFORE INSERT OR UPDATE ON role_permissions
+    FOR EACH ROW EXECUTE FUNCTION role_permission_scope();
+
+INSERT INTO roles(slug, name, scope, built_in) VALUES
+    ('restricted_viewer', 'Restricted viewer', 'space', true), ('viewer', 'Viewer', 'space', true),
+    ('editor', 'Editor', 'space', true), ('manager', 'Manager', 'space', true),
+    ('administrator', 'Administrator', 'instance', true), ('user', 'User', 'instance', true);
+INSERT INTO role_permissions(role_id, permission)
+SELECT r.id, x.p FROM roles r JOIN (VALUES
+    ('restricted_viewer', ARRAY['view']),
+    ('viewer', ARRAY['view', 'download', 'export']),
+    ('editor', ARRAY['view', 'download', 'export', 'write']),
+    ('manager', ARRAY['view', 'download', 'export', 'write', 'move', 'delete', 'purge', 'manage',
+        'share.space.people', 'share.space.login_link', 'share.space.public_link', 'share.space.drop_link',
+        'share.file.people', 'share.file.login_link', 'share.file.public_link']),
+    ('user', ARRAY['spaces.create', 'teams.create'])
+) AS v(slug, ps) ON v.slug = r.slug CROSS JOIN LATERAL unnest(v.ps) AS x(p);
+INSERT INTO role_permissions(role_id, permission)
+SELECT r.id, p.name FROM roles r JOIN permissions p ON p.scope = 'instance' WHERE r.slug = 'administrator';
+
+CREATE TABLE grants (
+    id          uuid PRIMARY KEY DEFAULT uuidv7(),
+    space_id    uuid REFERENCES spaces ON DELETE CASCADE,
+    document_id uuid,
+    user_id     uuid REFERENCES users ON DELETE CASCADE,
+    team_id     uuid REFERENCES teams ON DELETE CASCADE,
+    role_id     uuid REFERENCES roles ON DELETE RESTRICT,
+    created_by  uuid REFERENCES users ON DELETE SET NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    CHECK (num_nonnulls(user_id, team_id) = 1),
+    CHECK (num_nonnulls(space_id, document_id) <= 1)
+);
+CREATE UNIQUE INDEX grants_space_user ON grants(space_id, user_id) WHERE space_id IS NOT NULL AND user_id IS NOT NULL;
+CREATE UNIQUE INDEX grants_space_team ON grants(space_id, team_id) WHERE space_id IS NOT NULL AND team_id IS NOT NULL;
+CREATE UNIQUE INDEX grants_doc_user ON grants(document_id, user_id) WHERE document_id IS NOT NULL AND user_id IS NOT NULL;
+CREATE UNIQUE INDEX grants_doc_team ON grants(document_id, team_id) WHERE document_id IS NOT NULL AND team_id IS NOT NULL;
+CREATE UNIQUE INDEX grants_instance_user ON grants(user_id) WHERE space_id IS NULL AND document_id IS NULL AND user_id IS NOT NULL;
+CREATE UNIQUE INDEX grants_instance_team ON grants(team_id) WHERE space_id IS NULL AND document_id IS NULL AND team_id IS NOT NULL;
+CREATE INDEX grants_user ON grants(user_id);
+CREATE INDEX grants_team ON grants(team_id);
+
+CREATE TABLE grant_permissions (
+    grant_id   uuid NOT NULL REFERENCES grants ON DELETE CASCADE,
+    permission text NOT NULL REFERENCES permissions,
+    PRIMARY KEY (grant_id, permission)
+);
+
+-- a grant's role and extras must fit what it applies to
+CREATE FUNCTION grant_scope_check() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    want text;
+    got  text;
+BEGIN
+    IF TG_TABLE_NAME = 'grants' THEN
+        want := CASE WHEN NEW.space_id IS NULL AND NEW.document_id IS NULL THEN 'instance' ELSE 'space' END;
+        SELECT scope INTO got FROM roles WHERE id = NEW.role_id;
+    ELSE
+        SELECT CASE WHEN g.space_id IS NULL AND g.document_id IS NULL THEN 'instance' ELSE 'space' END INTO want
+        FROM grants g WHERE g.id = NEW.grant_id;
+        SELECT scope INTO got FROM permissions WHERE name = NEW.permission;
+    END IF;
+    IF got IS NOT NULL AND got <> want THEN
+        RAISE EXCEPTION 'a % grant cannot hold a % permission or role', want, got;
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER grants_scope BEFORE INSERT OR UPDATE ON grants FOR EACH ROW EXECUTE FUNCTION grant_scope_check();
+CREATE TRIGGER grant_permissions_scope BEFORE INSERT OR UPDATE ON grant_permissions FOR EACH ROW EXECUTE FUNCTION grant_scope_check();
+
+-- every permission a grant gives: from its role and individually
+CREATE VIEW grant_effective AS
+    SELECT g.id, g.space_id, g.document_id, g.user_id, g.team_id, rp.permission
+    FROM grants g JOIN role_permissions rp ON rp.role_id = g.role_id
+    UNION
+    SELECT g.id, g.space_id, g.document_id, g.user_id, g.team_id, gp.permission
+    FROM grants g JOIN grant_permissions gp ON gp.grant_id = g.id;
+
+-- the owner has every space permission (a team: its managers); others the
+-- sum of their own grants and their teams' grants
+CREATE FUNCTION space_permissions(sid uuid, uid uuid) RETURNS text[] LANGUAGE sql STABLE AS $$
+    SELECT CASE WHEN EXISTS (
+        SELECT 1 FROM spaces s WHERE s.id = sid AND (s.owner_user_id = uid OR EXISTS (
+            SELECT 1 FROM team_members m WHERE m.team_id = s.owner_team_id AND m.user_id = uid AND m.is_manager)))
+    THEN ARRAY(SELECT name FROM permissions WHERE scope = 'space' ORDER BY name)
+    ELSE ARRAY(SELECT DISTINCT e.permission FROM grant_effective e WHERE e.space_id = sid AND (
+        e.user_id = uid OR e.team_id IN (SELECT team_id FROM team_members WHERE user_id = uid)))
+    END
 $$;
 
--- space_role: the strongest role a user has on a space, through personal
--- ownership, membership in the owning team, a direct grant, or a grant to
--- one of their teams (capped by their role in that team). NULL = no access.
-CREATE FUNCTION space_role(sid uuid, uid uuid) RETURNS text LANGUAGE sql STABLE AS $$
-    SELECT r FROM (
-        SELECT 'owner' AS r FROM spaces WHERE id = sid AND owner_user_id = uid
-        UNION ALL
-        SELECT m.role FROM spaces s JOIN team_members m ON m.team_id = s.owner_team_id AND m.user_id = uid WHERE s.id = sid
-        UNION ALL
-        SELECT g.role FROM space_grants g WHERE g.space_id = sid AND g.user_id = uid
-        UNION ALL
-        SELECT CASE WHEN role_rank(m.role) < role_rank(g.role) THEN m.role ELSE g.role END
-        FROM space_grants g JOIN team_members m ON m.team_id = g.team_id AND m.user_id = uid WHERE g.space_id = sid
-    ) x ORDER BY role_rank(r) DESC LIMIT 1
+CREATE FUNCTION instance_permissions(uid uuid) RETURNS text[] LANGUAGE sql STABLE AS $$
+    SELECT ARRAY(SELECT DISTINCT e.permission FROM grant_effective e WHERE e.space_id IS NULL AND e.document_id IS NULL AND (
+        e.user_id = uid OR e.team_id IN (SELECT team_id FROM team_members WHERE user_id = uid)))
+$$;
+
+CREATE FUNCTION is_administrator(uid uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
+    SELECT EXISTS (SELECT 1 FROM grants g JOIN roles r ON r.id = g.role_id
+        WHERE g.user_id = uid AND g.space_id IS NULL AND g.document_id IS NULL AND r.slug = 'administrator')
 $$;
 
 CREATE TABLE access_keys (
@@ -176,7 +298,7 @@ CREATE TABLE document_versions (
     sha256      bytea NOT NULL REFERENCES blobs,
     created_at  timestamptz NOT NULL DEFAULT now(),
     created_by  uuid REFERENCES users ON DELETE SET NULL,
-    source      text NOT NULL CHECK (source IN ('web', 'api', 'webdav', 'sftp', 's3', 'rename', 'copy', 'restore', 'editor', 'office')),
+    source      text NOT NULL CHECK (source IN ('web', 'api', 'webdav', 'sftp', 's3', 'rename', 'copy', 'restore', 'editor', 'office', 'drop')),
     meta        jsonb NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(meta) = 'object'),
     -- a restore re-adds the content of an earlier version of the same document
     restored_from integer CHECK (restored_from < version),
@@ -584,3 +706,74 @@ CREATE TRIGGER edit_leases_event AFTER INSERT OR DELETE OR UPDATE OF client_id, 
 -- session started or ended (refreshes and autosaves are silent)
 CREATE TRIGGER office_sessions_event AFTER INSERT OR DELETE ON office_sessions
     FOR EACH ROW EXECUTE FUNCTION edit_leases_event();
+
+ALTER TABLE grants ADD FOREIGN KEY (document_id) REFERENCES documents ON DELETE CASCADE;
+CREATE INDEX grants_document ON grants(document_id) WHERE document_id IS NOT NULL;
+
+-- a file grant applies to the document (all its places and versions) and can
+-- only give what makes sense for one file
+CREATE FUNCTION document_permissions(doc uuid, uid uuid) RETURNS text[] LANGUAGE sql STABLE AS $$
+    SELECT ARRAY(
+        SELECT unnest(space_permissions(d.space_id, uid)) FROM documents d WHERE d.id = doc
+        UNION
+        SELECT e.permission FROM grant_effective e
+        WHERE e.document_id = doc AND e.permission IN ('view', 'download', 'write') AND (
+            e.user_id = uid OR e.team_id IN (SELECT team_id FROM team_members WHERE user_id = uid)))
+$$;
+
+-- a URL giving access to a space or file. The token is stored hashed.
+-- login: signed-in users; public: anyone; drop: anyone may only upload.
+-- A link never exceeds the current rights of its creator.
+CREATE TABLE share_links (
+    id            uuid PRIMARY KEY DEFAULT uuidv7(),
+    token_hash    bytea NOT NULL UNIQUE CHECK (length(token_hash) = 32),
+    space_id      uuid REFERENCES spaces ON DELETE CASCADE,
+    document_id   uuid REFERENCES documents ON DELETE CASCADE,
+    folder_id     uuid REFERENCES entries ON DELETE CASCADE, -- drop links: where uploads land
+    kind          text NOT NULL CHECK (kind IN ('login', 'public', 'drop')),
+    preset        text NOT NULL CHECK (preset IN ('restricted', 'view', 'drop')),
+    label         text NOT NULL DEFAULT '',
+    password_hash text,
+    expires_at    timestamptz,
+    created_by    uuid NOT NULL REFERENCES users ON DELETE CASCADE,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    revoked_at    timestamptz,
+    CHECK (num_nonnulls(space_id, document_id) = 1),
+    CHECK ((kind = 'drop') = (preset = 'drop')),
+    CHECK (kind <> 'drop' OR space_id IS NOT NULL),
+    CHECK (folder_id IS NULL OR kind = 'drop')
+);
+CREATE INDEX share_links_space ON share_links(space_id) WHERE space_id IS NOT NULL;
+CREATE INDEX share_links_document ON share_links(document_id) WHERE document_id IS NOT NULL;
+
+-- a browser that opened a link (after its password, if any)
+CREATE TABLE share_sessions (
+    token_hash bytea PRIMARY KEY CHECK (length(token_hash) = 32),
+    link_id    uuid NOT NULL REFERENCES share_links ON DELETE CASCADE,
+    user_id    uuid REFERENCES users ON DELETE CASCADE, -- login links: who opened it
+    expires_at timestamptz NOT NULL
+);
+CREATE INDEX share_sessions_expiry ON share_sessions(expires_at);
+
+-- REST access on behalf of a user, limited to chosen permissions and spaces
+CREATE TABLE api_keys (
+    id           uuid PRIMARY KEY DEFAULT uuidv7(),
+    user_id      uuid NOT NULL REFERENCES users ON DELETE CASCADE,
+    secret_hash  bytea NOT NULL CHECK (length(secret_hash) = 32),
+    label        text NOT NULL DEFAULT '',
+    expires_at   timestamptz,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    last_used_at timestamptz,
+    revoked_at   timestamptz
+);
+CREATE INDEX api_keys_user ON api_keys(user_id);
+CREATE TABLE api_key_permissions (
+    key_id     uuid NOT NULL REFERENCES api_keys ON DELETE CASCADE,
+    permission text NOT NULL REFERENCES permissions,
+    PRIMARY KEY (key_id, permission)
+);
+CREATE TABLE api_key_spaces (
+    key_id   uuid NOT NULL REFERENCES api_keys ON DELETE CASCADE,
+    space_id uuid NOT NULL REFERENCES spaces ON DELETE CASCADE,
+    PRIMARY KEY (key_id, space_id)
+);

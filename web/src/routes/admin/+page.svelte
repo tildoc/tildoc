@@ -1,8 +1,42 @@
 <script>
+  import GrantRows from '#lib/components/GrantRows.svelte';
+  import { permLabel } from '#lib/perms.js';
   import { get, post, patch, del } from '#lib/api.js';
   import { session, toast, errorToast } from '#lib/state.svelte.js';
   import { size, date, statusLabel } from '#lib/format.js';
 
+  const can = (p) => session.user?.instance_permissions?.includes(p);
+  let roles = $state([]), catalogue = $state({ space: [], instance: [] }), newRole = $state(''), newScope = $state('space');
+  async function loadRoles() {
+    [roles, catalogue] = await Promise.all([get('/roles'), get('/permissions')]);
+  }
+  $effect(() => { loadRoles().catch(errorToast); });
+  async function setRolePerm(r, p, on) {
+    try {
+      await patch(`/roles/${r.id}`, { permissions: on ? [...r.permissions, p] : r.permissions.filter((x) => x !== p) });
+    } catch (e) {
+      errorToast(e);
+    }
+    loadRoles();
+  }
+  async function addRole(e) {
+    e.preventDefault();
+    try {
+      await post('/roles', { name: newRole, scope: newScope, permissions: [] });
+      newRole = '';
+      loadRoles();
+    } catch (err) {
+      errorToast(err);
+    }
+  }
+  async function deleteRole(r) {
+    try {
+      await del(`/roles/${r.id}`);
+      loadRoles();
+    } catch (err) {
+      errorToast(err);
+    }
+  }
   let stats = $state(null);
   let users = $state([]);
   let nu = $state({ username: '', password: '', display_name: '', is_admin: false });
@@ -11,8 +45,8 @@
   let settings = $state(null);
 
   async function loadBackups() {
-    backups = await get('/admin/backups');
-    settings = await get('/admin/settings');
+    if (can('backups.manage')) backups = await get('/admin/backups');
+    if (can('settings.manage')) settings = await get('/admin/settings');
   }
   $effect(() => { loadBackups().catch(errorToast); });
   // refresh while a backup runs
@@ -96,8 +130,8 @@
   }
 
   async function load() {
-    stats = await get('/admin/stats');
-    users = await get('/users');
+    if (can('settings.manage')) stats = await get('/admin/stats');
+    if (can('users.manage')) users = await get('/users');
   }
   $effect(() => { load().catch(errorToast); });
 
@@ -180,6 +214,49 @@
       {/if}
     </section>
   {/if}
+  {#if can('roles.manage')}
+  <section class="section">
+    <h2>Roles</h2>
+    <p>A role is a set of permissions. Changing one changes it for everyone who holds it.</p>
+    {#each [['space', 'On spaces'], ['instance', 'On this server']] as [scope, title] (scope)}
+      <h3 class="sub">{title}</h3>
+      <div class="table-wrap">
+        <table class="plain matrix">
+          <thead><tr><th>Role</th>{#each catalogue[scope] ?? [] as p (p)}<th title={p}><span>{permLabel(p)}</span></th>{/each}<th></th></tr></thead>
+          <tbody>
+            {#each roles.filter((r) => r.scope === scope) as r (r.id)}
+              <tr>
+                <td>{r.name}</td>
+                {#each catalogue[scope] ?? [] as p (p)}
+                  <td><input type="checkbox" aria-label="{permLabel(p)} for {r.name}" checked={r.permissions.includes(p)} disabled={r.slug === 'administrator'} onchange={(e) => setRolePerm(r, p, e.currentTarget.checked)} /></td>
+                {/each}
+                <td class="actions">{#if !r.built_in}<button class="small ghost" onclick={() => deleteRole(r)}>Delete</button>{/if}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/each}
+    <form class="row" style="margin-top:12px" onsubmit={addRole}>
+      <input placeholder="New role" bind:value={newRole} aria-label="New role" required style="flex:1;min-width:160px" />
+      <select bind:value={newScope} aria-label="Applies to" style="width:auto"><option value="space">On spaces</option><option value="instance">On this server</option></select>
+      <button class="primary">Add role</button>
+    </form>
+  </section>
+  <section class="section">
+    <h2>Server permissions</h2>
+    <p>Who may do what on this server. These never give access to documents.</p>
+    <GrantRows url="/instance/grants" scope="instance" canEdit />
+  </section>
+  {/if}
+  {#if can('settings.manage') && settings}
+  <section class="section">
+    <h2>Sharing</h2>
+    <label class="inline"><input type="checkbox" checked={settings.public_links} onchange={(e) => saveSetting({ public_links: e.currentTarget.checked }, 'Saved the sharing setting')} /> Allow public and drop links, which work without an account</label>
+    <p class="hint">Turning this off stops all existing public and drop links at once.</p>
+  </section>
+  {/if}
+  {#if can('backups.manage')}
   <section class="section">
     <h2>Backups</h2>
     <p>A <strong>full</strong> backup holds everything: people, teams, spaces with trash and all versions, tags, collections and keys. A <strong>differential</strong> backup holds the same information but only the files added since the last full backup; restoring needs the full backup and the newest differential. Backups stay on the server{settings ? ` in ${settings.backup_dir}` : ''}; copy them elsewhere from the file system. Restoring is done on the command line: <code>tildoc restore FULL [DIFFERENTIAL]</code> into an empty server, with the same <code>TILDOC_MASTER_KEY</code>.</p>
@@ -216,7 +293,9 @@
       <p class="muted">No backups yet.</p>
     {/if}
   </section>
+  {/if}
 
+  {#if can('settings.manage')}
   <section class="section">
     <h2>OCR</h2>
     <p>Some PDFs arrive as scans that someone else already ran OCR on. tildoc keeps that text and additionally removes it to run its own OCR on the plain images. Choose which text search and the text view use for these documents.</p>
@@ -229,7 +308,9 @@
       </div>
     {/if}
   </section>
+  {/if}
 
+  {#if can('tags.manage')}
   <section class="section">
     <h2>Tags</h2>
     <p>One tag list for the whole server. Everyone can create tags; only administrators rename, merge or delete them. Usage counts cover your own spaces only.</p>
@@ -268,7 +349,9 @@
       <p class="muted">No tags yet. Tags are added on documents, in the details of the preview or viewer.</p>
     {/if}
   </section>
+  {/if}
 
+  {#if can('users.manage')}
   <section class="section">
     <h2>People</h2>
     <div class="table-wrap">
@@ -303,9 +386,12 @@
       <div class="row"><label class="inline" style="margin:0"><input type="checkbox" bind:checked={nu.is_admin} /> Administrator</label><button class="primary">Add person</button></div>
     </form>
   </section>
+  {/if}
 </div>
 
 <style>
+  .matrix th span { display: inline-block; max-width: 74px; font-size: var(--t-sm); font-weight: 500; white-space: normal; }
+  .matrix td:not(:first-child) { text-align: center; }
   .keep { margin: 0 0 0 12px; font-size: var(--t-sm); }
   .keep input { width: 4.5em; min-height: 28px; padding: 2px 6px; }
   .tagname { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }

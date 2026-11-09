@@ -133,7 +133,12 @@ func (s *Server) recoverer(next http.Handler) http.Handler {
 // authn resolves the caller from session cookie or bearer token.
 func (s *Server) authn(r *http.Request) (*core.Principal, bool, error) {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-		p, err := s.Svc.SessionPrincipal(r.Context(), strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")))
+		token := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+		if strings.HasPrefix(token, core.APIKeyPrefix) {
+			p, err := s.Svc.APIKeyPrincipal(r.Context(), token)
+			return p, false, err
+		}
+		p, err := s.Svc.SessionPrincipal(r.Context(), token)
 		return p, false, err
 	}
 	c, err := r.Cookie(SessionCookie)
@@ -323,18 +328,16 @@ func queryInt(r *http.Request, key string, def int) int {
 
 // ---------------------------------------------------------------- content
 
-// inlineSafe lists types that may be rendered inline by the browser.
+// inlineSafe says how a type may be rendered inline by the browser.
 func inlineSafe(mt string) (string, bool) {
 	base, _, _ := mime.ParseMediaType(mt)
 	switch {
-	case base == "application/pdf":
-		return "application/pdf", true
+	case !core.InlineSafe(mt):
+		return "", false
 	case strings.HasPrefix(base, "text/"):
 		return "text/plain; charset=utf-8", true
-	case base == "image/png", base == "image/jpeg", base == "image/gif", base == "image/webp":
-		return base, true
 	}
-	return "", false
+	return base, true
 }
 
 func contentDisposition(kind, name string) string {

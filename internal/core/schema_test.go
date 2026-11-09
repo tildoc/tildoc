@@ -96,7 +96,7 @@ func TestMoveIntoSpaceWithSameContentMerges(t *testing.T) {
 	var got []string
 	for i := len(d.Versions) - 1; i >= 0; i-- {
 		v := d.Versions[i]
-		rd, _, err := f.svc.OpenDocument(f.ctx, f.alice, d.ID, v.Version, "")
+		rd, _, err := f.svc.OpenDocument(f.ctx, f.alice, d.ID, v.Version, "", false)
 		if err != nil {
 			t.Fatal(err)
 		}

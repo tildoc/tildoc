@@ -141,6 +141,12 @@ func (s *Server) wopiFileInfo(w http.ResponseWriter, r *http.Request) error {
 		"UserCanRename":           false,
 		"UserCanNotWriteRelative": true, // no "Save as": files are managed in tildoc
 		"EnableShare":             false,
+		"DisablePrint":            !f.CanDownload,
+		"DisableExport":           !f.CanDownload,
+		"DisableCopy":             !f.CanDownload,
+		"HidePrintOption":         !f.CanDownload,
+		"HideExportOption":        !f.CanDownload,
+		"HideSaveOption":          !f.CanDownload,
 	})
 }
 

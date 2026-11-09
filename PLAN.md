@@ -86,7 +86,7 @@ OCR binary missing → status `ocr_pending`; bulk re-processing available.
 
 | Term | Meaning | Protocol mapping |
 |------|---------|------------------|
-| **Team** | Group of users with roles (owner, admin, member, viewer) | — |
+| **Team** | A group of users, with managers; rights come from the team's grants | — |
 | **Space** | Top-level container, personal or team-owned; isolation boundary | S3 bucket; WebDAV/SFTP top-level folder |
 | **Folder** | Node in the folder tree of a space | S3 prefix / dir marker; directory |
 | **Document** | Identity: versions, metadata, derived data | — |
@@ -1127,6 +1127,147 @@ with neither the former names nor the former licence.
 - [x] 23.3 Dependencies checked: Go modules MIT or BSD, web MIT and Apache-2.0
 - [x] 23.4 History rewritten: names, `LICENSE` in every commit, licence mentions
 
+### Phase 24 — Permission model: roles, teams, matrix, sharing, API keys
+
+**Goal:** permissions become data instead of code: admins define **roles**
+(named permission sets); **teams** collect users; on every space a **matrix**
+of users/teams × permissions decides what each may do. Ownership of a space can
+be transferred. Spaces and single files can be shared in several ways, each
+allowed separately. API keys for the REST API. Identity is separated from the
+user so that OAuth/OIDC providers can be added later.
+
+**Concepts**
+
+| Term | Meaning |
+|---|---|
+| Permission | fixed list in code and schema; scopes: space, instance |
+| Role | named set of permissions of one scope, editable; built-in ones are seeded |
+| Team | a set of users, with managers (no per-member roles any more) |
+| Grant | one matrix row: subject (user or team) + optional role + individual extra permissions, on a space or a file |
+| Owner | exactly one user or team per space; always has all space permissions |
+| Share link | a URL giving access to a space or file, with or without login |
+| API key | REST access on behalf of a user, limited to chosen permissions and spaces |
+
+Permissions only add up (no deny): effective = owner ∪ every grant of the user
+and their teams (role ∪ extras). Access keys and API keys can only reduce that.
+All checks stay in `permissions.go`. Per space only: a folder that needs other
+rights moves as a whole into another space.
+
+**Space permissions:** `view`, `download`, `export`, `write`, `move`, `delete`,
+`purge`, `manage`, `transfer`, plus the seven sharing permissions below.
+
+**Instance permissions:** `users.manage`, `teams.manage`, `teams.create`, `roles.manage`,
+`spaces.create`, `spaces.recover`, `tags.manage`, `backups.manage`,
+`settings.manage`. They replace `users.is_admin` and never give access to
+documents.
+
+| Built-in space role | view | download | export | write | move | delete | purge | share (all) | manage | transfer |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Restricted viewer | x | | | | | | | | | |
+| Viewer | x | x | x | | | | | | | |
+| Editor | x | x | x | x | | | | | | |
+| Manager | x | x | x | x | x | x | x | x | x | |
+| (Owner) | x | x | x | x | x | x | x | x | x | x |
+
+**Restricted viewer** (`view` without `download`/`export`)
+
+⚠️ WARNING: `download` is defined but checked nowhere today: reading content
+needs only `view`. Harmless so far (every role has both), and it must be
+enforced before this role exists.
+
+- `download` is now checked: attachment downloads, WebDAV/SFTP/S3 reads, copies to another place, and types the browser can't render need it.
+- `view` keeps the browser preview, search and metadata. The UI offers no download or export, and the office server opens read-only.
+- By decision this is deliberately simple: the browser receives the file to show it.
+
+**Sharing:** each cell is its own permission in the matrix, so every variant is
+allowed separately for spaces and for files.
+
+| Variant | Space | File |
+|---|---|---|
+| People (users, teams) | `share.space.people` | `share.file.people` |
+| Link for signed-in users | `share.space.login_link` | `share.file.login_link` |
+| Public link (no account) | `share.space.public_link` | `share.file.public_link` |
+| Drop link (no account, upload only) | `share.space.drop_link` | not applicable |
+
+- File grants attach to the document (all its places and versions); they allow
+  `view`, `download`, `write`. Recipients find them under "Shared with me".
+  Documents stay out of WebDAV/S3/SFTP for them at first.
+- Links: preset restricted view or view + download (drop: upload only, always a new file, nothing visible); optional password and
+  expiry; revocable. Token stored hashed, shown once, carried in the URL fragment so it never reaches logs. Rate-limited password
+  attempts, `noindex`, no referrer. Public links never write.
+- A link never exceeds the current rights of its creator: losing access ends it.
+- Public links are off until an admin enables them for the instance.
+- Nobody shares more than they have (subset check). One page lists a space's shares.
+
+**API keys** (separate from access keys, which S3/WebDAV need in plain form)
+- `Authorization: Bearer tildoc_<id>_<secret>`, stored hashed, shown once.
+- Belong to a user; limited to chosen permissions and spaces, optional expiry, last use shown, revocable.
+- Effective = key limits ∩ the user's current rights. No instance permissions and no key, share or account management with a key.
+
+**Schema** (folded into `0001_init.sql`; replaces `space_grants`, `space_role()`, `users.is_admin`, `users.password_hash`, `team_members.role`)
+
+```mermaid
+erDiagram
+  users ||--o{ identities : "logs in with"
+  users ||--o{ team_members : ""
+  teams ||--o{ team_members : ""
+  teams ||--o{ team_links : "synced from provider"
+  roles ||--o{ role_permissions : ""
+  permissions ||--o{ role_permissions : ""
+  spaces ||--o{ grants : ""
+  documents ||--o{ grants : ""
+  grants }o--o| roles : ""
+  grants ||--o{ grant_permissions : "individual extras"
+  spaces ||--o{ share_links : ""
+  documents ||--o{ share_links : ""
+  users ||--o{ api_keys : ""
+```
+
+- `permissions(name PK, scope)`, seeded
+- `roles(id, name, scope, built_in)`, `role_permissions(role_id, permission)`
+- `team_members(team_id, user_id, is_manager, source_provider NULL)`
+- `grants(id, space_id | document_id | neither = instance, user_id | team_id, role_id NULL, created_by)`, `grant_permissions(grant_id, permission)`
+- `spaces.owner_user_id | owner_team_id` stay; team-owned: team managers count as owner, other members get the team's grant (created with the space, default Editor)
+- `share_links(id, token_hash, space_id | document_id, kind login|public, preset, password_hash NULL, expires_at NULL, created_by, revoked_at)`
+- `api_keys(id, user_id, secret_hash, label, permissions, space_ids NULL, expires_at NULL, last_used_at, revoked_at)`
+- `identities(id, user_id, provider, subject, password_hash NULL, created_at, last_login_at; UNIQUE(provider, subject))`
+- `team_links(team_id, provider, external_group)`
+- SQL `space_permissions(space, user)` replaces `space_role()`; `sessions` get the identity
+
+**Rules**
+- Transfer: takes effect at once, after confirming by typing the space name; needs `transfer` (or `spaces.recover`). The previous owner keeps a chosen role or nothing. Slug, documents and grants stay. Personal spaces too; a user left without one gets a new empty one.
+- At least one user always keeps every instance permission (no lock-out).
+- ⚠️ Today deleting a user deletes their spaces (`owner_user_id ON DELETE CASCADE`). New: `RESTRICT`; transfer or delete them first.
+
+**Authentication**
+- `Authenticator` interface; `local` (password) first, OIDC later as a second implementation.
+- Accounts link by (provider, subject) only, never by e-mail address.
+- WebDAV, S3, SFTP cannot do OAuth: those users use access keys.
+- Provider groups fill `team_members` with `source_provider` set; sync only touches its own rows. Instance permissions from a provider only through an explicit `team_links` entry.
+
+**Breaking:** schema (`down -v`) and bundle format (`BundleVersion` 3).
+
+#### Steps
+
+- [x] 24.1 Schema, seed, `space_permissions()`, schema tests
+- [x] 24.2 Core: permission catalogue, `requireCap`/`Principal` on the new model; `is_admin` and all role comparisons removed
+- [x] 24.3 Enforce `download` on every content path; restricted viewer
+- [x] 24.4 Core + API: teams, roles CRUD, grants with subset check
+- [x] 24.5 Ownership transfer, user deletion restricted
+- [x] 24.6 File grants, `requireDocCap`, "Shared with me"
+- [x] 24.7 Share links (login and public): routes, password, expiry, revocation, public viewer
+- [x] 24.8 API keys
+- [x] 24.9 Identities: `Authenticator` interface, `local` provider
+- [x] 24.10 UI: role matrix, teams, sharing matrix and dialog, transfer, API keys
+- [x] 24.11 Bundles and backups (version 3), restore
+- [x] 24.12 Tests (matrix, subset, union of teams, key limits, no content for admins, no download by any channel for restricted viewers, links, transfer, lock-out), docs, Glossary
+
+Answers (2026-11-09): Teams keep their name and take the meaning of groups;
+matrix rows are a role plus individual permissions; no deny; transfers take
+effect without acceptance; personal spaces can be transferred; per space only.
+Also (2026-11-09): drop links are included; the restricted viewer simply offers
+no download or export.
+
 ## Open Topics
 
 Collected 2026-11-08; each becomes a phase or step when picked up.
@@ -1210,6 +1351,8 @@ Collected 2026-11-08; each becomes a phase or step when picked up.
 | 37 | Text editor | CodeMirror 6 (lazy); one UI editor per document via a 15 s lease (SSE); other channels not blocked, last save wins; review with diff before every save |
 | 38 | Office documents | Collabora Online via WOPI on its own origin; only the end of an editing session creates a version, saves during it go to a working copy |
 | 39 | Office servers | Collabora or ONLYOFFICE, chosen per deployment; one interface (WOPI), ONLYOFFICE's Docs API not used |
+| 40 | Permissions | Permissions fixed in the schema; roles and grants (user or team × role + extras, on a space, file or the instance) are data; only additive; per space, not per folder; Teams kept as the groups |
+| 41 | Sharing | people, sign-in link, public link for spaces and files, drop link for spaces; each its own permission; public links off until enabled; a link never exceeds its creator's current rights |
 
 ## Open Questions
 

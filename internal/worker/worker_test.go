@@ -33,7 +33,7 @@ func newFx(t *testing.T) *fx {
 	env.Svc.SetupAdmin(ctx, "alice", "alicepass", "")
 	p, _ := env.Svc.Authenticate(ctx, "alice", "alicepass")
 	p.Via = "session"
-	p.IsAdmin = true
+	p.Inst = core.InstCap(^uint16(0))
 	sps, _ := env.Svc.ListSpaces(ctx, p)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	if os.Getenv("TILDOC_TEST_LOG") != "" {
@@ -190,7 +190,7 @@ func TestScannedPDF(t *testing.T) {
 		t.Fatalf("digital text lost after OCR: %q", text)
 	}
 	// original untouched, searchable variant downloadable
-	rd, ci, err := f.env.Svc.OpenDocument(f.ctx, f.p, fi.DocumentID, 0, "")
+	rd, ci, err := f.env.Svc.OpenDocument(f.ctx, f.p, fi.DocumentID, 0, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestScannedPDF(t *testing.T) {
 	if !bytes.Equal(orig, pdf) || ci.SHA256 != fi.SHA256 {
 		t.Fatal("original modified")
 	}
-	rs, cs, err := f.env.Svc.OpenDocument(f.ctx, f.p, fi.DocumentID, 0, "searchable")
+	rs, cs, err := f.env.Svc.OpenDocument(f.ctx, f.p, fi.DocumentID, 0, "searchable", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +326,7 @@ func TestForeignOCRVariantTree(t *testing.T) {
 		t.Fatalf("tree: image %+v ocr %+v", img, ocr)
 	}
 	// the image-only variant has no text left
-	rd, _, err := f.env.Svc.OpenDocument(f.ctx, f.p, fi.DocumentID, 0, "image_only")
+	rd, _, err := f.env.Svc.OpenDocument(f.ctx, f.p, fi.DocumentID, 0, "image_only", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +359,7 @@ func TestForeignOCRVariantTree(t *testing.T) {
 	}
 	// tildoc's OCR PDF uploaded as a new version is recognised: no second
 	// image-only split and OCR, and the history shows where it came from
-	rd, _, err = f.env.Svc.OpenDocument(f.ctx, f.p, fi.DocumentID, 0, "searchable")
+	rd, _, err = f.env.Svc.OpenDocument(f.ctx, f.p, fi.DocumentID, 0, "searchable", false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,7 +22,7 @@ type User struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-const userCols = `id::text, username, display_name, is_admin, disabled, created_at`
+const userCols = `id::text, username, display_name, is_administrator(id), disabled, created_at`
 
 func scanUser(row pgx.Row) (*User, error) {
 	u := &User{}
@@ -70,8 +70,8 @@ func (s *Service) SetupAdmin(ctx context.Context, username, password, displayNam
 
 // CreateUser creates a user (admin only) including a personal space.
 func (s *Service) CreateUser(ctx context.Context, p *Principal, username, password, displayName string, isAdmin bool) (*User, error) {
-	if p == nil || (!p.IsAdmin && p.Via != "system") {
-		return nil, errf(ErrForbidden, "admin only")
+	if err := requireInst(p, InstUsers); err != nil {
+		return nil, err
 	}
 	var u *User
 	err := s.tx(ctx, func(tx pgx.Tx) error {
@@ -97,38 +97,49 @@ func (s *Service) createUserTx(ctx context.Context, tx pgx.Tx, username, passwor
 	if displayName == "" {
 		displayName = username
 	}
-	u, err := scanUser(tx.QueryRow(ctx, `INSERT INTO users(username, display_name, password_hash, is_admin)
-		VALUES($1,$2,$3,$4) RETURNING `+userCols, username, displayName, hash, isAdmin))
+	u, err := scanUser(tx.QueryRow(ctx, `INSERT INTO users(username, display_name)
+		VALUES($1,$2) RETURNING `+userCols, username, displayName))
 	if db.IsUniqueViolation(err) {
 		return nil, errf(ErrConflict, "username %q already taken", username)
 	}
 	if err != nil {
 		return nil, err
 	}
+	if _, err := tx.Exec(ctx, `INSERT INTO identities(user_id, provider, subject, password_hash) VALUES($1::uuid,$2,$1::text,$3)`,
+		u.ID, localProvider, hash); err != nil {
+		return nil, err
+	}
+	role := "user"
+	if isAdmin {
+		role = "administrator"
+	}
+	if err := setInstanceRoleTx(ctx, tx, u.ID, role); err != nil {
+		return nil, err
+	}
+	u.IsAdmin = isAdmin
 	if _, err := s.createSpaceTx(ctx, tx, s.uniqueSlug(ctx, tx, username), displayName, u.ID, ""); err != nil {
 		return nil, err
 	}
 	return u, nil
 }
 
-// Authenticate verifies username + password.
-func (s *Service) Authenticate(ctx context.Context, username, password string) (*Principal, error) {
-	username = strings.ToLower(strings.TrimSpace(username))
-	var id, hash string
-	var admin, disabled bool
-	err := s.DB.QueryRow(ctx, `SELECT id::text, password_hash, is_admin, disabled FROM users WHERE username=$1`,
-		username).Scan(&id, &hash, &admin, &disabled)
-	if errors.Is(err, pgx.ErrNoRows) {
-		VerifyPassword(password, dummyHash)
-		return nil, errf(ErrUnauthorized, "invalid credentials")
+func setInstanceRoleTx(ctx context.Context, tx pgx.Tx, userID, slug string) error {
+	_, err := tx.Exec(ctx, `INSERT INTO grants(user_id, role_id) SELECT $1, id FROM roles WHERE slug=$2
+		ON CONFLICT (user_id) WHERE space_id IS NULL AND document_id IS NULL AND user_id IS NOT NULL
+		DO UPDATE SET role_id = EXCLUDED.role_id`, userID, slug)
+	return err
+}
+
+// lastAdminCheck refuses to take away the last active administrator.
+func lastAdminCheck(ctx context.Context, tx pgx.Tx, userID string) error {
+	var others bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id <> $1 AND NOT disabled AND is_administrator(id))`, userID).Scan(&others); err != nil {
+		return err
 	}
-	if err != nil {
-		return nil, err
+	if !others {
+		return errf(ErrInvalid, "at least one active administrator must remain")
 	}
-	if !VerifyPassword(password, hash) || disabled {
-		return nil, errf(ErrUnauthorized, "invalid credentials")
-	}
-	return &Principal{UserID: id, Username: username, IsAdmin: admin, Via: "password"}, nil
+	return nil
 }
 
 // GetUser returns a user by id.
@@ -159,7 +170,7 @@ func (s *Service) ListUsers(ctx context.Context, p *Principal) ([]User, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !p.IsAdmin {
+		if !p.Can(InstUsers) {
 			u.Disabled = false
 		}
 		out = append(out, *u)
@@ -179,10 +190,10 @@ type UserUpdate struct {
 // display name.
 func (s *Service) UpdateUser(ctx context.Context, p *Principal, id string, upd UserUpdate) (*User, error) {
 	self := p != nil && p.UserID == id
-	if p == nil || (!p.IsAdmin && !self) {
+	if p == nil || (!p.Can(InstUsers) && !self) {
 		return nil, errf(ErrForbidden, "not allowed")
 	}
-	if !p.IsAdmin && (upd.IsAdmin != nil || upd.Disabled != nil || upd.Password != nil) {
+	if !p.Can(InstUsers) && (upd.IsAdmin != nil || upd.Disabled != nil || upd.Password != nil) {
 		return nil, errf(ErrForbidden, "admin only")
 	}
 	if self && ((upd.IsAdmin != nil && !*upd.IsAdmin) || (upd.Disabled != nil && *upd.Disabled)) {
@@ -196,7 +207,13 @@ func (s *Service) UpdateUser(ctx context.Context, p *Principal, id string, upd U
 			}
 		}
 		if upd.IsAdmin != nil {
-			if _, err := tx.Exec(ctx, `UPDATE users SET is_admin=$2 WHERE id=$1`, id, *upd.IsAdmin); err != nil {
+			role := "user"
+			if *upd.IsAdmin {
+				role = "administrator"
+			} else if err := lastAdminCheck(ctx, tx, id); err != nil {
+				return err
+			}
+			if err := setInstanceRoleTx(ctx, tx, id, role); err != nil {
 				return err
 			}
 		}
@@ -205,6 +222,12 @@ func (s *Service) UpdateUser(ctx context.Context, p *Principal, id string, upd U
 				return err
 			}
 			if *upd.Disabled {
+				if err := lastAdminCheck(ctx, tx, id); err != nil {
+					var admin bool
+					if qerr := tx.QueryRow(ctx, `SELECT is_administrator($1)`, id).Scan(&admin); qerr != nil || admin {
+						return err
+					}
+				}
 				if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, id); err != nil {
 					return err
 				}
@@ -225,7 +248,11 @@ func (s *Service) UpdateUser(ctx context.Context, p *Principal, id string, upd U
 // ChangePassword lets a user change their own password.
 func (s *Service) ChangePassword(ctx context.Context, p *Principal, oldPW, newPW string) error {
 	var hash string
-	if err := s.DB.QueryRow(ctx, `SELECT password_hash FROM users WHERE id=$1`, p.UserID).Scan(&hash); err != nil {
+	err := s.DB.QueryRow(ctx, `SELECT password_hash FROM identities WHERE user_id=$1 AND provider=$2`, p.UserID, localProvider).Scan(&hash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errf(ErrInvalid, "this account has no password")
+	}
+	if err != nil {
 		return err
 	}
 	if !VerifyPassword(oldPW, hash) {
@@ -242,29 +269,39 @@ func (s *Service) setPasswordTx(ctx context.Context, tx pgx.Tx, id, pw string) e
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE users SET password_hash=$2 WHERE id=$1`, id, hash); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO identities(user_id, provider, subject, password_hash) VALUES($1::uuid,$3,$1::text,$2)
+		ON CONFLICT (provider, subject) DO UPDATE SET password_hash = EXCLUDED.password_hash`, id, hash, localProvider); err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, id)
 	return err
 }
 
-// DeleteUser removes a user and their personal spaces (admin only).
+// DeleteUser removes a user. Their empty spaces go too; spaces that hold
+// documents must be transferred or deleted first.
 func (s *Service) DeleteUser(ctx context.Context, p *Principal, id string) error {
-	if p == nil || !p.IsAdmin {
-		return errf(ErrForbidden, "admin only")
+	if err := requireInst(p, InstUsers); err != nil {
+		return err
 	}
 	if p.UserID == id {
 		return errf(ErrInvalid, "cannot delete yourself")
 	}
-	tag, err := s.DB.Exec(ctx, `DELETE FROM users WHERE id=$1`, id)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return errf(ErrNotFound, "user not found")
-	}
-	return nil
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `DELETE FROM spaces s WHERE s.owner_user_id=$1 AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.space_id=s.id)`, id); err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id=$1`, id)
+		if db.IsForeignKeyViolation(err) {
+			return errf(ErrConflict, "this user still owns spaces with documents: transfer or delete them first")
+		}
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return errf(ErrNotFound, "user not found")
+		}
+		return nil
+	})
 }
 
 // ---------------------------------------------------------------- sessions
@@ -273,8 +310,8 @@ func (s *Service) DeleteUser(ctx context.Context, p *Principal, id string) error
 func (s *Service) CreateSession(ctx context.Context, p *Principal) (string, time.Time, error) {
 	tok := randomToken(32)
 	exp := s.now().Add(s.Cfg.SessionTTL)
-	_, err := s.DB.Exec(ctx, `INSERT INTO sessions(token_hash, user_id, expires_at) VALUES($1,$2,$3)`,
-		tokenHash(tok), p.UserID, exp)
+	_, err := s.DB.Exec(ctx, `INSERT INTO sessions(token_hash, user_id, identity_id, expires_at) VALUES($1,$2,nullif($3,'')::uuid,$4)`,
+		tokenHash(tok), p.UserID, p.IdentityID, exp)
 	return tok, exp, err
 }
 
@@ -285,17 +322,19 @@ func (s *Service) SessionPrincipal(ctx context.Context, token string) (*Principa
 	}
 	p := &Principal{Via: "session", SessionHash: tokenHash(token)}
 	var lastSeen time.Time
+	var inst []string
 	err := s.DB.QueryRow(ctx, `
-		SELECT u.id::text, u.username, u.is_admin, s.last_seen_at
+		SELECT u.id::text, u.username, instance_permissions(u.id), s.last_seen_at
 		FROM sessions s JOIN users u ON u.id = s.user_id
 		WHERE s.token_hash=$1 AND s.expires_at > now() AND NOT u.disabled`, tokenHash(token)).
-		Scan(&p.UserID, &p.Username, &p.IsAdmin, &lastSeen)
+		Scan(&p.UserID, &p.Username, &inst, &lastSeen)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errf(ErrUnauthorized, "invalid session")
 	}
 	if err != nil {
 		return nil, err
 	}
+	p.Inst = instFromNames(inst)
 	if s.now().Sub(lastSeen) > 5*time.Minute {
 		s.DB.Exec(ctx, `UPDATE sessions SET last_seen_at=now() WHERE token_hash=$1`, tokenHash(token))
 	}
@@ -380,10 +419,10 @@ func (s *Service) AccessKeySecret(ctx context.Context, keyID string) (string, *P
 	var space *string
 	p := &Principal{Via: "accesskey", KeyID: keyID}
 	err := s.DB.QueryRow(ctx, `
-		SELECT k.secret_enc, k.space_id::text, k.read_only, u.id::text, u.username, u.is_admin
+		SELECT k.secret_enc, k.space_id::text, k.read_only, u.id::text, u.username
 		FROM access_keys k JOIN users u ON u.id = k.user_id
 		WHERE k.id=$1 AND k.revoked_at IS NULL AND NOT u.disabled`, keyID).
-		Scan(&enc, &space, &p.ReadOnly, &p.UserID, &p.Username, &p.IsAdmin)
+		Scan(&enc, &space, &p.ReadOnly, &p.UserID, &p.Username)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil, errf(ErrUnauthorized, "unknown access key")
 	}
@@ -397,9 +436,7 @@ func (s *Service) AccessKeySecret(ctx context.Context, keyID string) (string, *P
 	if err != nil {
 		return "", nil, err
 	}
-	// access keys never carry admin rights
-	p.IsAdmin = false
-	return secret, p, nil
+	return secret, p, nil // access keys never carry instance permissions
 }
 
 // TouchAccessKey records key usage (best effort, rate limited by caller).

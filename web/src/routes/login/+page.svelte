@@ -11,7 +11,13 @@
     try {
       await post('/auth/login', { username, password });
       await loadSession();
-      goto('/');
+      let back = null;
+      try {
+        back = sessionStorage.getItem('afterLogin'); // came from a link that needs a login
+        sessionStorage.removeItem('afterLogin');
+      } catch {}
+      if (back?.startsWith(location.origin + '/s#')) location.replace(back);
+      else goto('/');
     } catch (err) {
       error = err.message;
     }

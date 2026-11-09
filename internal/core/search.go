@@ -240,8 +240,8 @@ type JobInfo struct {
 
 // AdminStats returns installation statistics (admin only).
 func (s *Service) AdminStats(ctx context.Context, p *Principal) (*Stats, error) {
-	if p == nil || !p.IsAdmin {
-		return nil, errf(ErrForbidden, "admin only")
+	if err := requireInst(p, InstSettings); err != nil {
+		return nil, err
 	}
 	st := &Stats{Processing: map[string]int{}, Jobs: map[string]int{}, FailedJobs: []JobInfo{}}
 	err := s.DB.QueryRow(ctx, `SELECT (SELECT count(*) FROM users), (SELECT count(*) FROM spaces),

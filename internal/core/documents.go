@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"mime"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -43,6 +45,7 @@ type Document struct {
 	EditLease *EditLease `json:"edit_lease"`
 	// OfficeSession: the document is open in Collabora right now.
 	OfficeSession *OfficeSession  `json:"office_session"`
+	Caps          []string        `json:"caps"` // the caller's permissions on this document
 	Tags          []TagRef        `json:"tags"`
 	Collections   []CollectionRef `json:"collections"` // the caller's collections containing it
 	Variants      []Variant       `json:"variants"`    // derived variants of the current content
@@ -183,9 +186,14 @@ func (s *Service) GetDocument(ctx context.Context, p *Principal, id string) (*Do
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requirePerm(ctx, s.DB, p, d.SpaceID, PermRead); err != nil {
+	caps, err := s.docCaps(ctx, s.DB, p, id, d.SpaceID)
+	if err != nil {
+		return nil, err
+	}
+	if !caps.Has(CapView) {
 		return nil, errf(ErrNotFound, "document not found")
 	}
+	d.Caps = caps.Names()
 	copy(d.SHA256[:], sha)
 	d.MD5 = hex.EncodeToString(md5)
 
@@ -276,6 +284,11 @@ func (s *Service) GetDocument(ctx context.Context, p *Principal, id string) (*Do
 	if d.OfficeSession, err = s.officeSession(ctx, id); err != nil {
 		return nil, err
 	}
+	if space, err := s.spaceCaps(ctx, s.DB, p, d.SpaceID); err != nil {
+		return nil, err
+	} else if !space.Has(CapView) { // shared as a single file: nothing about where it lives
+		d.Links, d.SameContent = []LinkRef{}, []ContentPlace{}
+	}
 	return d, nil
 }
 
@@ -334,7 +347,10 @@ type ContentInfo struct {
 // OpenDocument opens the content of a document version. version 0 means
 // current; variant "searchable" returns tildoc's OCR PDF, "image_only" the
 // original without its text layer.
-func (s *Service) OpenDocument(ctx context.Context, p *Principal, docID string, version int, variant string) (blob.File, *ContentInfo, error) {
+//
+// inline: for showing it in the browser, which needs only view; anything else
+// (and any type the browser can't render itself) needs download.
+func (s *Service) OpenDocument(ctx context.Context, p *Principal, docID string, version int, variant string, inline bool) (blob.File, *ContentInfo, error) {
 	d, err := s.GetDocument(ctx, p, docID)
 	if err != nil {
 		return nil, nil, err
@@ -369,7 +385,17 @@ func (s *Service) OpenDocument(ctx context.Context, p *Principal, docID string, 
 		}
 		copy(sha[:], derived)
 	}
-	return s.openBlob(ctx, sha, ci)
+	f, ci, err := s.openBlob(ctx, sha, ci)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !inline || !InlineSafe(ci.MIME) {
+		if err := s.requireDocCap(ctx, s.DB, p, docID, d.SpaceID, CapDownload); err != nil {
+			f.Close()
+			return nil, nil, err
+		}
+	}
+	return f, ci, nil
 }
 
 func (s *Service) openBlob(ctx context.Context, sha blob.SHA256, ci *ContentInfo) (blob.File, *ContentInfo, error) {
@@ -386,12 +412,33 @@ func (s *Service) openBlob(ctx context.Context, sha blob.SHA256, ci *ContentInfo
 	return f, ci, nil
 }
 
-// OpenFile opens the current content of a link.
+// OpenFile opens the current content of a link as a file (needs download).
 func (s *Service) OpenFile(ctx context.Context, p *Principal, f *FileInfo) (blob.File, error) {
-	if err := s.requirePerm(ctx, s.DB, p, f.SpaceID, PermRead); err != nil {
+	if err := s.requireDocCap(ctx, s.DB, p, f.DocumentID, f.SpaceID, CapDownload); err != nil {
 		return nil, err
 	}
 	return s.Blobs.Open(f.SHA256)
+}
+
+// PreviewFile opens the content for showing it in the browser (needs view).
+func (s *Service) PreviewFile(ctx context.Context, p *Principal, f *FileInfo) (blob.File, error) {
+	if err := s.requireDocCap(ctx, s.DB, p, f.DocumentID, f.SpaceID, CapView); err != nil {
+		return nil, err
+	}
+	return s.Blobs.Open(f.SHA256)
+}
+
+// InlineSafe lists the types the browser may render itself: only those can
+// be shown without the download permission.
+func InlineSafe(mt string) bool {
+	base, _, _ := mime.ParseMediaType(mt)
+	switch {
+	case base == "application/pdf", strings.HasPrefix(base, "text/"):
+		return true
+	case base == "image/png", base == "image/jpeg", base == "image/gif", base == "image/webp":
+		return true
+	}
+	return false
 }
 
 // DocumentText returns extracted text of the current version.
@@ -414,7 +461,7 @@ func (s *Service) Reprocess(ctx context.Context, p *Principal, docID string) err
 	if err != nil {
 		return err
 	}
-	if err := s.requirePerm(ctx, s.DB, p, d.SpaceID, PermWrite); err != nil {
+	if err := s.requireDocCap(ctx, s.DB, p, d.ID, d.SpaceID, CapWrite); err != nil {
 		return err
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
@@ -428,8 +475,8 @@ func (s *Service) Reprocess(ctx context.Context, p *Principal, docID string) err
 // ReprocessAll re-queues processing for blobs with the given statuses
 // (admin only). Empty statuses = all blobs.
 func (s *Service) ReprocessAll(ctx context.Context, p *Principal, statuses []string) (int, error) {
-	if p == nil || (!p.IsAdmin && p.Via != "system") {
-		return 0, errf(ErrForbidden, "admin only")
+	if err := requireInst(p, InstSettings); err != nil {
+		return 0, err
 	}
 	n := 0
 	err := s.tx(ctx, func(tx pgx.Tx) error {

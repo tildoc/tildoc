@@ -1,4 +1,5 @@
 <script>
+  import { permLabel } from '#lib/perms.js';
   import { get, post, patch, del } from '#lib/api.js';
   import { session, toast, errorToast, prefs, setPref, getTheme, setTheme } from '#lib/state.svelte.js';
   import { date } from '#lib/format.js';
@@ -52,6 +53,35 @@
       toast('Changed your password. Sign in again with the new one.', 'success');
       setTimeout(() => (location.href = '/login'), 1200);
       oldPw = newPw = '';
+    } catch (err) {
+      errorToast(err);
+    }
+  }
+  let apiKeys = $state([]), apiPerms = $state([]), apiCatalogue = $state([]), apiLabel = $state(''), apiSpace = $state(''), apiToken = $state('');
+  async function loadApiKeys() {
+    apiKeys = await get('/me/api-keys');
+  }
+  $effect(() => {
+    loadApiKeys().catch(errorToast);
+    get('/permissions').then((c) => (apiCatalogue = c.space.filter((p) => !p.startsWith('share.') && p !== 'transfer'))).catch(() => {});
+  });
+  async function createApiKey(e) {
+    e.preventDefault();
+    try {
+      const r = await post('/me/api-keys', { label: apiLabel, permissions: apiPerms, space_ids: apiSpace ? [apiSpace] : [] });
+      apiToken = r.token;
+      apiLabel = '';
+      apiPerms = [];
+      loadApiKeys();
+    } catch (err) {
+      errorToast(err);
+    }
+  }
+  async function revokeApiKey(k) {
+    if (!confirm(`Revoke API key ${k.label || k.id}? Programs that use it stop working right away.`)) return;
+    try {
+      await del(`/me/api-keys/${k.id}`);
+      loadApiKeys();
     } catch (err) {
       errorToast(err);
     }
@@ -180,6 +210,34 @@ directory_markers = true` : '');
   </section>
 
   <section class="section">
+    <h2>API keys</h2>
+    <p>For programs using the REST API: <code>Authorization: Bearer tildoc_…</code>. A key can only do what you tick here, and never more than you can do yourself.</p>
+    <div class="table-wrap">
+      <table class="plain">
+        <thead><tr><th>Label</th><th>Permissions</th><th>Spaces</th><th>Last used</th><th></th></tr></thead>
+        <tbody>
+          {#each apiKeys.filter((k) => !k.revoked_at) as k (k.id)}
+            <tr><td>{k.label}</td><td>{k.permissions.map(permLabel).join(', ')}</td><td>{k.space_ids.length ? k.space_ids.map(spaceName).join(', ') : 'All spaces'}</td>
+              <td>{date(k.last_used_at) || 'Never'}</td><td class="actions"><button class="small" onclick={() => revokeApiKey(k)}>Revoke</button></td></tr>
+          {:else}<tr><td colspan="5" class="muted">No API keys yet.</td></tr>{/each}
+        </tbody>
+      </table>
+    </div>
+    <form onsubmit={createApiKey}>
+      <div class="perms">{#each apiCatalogue as p (p)}<label class="inline"><input type="checkbox" bind:group={apiPerms} value={p} /> {permLabel(p)}</label>{/each}</div>
+      <div class="row newkey">
+        <input placeholder="Label, for example backup-script" bind:value={apiLabel} aria-label="API key label" />
+        <select bind:value={apiSpace} aria-label="API key space"><option value="">All spaces</option>{#each session.spaces as s}<option value={s.id}>{s.slug}</option>{/each}</select>
+        <button class="primary" disabled={!apiPerms.length}>Create API key</button>
+      </div>
+    </form>
+    {#if apiToken}
+      <p><strong>Copy the key now. It is shown only this once.</strong></p>
+      <div class="row"><input readonly value={apiToken} aria-label="New API key" /><button onclick={() => copy(apiToken)}>Copy</button></div>
+    {/if}
+  </section>
+
+  <section class="section">
     <h2>SSH keys</h2>
     <p>Sign in to SFTP with a key instead of an access key secret.</p>
     <div class="table-wrap">
@@ -226,6 +284,7 @@ directory_markers = true` : '');
 {/if}
 
 <style>
+  .perms { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 12px; margin: 10px 0; }
   .sub { margin: 18px 0 6px; }
   .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; }
   .choice { flex-direction: row; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface); margin: 0; font-weight: 400; font-size: var(--t-base); cursor: pointer; }

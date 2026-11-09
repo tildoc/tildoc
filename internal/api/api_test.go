@@ -264,9 +264,10 @@ func TestAPIFlow(t *testing.T) {
 	// teams via API
 	var team struct{ ID string }
 	alice.ok("POST", "/api/teams", map[string]string{"name": "Finance"}, &team)
-	alice.ok("PUT", "/api/teams/"+team.ID+"/members/admin", map[string]string{"role": "viewer"}, nil)
+	alice.ok("PUT", "/api/teams/"+team.ID+"/members/admin", map[string]string{"role": "member"}, nil)
 	var ts2 space
 	alice.ok("POST", "/api/spaces", map[string]string{"slug": "finance", "name": "Finance", "team_id": team.ID}, &ts2)
+	alice.ok("POST", "/api/spaces/"+ts2.ID+"/grants", map[string]string{"team_id": team.ID, "role": "viewer"}, nil)
 	expect(t, admin.do("PUT", "/api/folders/"+ts2.RootFolderID+"/files?path=x.txt", "x", nil), 403, "viewer upload")
 
 	// admin endpoints

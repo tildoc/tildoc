@@ -99,6 +99,34 @@ office server can create (with ONLYOFFICE: Word, Excel, PowerPoint, PDF and
 their templates). PDFs open in the PDF viewer; "Edit in Office" opens them in
 the office server.
 
+### Permissions and sharing
+
+Admins define **roles** (sets of permissions, on spaces or the server). On
+every space, a matrix of people and **teams** decides who can do what: each row
+is a role plus individually added permissions. Permissions only add up. The
+owner of a space (a person, or a team's managers) always has everything, and
+ownership can be transferred. Administrators can't read documents.
+
+A **Restricted viewer** can read in the browser, but nothing offers a download
+or export, and WebDAV, SFTP, S3 and copies are refused.
+
+Sharing, each variant separately allowed through the matrix:
+
+| | Space | File |
+|---|---|---|
+| People and teams | yes | yes ("Shared with me") |
+| Link for signed-in users | yes | yes |
+| Public link, no account | yes | yes |
+| Drop link: upload only | yes | no |
+
+Links can have a password and an expiry, are shown once, and stop working when
+their creator loses the rights behind them. Public and drop links are off
+until an administrator enables them. A drop link accepts anonymous uploads, so
+it can fill the disk up to the upload limit: give it an expiry.
+
+**API keys** (Settings): `Authorization: Bearer tildoc_…` for the REST API,
+limited to chosen permissions and spaces, never more than their owner can do.
+
 ### Places
 
 *Places* in the document details lists where the document appears, plus

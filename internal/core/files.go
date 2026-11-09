@@ -273,8 +273,11 @@ func (s *Service) GetFile(ctx context.Context, p *Principal, linkID string) (*Fi
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requirePerm(ctx, s.DB, p, f.SpaceID, PermRead); err != nil {
+	if err := s.requireDocCap(ctx, s.DB, p, f.DocumentID, f.SpaceID, CapView); err != nil {
 		return nil, errf(ErrNotFound, "file not found")
+	}
+	if s.requirePerm(ctx, s.DB, p, f.SpaceID, PermRead) != nil { // shared as a single file: no folder path
+		f.FolderID, f.Path, f.OriginalPath = "", "/"+f.Name, ""
 	}
 	return f, nil
 }
@@ -449,11 +452,11 @@ func (s *Service) MoveFolder(ctx context.Context, p *Principal, folderID, dstPar
 		return nil, err
 	}
 	cross := dst.SpaceID != src.SpaceID
-	need := PermWrite
+	need := CapWrite
 	if cross {
-		need = PermDelete
+		need = CapMove
 	}
-	if err := s.requirePerm(ctx, s.DB, p, src.SpaceID, need); err != nil {
+	if err := s.requireCap(ctx, s.DB, p, src.SpaceID, need); err != nil {
 		return nil, err
 	}
 	if err := s.requirePerm(ctx, s.DB, p, dst.SpaceID, PermWrite); err != nil {

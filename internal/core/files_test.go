@@ -350,14 +350,15 @@ func TestPermissions(t *testing.T) {
 	wantKind(t, err, core.ErrNotFound)
 
 	bobUser := ck(f.svc.UserByName(f.ctx, "bob"))
-	noErr(t, f.svc.SetMember(f.ctx, f.alice, team.ID, bobUser.ID, "viewer"))
+	noErr(t, f.svc.SetMember(f.ctx, f.alice, team.ID, bobUser.ID, "member"))
+	ck(f.svc.SetGrant(f.ctx, f.alice, ts.ID, "", team.ID, "viewer"))
 	if f.read(t, f.bob, ts.ID, "/a.txt") != "a" {
 		t.Fatal("viewer read")
 	}
 	_, err = f.svc.PutFile(f.ctx, f.bob, ts.ID, []string{"b.txt"}, strings.NewReader("b"), core.PutOptions{})
 	wantKind(t, err, core.ErrForbidden)
 
-	noErr(t, f.svc.SetMember(f.ctx, f.alice, team.ID, bobUser.ID, "member"))
+	ck(f.svc.SetGrant(f.ctx, f.alice, ts.ID, "", team.ID, "editor"))
 	f.put(t, f.bob, ts.ID, "/b.txt", "b")
 	wantKind(t, f.svc.DeleteLink(f.ctx, f.bob, r.File.LinkID), core.ErrForbidden)
 	// member may not move documents out of the team space
@@ -366,7 +367,7 @@ func TestPermissions(t *testing.T) {
 	// but may copy out
 	ck(f.svc.CopyLink(f.ctx, f.bob, r.File.LinkID, ck(f.svc.FolderByPath(f.ctx, f.bob, f.bhome.ID, nil)).ID, "", false))
 
-	noErr(t, f.svc.SetMember(f.ctx, f.alice, team.ID, bobUser.ID, "admin"))
+	ck(f.svc.SetGrant(f.ctx, f.alice, ts.ID, "", team.ID, "manager"))
 	noErr(t, f.svc.DeleteLink(f.ctx, f.bob, r.File.LinkID))
 
 	// read-only access key

@@ -51,7 +51,7 @@ const (
 const collectionSelect = `
 	SELECT c.id::text, c.name, c.owner_user_id::text, c.owner_team_id::text, coalesce(tm.name, ''),
 	       c.tag_id::text, coalesce(t.name, ''), c.created_at,
-	       CASE WHEN c.owner_user_id = $1 THEN 'owner' ELSE coalesce(m.role, '') END
+	       CASE WHEN c.owner_user_id = $1 THEN 'owner' WHEN m.user_id IS NULL THEN '' WHEN m.is_manager THEN 'manager' ELSE 'member' END
 	FROM collections c
 	LEFT JOIN teams tm ON tm.id = c.owner_team_id
 	LEFT JOIN team_members m ON m.team_id = c.owner_team_id AND m.user_id = $1
@@ -59,7 +59,7 @@ const collectionSelect = `
 
 func collectionLevel(role string) int {
 	switch role {
-	case "owner", "admin":
+	case "owner", "manager":
 		return collManage
 	case "member":
 		return collEdit

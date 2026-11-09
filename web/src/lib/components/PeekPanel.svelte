@@ -11,6 +11,7 @@
   import { watchBusy, isBusy } from '../poll.svelte.js';
   import { watchLive } from '../events.svelte.js';
   import { warmup } from '../viewer/pdfjs.js';
+  import { canDownload } from '../perms.js';
 
   let { file, onclose, onopen, onchanged, query = '' } = $props();
   let doc = $state(null);
@@ -104,7 +105,7 @@
 
   <div class="bar">
     <button class="primary" onclick={open}><Icon name="open" size={16} /> Open</button>
-    <a class="btn" href={`/api/files/${file.link_id}/content`} download><Icon name="download" size={16} /> Download</a>
+{#if canDownload(doc)}    <a class="btn" href={`/api/files/${file.link_id}/content`} download><Icon name="download" size={16} /> Download</a>{/if}
     {#if viewVersion || viewVariant}<span class="pill">Viewing version {viewVersion || doc?.version}{variant !== 'original' ? `, ${VARIANT_NAME[variant]}` : ''}</span>{/if}
   </div>
 

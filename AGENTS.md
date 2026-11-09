@@ -121,8 +121,18 @@ When the user requests a programming task, **do not start coding immediately.**
   `web/src/lib/components/viewer/` (DocView picks PdfView / ImageView /
   TextView / native iframe). `web/static/vendor/` is generated, never edit it.
 - **Permissions** are only computed in `internal/core/permissions.go`
-  (capabilities from `space_role()`); use `requireCap`, never compare roles
-  elsewhere.
+  (`requireCap`, `requireDocCap`, `Principal.Can`; SQL `space_permissions()`,
+  `document_permissions()`, `instance_permissions()`). The catalogue is the
+  `permissions` table plus `capNames`/`instNames`; roles and grants are data.
+  Never compare role names. Permissions only add up (no deny). Instance
+  permissions never give access to documents. Reading a file as a file needs
+  `download`; only the browser preview works with `view`.
+- **Sharing:** `grants` (space, document, instance), `share_links` (tokens only
+  hashed and only in the URL fragment); a link never exceeds its creator's
+  current rights. Everything anonymous goes through `ShareAccess` in
+  `internal/core/shares.go`, the only caller of `SystemPrincipal` for it.
+- **Logins:** `identities` + `Authenticator` (`internal/core/identity.go`);
+  match accounts by (provider, subject), never by e-mail address.
 - **Bundles** (`internal/core/bundle.go`, `import.go`, `backup.go`): format in
   `docs/bundle-format.md`; bump `BundleVersion` for incompatible changes and
   keep imports going through the normal ingest rules.

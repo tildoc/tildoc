@@ -30,7 +30,7 @@ type Space struct {
 
 const spaceSelect = `
 	SELECT s.id::text, s.slug, s.name, s.owner_user_id::text, s.owner_team_id::text, coalesce(t.name,''),
-	       f.id::text, s.created_at, coalesce(space_role(s.id, $1::uuid), ''),
+	       f.id::text, s.created_at, space_permissions(s.id, $1::uuid),
 	       NOT (s.owner_user_id IS NOT DISTINCT FROM $1::uuid
 	            OR EXISTS (SELECT 1 FROM team_members m WHERE m.team_id = s.owner_team_id AND m.user_id = $1::uuid))
 	FROM spaces s
@@ -39,26 +39,20 @@ const spaceSelect = `
 
 func scanSpace(row pgx.Row, p *Principal) (*Space, error) {
 	sp := &Space{}
-	var role string
-	err := row.Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.OwnerUserID, &sp.OwnerTeamID, &sp.TeamName, &sp.RootFolderID, &sp.CreatedAt, &role, &sp.Shared)
+	var names []string
+	err := row.Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.OwnerUserID, &sp.OwnerTeamID, &sp.TeamName, &sp.RootFolderID, &sp.CreatedAt, &names, &sp.Shared)
 	if err != nil {
 		return nil, err
 	}
-	caps := effectiveCaps(p, sp.ID, role)
+	caps := effectiveCaps(p, sp.ID, capsFromNames(names))
 	sp.Perm, sp.Caps = capsPerm(caps), caps.Names()
-	sp.Role = role
-	if p.Via == "system" {
-		sp.Role = "owner"
-	}
-	if caps == 0 {
-		sp.Role = ""
-	}
+	sp.Role = roleLabel(caps)
 	return sp, nil
 }
 
 // ListSpaces lists spaces the caller can read.
 func (s *Service) ListSpaces(ctx context.Context, p *Principal) ([]Space, error) {
-	rows, err := s.DB.Query(ctx, spaceSelect+` WHERE space_role(s.id, $1::uuid) IS NOT NULL ORDER BY s.slug`, p.UserID)
+	rows, err := s.DB.Query(ctx, spaceSelect+` WHERE cardinality(space_permissions(s.id, $1::uuid)) > 0 ORDER BY s.slug`, p.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -124,6 +118,9 @@ func (s *Service) CreateSpace(ctx context.Context, p *Principal, slug, name, tea
 	if name == "" {
 		name = slug
 	}
+	if teamID == "" && !p.Can(InstSpacesCreate) {
+		return nil, errf(ErrForbidden, "not allowed to create spaces")
+	}
 	var id string
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		owner := p.UserID
@@ -132,8 +129,8 @@ func (s *Service) CreateSpace(ctx context.Context, p *Principal, slug, name, tea
 			if err != nil {
 				return err
 			}
-			if role != "owner" && role != "admin" {
-				return errf(ErrForbidden, "team admin required")
+			if !canManageTeam(p, role) {
+				return errf(ErrForbidden, "team manager required")
 			}
 			owner = ""
 		}
@@ -157,8 +154,108 @@ func (s *Service) createSpaceTx(ctx context.Context, tx pgx.Tx, slug, name, owne
 	if err != nil {
 		return "", err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO entries(space_id, kind, parent_id, name) VALUES($1, 'folder', NULL, '')`, id)
+	if _, err = tx.Exec(ctx, `INSERT INTO entries(space_id, kind, parent_id, name) VALUES($1, 'folder', NULL, '')`, id); err != nil {
+		return "", err
+	}
+	if ownerTeam != "" {
+		err = addTeamDefaultGrantTx(ctx, tx, id, ownerTeam)
+	}
 	return id, err
+}
+
+// addTeamDefaultGrantTx: managers of the owning team are owners; everyone
+// else in it starts as Editor (changeable in the space's matrix).
+func addTeamDefaultGrantTx(ctx context.Context, tx pgx.Tx, spaceID, teamID string) error {
+	_, err := tx.Exec(ctx, `INSERT INTO grants(space_id, team_id, role_id) SELECT $1, $2, id FROM roles WHERE slug='editor'
+		ON CONFLICT (space_id, team_id) WHERE space_id IS NOT NULL AND team_id IS NOT NULL DO NOTHING`, spaceID, teamID)
+	return err
+}
+
+// TransferSpace hands a space to another user or team at once. confirm must
+// be the space's slug. keepRole: a role for the previous owner ("" = none).
+func (s *Service) TransferSpace(ctx context.Context, p *Principal, spaceID, toUser, toTeam, keepRole, confirm string) error {
+	if err := requireSession(p); err != nil {
+		return err
+	}
+	if !looksLikeUUID(spaceID) {
+		return errf(ErrNotFound, "space not found")
+	}
+	if (toUser == "") == (toTeam == "") {
+		return errf(ErrInvalid, "transfer to either a user or a team")
+	}
+	if err := s.requireCap(ctx, s.DB, p, spaceID, CapTransfer); err != nil && !p.Can(InstSpacesRecover) {
+		return err
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		var slug string
+		var fromUser, fromTeam *string
+		err := tx.QueryRow(ctx, `SELECT slug, owner_user_id::text, owner_team_id::text FROM spaces WHERE id=$1 FOR UPDATE`, spaceID).
+			Scan(&slug, &fromUser, &fromTeam)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errf(ErrNotFound, "space not found")
+		}
+		if err != nil {
+			return err
+		}
+		if confirm != slug {
+			return errf(ErrInvalid, "confirm the transfer with the slug of the space")
+		}
+		var toU, toT *string
+		if toUser != "" {
+			q := `SELECT id::text FROM users WHERE username = lower($1) AND NOT disabled`
+			if looksLikeUUID(toUser) {
+				q = `SELECT id::text FROM users WHERE id = $1::uuid AND NOT disabled`
+			}
+			var id string
+			if err := tx.QueryRow(ctx, q, toUser).Scan(&id); err != nil {
+				return errf(ErrNotFound, "user not found")
+			}
+			toU = &id
+		} else {
+			var id string
+			if !looksLikeUUID(toTeam) || tx.QueryRow(ctx, `SELECT id::text FROM teams WHERE id=$1`, toTeam).Scan(&id) != nil {
+				return errf(ErrNotFound, "team not found")
+			}
+			toT = &id
+		}
+		if (toU != nil && fromUser != nil && *toU == *fromUser) || (toT != nil && fromTeam != nil && *toT == *fromTeam) {
+			return errf(ErrInvalid, "this is already the owner")
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM grants WHERE space_id=$1 AND (user_id=$2::uuid OR team_id=$3::uuid)`, spaceID, toU, toT); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE spaces SET owner_user_id=$2::uuid, owner_team_id=$3::uuid WHERE id=$1`, spaceID, toU, toT); err != nil {
+			return err
+		}
+		if toT != nil {
+			if err := addTeamDefaultGrantTx(ctx, tx, spaceID, *toT); err != nil {
+				return err
+			}
+		}
+		if keepRole != "" {
+			role, err := roleByRefTx(ctx, tx, keepRole, "space")
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO grants(space_id, user_id, team_id, role_id, created_by) VALUES($1,$2::uuid,$3::uuid,$4,$5::uuid)
+				ON CONFLICT DO NOTHING`, spaceID, fromUser, fromTeam, role.ID, p.userRef()); err != nil {
+				return err
+			}
+		}
+		if fromUser == nil {
+			return nil
+		}
+		var left bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM spaces WHERE owner_user_id=$1)`, *fromUser).Scan(&left); err != nil || left {
+			return err
+		}
+		var username, display string
+		if err := tx.QueryRow(ctx, `SELECT username, display_name FROM users WHERE id=$1`, *fromUser).Scan(&username, &display); err != nil {
+			return err
+		}
+		_, err = s.createSpaceTx(ctx, tx, s.uniqueSlug(ctx, tx, username), display, *fromUser, "")
+		return err
+	})
 }
 
 func (s *Service) uniqueSlug(ctx context.Context, tx pgx.Tx, base string) string {

@@ -56,6 +56,27 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("GET /api/spaces/{id}/grants", s.authed(s.listGrants))
 	h("POST /api/spaces/{id}/grants", s.authed(s.setGrant))
 	h("DELETE /api/spaces/{id}/grants/{grant}", s.authed(s.deleteGrant))
+	h("POST /api/spaces/{id}/transfer", s.authed(s.transferSpace))
+	h("GET /api/spaces/{id}/share-links", s.authed(s.listSpaceLinks))
+	h("GET /api/documents/{id}/grants", s.authed(s.listDocGrants))
+	h("POST /api/documents/{id}/grants", s.authed(s.setDocGrant))
+	h("DELETE /api/documents/{id}/grants/{grant}", s.authed(s.deleteDocGrant))
+	h("GET /api/documents/{id}/share-links", s.authed(s.listDocLinks))
+	h("POST /api/share-links", s.authed(s.createLink))
+	h("DELETE /api/share-links/{id}", s.authed(s.revokeLink))
+	h("GET /api/shared", s.authed(s.sharedFiles))
+	h("GET /api/permissions", s.authed(s.permissionCatalogue))
+	h("GET /api/roles", s.authed(s.listRoles))
+	h("POST /api/roles", s.authed(s.createRole))
+	h("PATCH /api/roles/{id}", s.authed(s.updateRole))
+	h("DELETE /api/roles/{id}", s.authed(s.deleteRole))
+	h("GET /api/instance/grants", s.authed(s.listInstanceGrants))
+	h("POST /api/instance/grants", s.authed(s.setInstanceGrant))
+	h("DELETE /api/instance/grants/{grant}", s.authed(s.deleteInstanceGrant))
+	h("GET /api/me/api-keys", s.authed(s.listAPIKeys))
+	h("POST /api/me/api-keys", s.authed(s.createAPIKey))
+	h("DELETE /api/me/api-keys/{id}", s.authed(s.revokeAPIKey))
+	s.publicRoutes(h)
 
 	h("POST /api/folders", s.authed(s.createFolder))
 	h("GET /api/folders/{id}", s.authed(s.getFolder))
@@ -222,13 +243,14 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) error {
 // meResponse is the caller's own account including preferences.
 type meResponse struct {
 	*core.User
-	Prefs   core.Prefs `json:"prefs"`
-	Version string     `json:"version"` // only for logged-in users
+	Prefs               core.Prefs `json:"prefs"`
+	Version             string     `json:"version"`              // only for logged-in users
+	InstancePermissions []string   `json:"instance_permissions"` // what the UI may offer for administration
 }
 
 func (s *Server) meBody(r *http.Request, u *core.User) (meResponse, error) {
 	prefs, err := s.Svc.GetPrefs(r.Context(), u.ID)
-	return meResponse{User: u, Prefs: prefs, Version: version.Version}, err
+	return meResponse{User: u, Prefs: prefs, InstancePermissions: principal(r).Inst.Names(), Version: version.Version}, err
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) error {

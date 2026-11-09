@@ -1,107 +1,139 @@
 <script>
-  // Who a space is shared with; owners and admins add people or teams.
+  // Sharing a space or a single file: with people and teams (matrix), or by link.
   import Modal from './Modal.svelte';
-  import Icon from './Icon.svelte';
+  import GrantRows from './GrantRows.svelte';
   import { get, post, del } from '../api.js';
-  import { session, toast, errorToast, refreshSpaces } from '../state.svelte.js';
+  import { errorToast, refreshSpaces, toast } from '../state.svelte.js';
+  import { date } from '../format.js';
 
-  let { space, onclose } = $props();
-  let grants = $state([]);
-  let users = $state([]);
-  let teams = $state([]);
-  let who = $state('user');
-  let user = $state('');
-  let team = $state('');
-  let role = $state('viewer');
-  const canShare = $derived(space.caps?.includes('share'));
-  const roles = $derived(
-    [['viewer', 'Can view and download'], ['member', 'Can also add and change'], ['admin', 'Can also delete and share']].filter(
-      ([r]) => ({ viewer: 1, member: 2, admin: 3 })[r] <= ({ owner: 4, admin: 3, member: 2, viewer: 1 })[space.role]
+  let { space = null, doc = null, name = '', folder = null, onclose } = $props(); // folder: where a drop link lands
+  const isFile = $derived(!!doc);
+  const caps = $derived((isFile ? doc.caps : space.caps) ?? []);
+  const prefix = $derived(isFile ? 'share.file' : 'share.space');
+  const can = (x) => caps.includes(`${prefix}.${x}`);
+  const title = $derived(name || space?.name || doc?.name);
+
+  // what can be made here: kinds the caller may create
+  const kinds = $derived(
+    [['login', 'Link for signed-in users', 'login_link'], ['public', 'Public link, no account needed', 'public_link'], ['drop', 'Drop link: others can only upload', 'drop_link']].filter(
+      ([, , c]) => can(c)
     )
   );
+  const presets = $derived([
+    ...(caps.includes('view') ? [['restricted', 'View only']] : []),
+    ...(caps.includes('download') ? [['view', 'View and download']] : [])
+  ]);
+
+  let links = $state([]);
+  let kind = $state(''), preset = $state('restricted'), label = $state(''), password = $state(''), expires = $state('');
+  let created = $state('');
+  const linksUrl = $derived(isFile ? `/documents/${doc.id}/share-links` : `/spaces/${space.id}/share-links`);
 
   async function load() {
     try {
-      grants = await get(`/spaces/${space.id}/grants`);
+      links = await get(linksUrl);
     } catch (e) {
       errorToast(e);
     }
   }
+  $effect(() => { if (kinds.length) load(); });
   $effect(() => {
-    load();
-    if (canShare) {
-      get('/users').then((u) => (users = u.filter((x) => x.id !== session.user.id))).catch(() => {});
-      get('/teams').then((t) => (teams = t)).catch(() => {});
-    }
+    if (!kinds.some(([k]) => k === kind)) kind = kinds[0]?.[0] ?? '';
   });
 
-  async function add(e) {
+  async function create(e) {
     e.preventDefault();
     try {
-      await post(`/spaces/${space.id}/grants`, who === 'user' ? { user, role } : { team_id: team, role });
-      user = '';
-      toast(`Shared ${space.name}`, 'success');
+      const r = await post('/share-links', {
+        ...(isFile ? { document_id: doc.id } : { space_id: space.id, folder_id: kind === 'drop' ? (folder?.id ?? '') : '' }),
+        kind, preset: kind === 'drop' ? 'drop' : preset, label, password,
+        expires_at: expires ? new Date(expires).toISOString() : null
+      });
+      created = r.url;
+      label = password = expires = '';
       load();
     } catch (err) {
       errorToast(err);
     }
   }
-  async function remove(g) {
+  async function revoke(l) {
     try {
-      await del(`/spaces/${space.id}/grants/${g.id}`);
+      await del(`/share-links/${l.id}`);
       load();
-      refreshSpaces();
     } catch (err) {
       errorToast(err);
     }
   }
-  const roleLabel = { viewer: 'Viewer', member: 'Member', admin: 'Admin' };
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(created);
+      toast('Link copied', 'success');
+    } catch {
+      toast('Select the link and copy it', 'info');
+    }
+  }
+  const kindName = { login: 'Signed-in users', public: 'Public', drop: 'Drop' };
+  const presetName = { restricted: 'View only', view: 'View and download', drop: 'Upload only' };
 </script>
 
-<Modal title={`Share ${space.name}`} wide {onclose}>
-  <p class="muted">The owners{space.team_name ? ` (team ${space.team_name})` : ''} always have access. Shares add single people or whole teams; a team member never gets more than their role in that team.</p>
-  {#if grants.length}
-    <ul class="grants">
-      {#each grants as g (g.id)}
+<Modal title={`Share ${title}`} wide {onclose}>
+  <h3>People and teams</h3>
+  {#if isFile}
+    <GrantRows url={`/documents/${doc.id}/grants`} scope="file" canEdit={can('people')} held={caps} />
+  {:else}
+    <p class="muted">The owner{space.team_name ? ` (managers of team ${space.team_name})` : ''} always has every permission. Permissions only add up: someone gets everything their own row and their teams' rows give.</p>
+    <GrantRows url={`/spaces/${space.id}/grants`} scope="space" canEdit={can('people')} held={caps} onchanged={refreshSpaces} />
+  {/if}
+
+  <h3>Links</h3>
+  {#if links.length}
+    <ul class="links">
+      {#each links as l (l.id)}
         <li>
-          <Icon name={g.team_id ? 'users' : 'key'} size={16} />
-          <span class="who">{g.team_id ? `Team ${g.team_name}` : g.display_name || g.username}{#if g.username && !g.team_id}<small class="muted"> @{g.username}</small>{/if}</span>
-          <span class="pill">{roleLabel[g.role]}</span>
-          {#if canShare}<button class="small ghost" onclick={() => remove(g)}>Remove</button>{/if}
+          <span class="what">{l.label || kindName[l.kind]}</span>
+          <span class="pill">{kindName[l.kind]}</span><span class="pill">{presetName[l.preset]}</span>
+          {#if l.has_password}<span class="pill">Password</span>{/if}
+          {#if l.expires_at}<span class="muted small">until {date(l.expires_at)}</span>{/if}
+          <button class="small ghost" onclick={() => revoke(l)}>Revoke</button>
         </li>
       {/each}
     </ul>
-  {:else}
-    <p class="muted">Not shared with anyone yet.</p>
   {/if}
-  {#if canShare}
-    <form class="add" onsubmit={add}>
-      <div class="seg" role="radiogroup" aria-label="Share with">
-        <button type="button" role="radio" aria-checked={who === 'user'} class:active={who === 'user'} onclick={() => (who = 'user')}>A person</button>
-        <button type="button" role="radio" aria-checked={who === 'team'} class:active={who === 'team'} onclick={() => (who = 'team')}>A team</button>
-      </div>
-      {#if who === 'user'}
-        <input list="share-users" bind:value={user} placeholder="Username" aria-label="Username" required />
-        <datalist id="share-users">{#each users as u (u.id)}<option value={u.username}>{u.display_name}</option>{/each}</datalist>
-      {:else}
-        <select bind:value={team} aria-label="Team" required>
-          <option value="" disabled>Choose one of your teams</option>
-          {#each teams as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
-        </select>
+  {#if created}
+    <div class="created">
+      <p>Copy this link now, it is shown only once:</p>
+      <input readonly value={created} aria-label="New link" onfocus={(e) => e.currentTarget.select()} />
+      <button onclick={copy}>Copy</button>
+    </div>
+  {/if}
+  {#if kinds.length}
+    <form class="newlink" onsubmit={create}>
+      <select bind:value={kind} aria-label="Type of link">{#each kinds as [k, l] (k)}<option value={k}>{l}</option>{/each}</select>
+      {#if kind !== 'drop'}
+        <select bind:value={preset} aria-label="What it allows">{#each presets as [p, l] (p)}<option value={p}>{l}</option>{/each}</select>
       {/if}
-      <select bind:value={role} aria-label="Role">{#each roles as [r, l] (r)}<option value={r}>{l}</option>{/each}</select>
-      <button class="primary">Share</button>
+      <input bind:value={label} placeholder="Label (optional)" aria-label="Label" />
+      <input type="password" bind:value={password} placeholder="Password (optional)" aria-label="Link password" autocomplete="new-password" />
+      <input type="datetime-local" bind:value={expires} aria-label="Expires" title="Expires (optional)" />
+      <button class="primary">Create link</button>
     </form>
+    {#if kind === 'drop'}<p class="hint">Uploads land in {folder ? `the folder ${folder.name}` : 'the top of the space'}. Visitors see nothing that is already there.</p>{/if}
+  {:else if !links.length}
+    <p class="muted">You may not create links here.</p>
   {/if}
   <div class="row end"><button onclick={onclose}>Done</button></div>
 </Modal>
 
 <style>
-  .grants { list-style: none; padding: 0; margin: 0 0 16px; display: flex; flex-direction: column; }
-  .grants li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
-  .grants :global(svg) { color: var(--ink-2); }
-  .who { flex: 1; }
-  .add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
-  .add input { flex: 1; min-width: 160px; width: auto; }
-  .add select { width: auto; }
+  h3 { margin: 4px 0 8px; font-size: var(--t-base); }
+  .links { list-style: none; padding: 0; margin: 0 0 12px; }
+  .links li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line-soft); flex-wrap: wrap; }
+  .what { flex: 1; min-width: 120px; }
+  .newlink { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .newlink input, .newlink select { width: auto; flex: 1; min-width: 150px; }
+  .created { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .created p { width: 100%; margin: 0; }
+  .created input { flex: 1; min-width: 200px; }
+  .hint { color: var(--ink-2); font-size: var(--t-sm); margin: 0 0 12px; }
+  .small { font-size: var(--t-sm); }
 </style>

@@ -134,8 +134,8 @@ func (s *Service) CreateTag(ctx context.Context, p *Principal, name, color strin
 	return s.getTag(ctx, s.DB, id)
 }
 
-func requireAdmin(p *Principal) error {
-	if p == nil || (!p.IsAdmin && p.Via != "system") {
+func requireTagAdmin(p *Principal) error {
+	if !p.Can(InstTags) {
 		return errf(ErrForbidden, "only administrators can change the tag list")
 	}
 	return nil
@@ -143,7 +143,7 @@ func requireAdmin(p *Principal) error {
 
 // UpdateTag renames or recolors a tag (administrators).
 func (s *Service) UpdateTag(ctx context.Context, p *Principal, id string, name, color *string) (*Tag, error) {
-	if err := requireAdmin(p); err != nil {
+	if err := requireTagAdmin(p); err != nil {
 		return nil, err
 	}
 	if _, err := s.getTag(ctx, s.DB, id); err != nil {
@@ -177,7 +177,7 @@ func (s *Service) UpdateTag(ctx context.Context, p *Principal, id string, name, 
 // DeleteTag removes a tag from the vocabulary and from all documents
 // (administrators). Collections built on it keep their manual items.
 func (s *Service) DeleteTag(ctx context.Context, p *Principal, id string) error {
-	if err := requireAdmin(p); err != nil {
+	if err := requireTagAdmin(p); err != nil {
 		return err
 	}
 	tag, err := s.DB.Exec(ctx, `DELETE FROM tags WHERE id=$1`, id)
@@ -193,7 +193,7 @@ func (s *Service) DeleteTag(ctx context.Context, p *Principal, id string) error 
 // MergeTags moves every use of tag from to tag into and deletes from
 // (administrators).
 func (s *Service) MergeTags(ctx context.Context, p *Principal, from, into string) (*Tag, error) {
-	if err := requireAdmin(p); err != nil {
+	if err := requireTagAdmin(p); err != nil {
 		return nil, err
 	}
 	if from == into {

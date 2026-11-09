@@ -39,16 +39,17 @@ type Settings struct {
 	OCRPreference string `json:"ocr_preference"` // existing | tildoc
 	BackupKeep    int    `json:"backup_keep"`    // full backups kept (with their differentials)
 	BackupDir     string `json:"backup_dir"`
+	PublicLinks   bool   `json:"public_links"` // public and drop links may be created and used
 }
 
 // GetSettings returns the server settings (administrators).
 func (s *Service) GetSettings(ctx context.Context, p *Principal) (*Settings, error) {
-	if err := requireAdmin(p); err != nil {
+	if err := requireInst(p, InstSettings); err != nil {
 		return nil, err
 	}
 	st := &Settings{BackupDir: s.Cfg.BackupDir}
-	err := s.DB.QueryRow(ctx, `SELECT instance_id::text, ocr_preference, backup_keep FROM instance_settings`).
-		Scan(&st.InstanceID, &st.OCRPreference, &st.BackupKeep)
+	err := s.DB.QueryRow(ctx, `SELECT instance_id::text, ocr_preference, backup_keep, public_links FROM instance_settings`).
+		Scan(&st.InstanceID, &st.OCRPreference, &st.BackupKeep, &st.PublicLinks)
 	return st, err
 }
 
@@ -56,11 +57,12 @@ func (s *Service) GetSettings(ctx context.Context, p *Principal) (*Settings, err
 type SettingsUpdate struct {
 	OCRPreference *string `json:"ocr_preference"`
 	BackupKeep    *int    `json:"backup_keep"`
+	PublicLinks   *bool   `json:"public_links"`
 }
 
 // UpdateSettings changes the server settings (administrators).
 func (s *Service) UpdateSettings(ctx context.Context, p *Principal, u SettingsUpdate) (*Settings, error) {
-	if err := requireAdmin(p); err != nil {
+	if err := requireInst(p, InstSettings); err != nil {
 		return nil, err
 	}
 	if u.OCRPreference != nil {
@@ -68,6 +70,11 @@ func (s *Service) UpdateSettings(ctx context.Context, p *Principal, u SettingsUp
 			return nil, errf(ErrInvalid, "OCR preference must be existing or tildoc")
 		}
 		if _, err := s.DB.Exec(ctx, `UPDATE instance_settings SET ocr_preference=$1, updated_at=now()`, *u.OCRPreference); err != nil {
+			return nil, err
+		}
+	}
+	if u.PublicLinks != nil {
+		if _, err := s.DB.Exec(ctx, `UPDATE instance_settings SET public_links=$1, updated_at=now()`, *u.PublicLinks); err != nil {
 			return nil, err
 		}
 	}
@@ -95,7 +102,7 @@ func scanBackup(row pgx.Row) (*Backup, error) {
 
 // ListBackups lists backups, newest first (administrators).
 func (s *Service) ListBackups(ctx context.Context, p *Principal) ([]Backup, error) {
-	if err := requireAdmin(p); err != nil {
+	if err := requireInst(p, InstBackups); err != nil {
 		return nil, err
 	}
 	rows, err := s.DB.Query(ctx, backupSelect+` ORDER BY started_at DESC`)
@@ -138,7 +145,7 @@ func (s *Service) createBackupTx(ctx context.Context, tx pgx.Tx, p *Principal, m
 
 // StartBackup queues a backup for the worker (administrators).
 func (s *Service) StartBackup(ctx context.Context, p *Principal, mode string) (*Backup, error) {
-	if err := requireAdmin(p); err != nil {
+	if err := requireInst(p, InstBackups); err != nil {
 		return nil, err
 	}
 	var b *Backup
@@ -179,17 +186,75 @@ func (s *Service) serverManifest(ctx context.Context, b *Backup, exclude map[str
 		m = mb.m
 		m.Backup = &MBackup{ID: b.ID, Mode: b.Mode, BaseID: b.BaseID}
 		m.Settings = &MSettings{}
-		if err := tx.QueryRow(ctx, `SELECT instance_id::text, ocr_preference, backup_keep FROM instance_settings`).
-			Scan(&m.Settings.InstanceID, &m.Settings.OCRPreference, &m.Settings.BackupKeep); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT instance_id::text, ocr_preference, backup_keep, public_links FROM instance_settings`).
+			Scan(&m.Settings.InstanceID, &m.Settings.OCRPreference, &m.Settings.BackupKeep, &m.Settings.PublicLinks); err != nil {
 			return err
 		}
-		if err := collectRows(ctx, tx, `SELECT id::text, username, display_name, password_hash, is_admin, disabled, pdf_viewer, created_at
+		if err := collectRows(ctx, tx, `SELECT id::text, username, display_name, disabled, pdf_viewer, created_at
 			FROM users ORDER BY created_at, id`, func(r pgx.Rows) error {
 			var u MUser
-			if err := r.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.IsAdmin, &u.Disabled, &u.PDFViewer, &u.CreatedAt); err != nil {
+			if err := r.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Disabled, &u.PDFViewer, &u.CreatedAt); err != nil {
 				return err
 			}
 			m.Users = append(m.Users, u)
+			return nil
+		}); err != nil {
+			return err
+		}
+		if err := collectRows(ctx, tx, `SELECT id::text, user_id::text, provider, subject, password_hash, created_at, last_login_at
+			FROM identities ORDER BY created_at, id`, func(r pgx.Rows) error {
+			var i MIdentity
+			if err := r.Scan(&i.ID, &i.UserID, &i.Provider, &i.Subject, &i.PasswordHash, &i.CreatedAt, &i.LastLoginAt); err != nil {
+				return err
+			}
+			m.Identities = append(m.Identities, i)
+			return nil
+		}); err != nil {
+			return err
+		}
+		if err := collectRows(ctx, tx, `SELECT slug, name, scope, built_in,
+			ARRAY(SELECT permission FROM role_permissions WHERE role_id = r.id ORDER BY permission) FROM roles r ORDER BY slug`, func(r pgx.Rows) error {
+			var x MRole
+			if err := r.Scan(&x.Slug, &x.Name, &x.Scope, &x.BuiltIn, &x.Permissions); err != nil {
+				return err
+			}
+			m.Roles = append(m.Roles, x)
+			return nil
+		}); err != nil {
+			return err
+		}
+		if err := collectRows(ctx, tx, `SELECT g.id::text, g.space_id::text, g.document_id::text, g.user_id::text, g.team_id::text, r.slug,
+			ARRAY(SELECT permission FROM grant_permissions WHERE grant_id = g.id ORDER BY permission), g.created_by::text, g.created_at
+			FROM grants g LEFT JOIN roles r ON r.id = g.role_id ORDER BY g.created_at, g.id`, func(r pgx.Rows) error {
+			var g MGrant
+			if err := r.Scan(&g.ID, &g.SpaceID, &g.DocumentID, &g.UserID, &g.TeamID, &g.Role, &g.Permissions, &g.CreatedBy, &g.CreatedAt); err != nil {
+				return err
+			}
+			m.Grants = append(m.Grants, g)
+			return nil
+		}); err != nil {
+			return err
+		}
+		if err := collectRows(ctx, tx, `SELECT id::text, token_hash, space_id::text, document_id::text, folder_id::text, kind, preset, label, password_hash,
+			expires_at, created_by::text, created_at, revoked_at FROM share_links ORDER BY created_at, id`, func(r pgx.Rows) error {
+			var l MShareLink
+			if err := r.Scan(&l.ID, &l.TokenHash, &l.SpaceID, &l.DocumentID, &l.FolderID, &l.Kind, &l.Preset, &l.Label, &l.PasswordHash,
+				&l.ExpiresAt, &l.CreatedBy, &l.CreatedAt, &l.RevokedAt); err != nil {
+				return err
+			}
+			m.ShareLinks = append(m.ShareLinks, l)
+			return nil
+		}); err != nil {
+			return err
+		}
+		if err := collectRows(ctx, tx, `SELECT k.id::text, k.user_id::text, k.secret_hash, k.label, k.expires_at, k.created_at, k.last_used_at, k.revoked_at,
+			ARRAY(SELECT permission FROM api_key_permissions WHERE key_id = k.id ORDER BY permission),
+			ARRAY(SELECT space_id::text FROM api_key_spaces WHERE key_id = k.id ORDER BY space_id) FROM api_keys k ORDER BY k.created_at, k.id`, func(r pgx.Rows) error {
+			var k MAPIKey
+			if err := r.Scan(&k.ID, &k.UserID, &k.SecretHash, &k.Label, &k.ExpiresAt, &k.CreatedAt, &k.LastUsedAt, &k.RevokedAt, &k.Permissions, &k.SpaceIDs); err != nil {
+				return err
+			}
+			m.APIKeys = append(m.APIKeys, k)
 			return nil
 		}); err != nil {
 			return err
@@ -207,9 +272,9 @@ func (s *Service) serverManifest(ctx context.Context, b *Backup, exclude map[str
 		}
 		for i := range m.Teams {
 			t := &m.Teams[i]
-			if err := collectRows(ctx, tx, `SELECT user_id::text, role, created_at FROM team_members WHERE team_id=$1 ORDER BY user_id`, func(r pgx.Rows) error {
+			if err := collectRows(ctx, tx, `SELECT user_id::text, is_manager, created_at FROM team_members WHERE team_id=$1 ORDER BY user_id`, func(r pgx.Rows) error {
 				var mm MMember
-				if err := r.Scan(&mm.UserID, &mm.Role, &mm.CreatedAt); err != nil {
+				if err := r.Scan(&mm.UserID, &mm.IsManager, &mm.CreatedAt); err != nil {
 					return err
 				}
 				t.Members = append(t.Members, mm)
@@ -232,17 +297,6 @@ func (s *Service) serverManifest(ctx context.Context, b *Backup, exclude map[str
 		for _, id := range spaceIDs {
 			sp, err := mb.space(id, true)
 			if err != nil {
-				return err
-			}
-			if err := collectRows(ctx, tx, `SELECT id::text, user_id::text, team_id::text, role, created_by::text, created_at
-				FROM space_grants WHERE space_id=$1 ORDER BY created_at, id`, func(r pgx.Rows) error {
-				var g MGrant
-				if err := r.Scan(&g.ID, &g.UserID, &g.TeamID, &g.Role, &g.CreatedBy, &g.CreatedAt); err != nil {
-					return err
-				}
-				sp.Grants = append(sp.Grants, g)
-				return nil
-			}, id); err != nil {
 				return err
 			}
 			m.Spaces = append(m.Spaces, *sp)
@@ -435,7 +489,7 @@ func (s *Service) applyBackupRetention(ctx context.Context) error {
 // DeleteBackup deletes a backup and its file (administrators). A full
 // backup with differentials cannot be deleted on its own.
 func (s *Service) DeleteBackup(ctx context.Context, p *Principal, id string) error {
-	if err := requireAdmin(p); err != nil {
+	if err := requireInst(p, InstBackups); err != nil {
 		return err
 	}
 	if !looksLikeUUID(id) {
@@ -637,13 +691,31 @@ func (s *Service) applyRestore(ctx context.Context, tx pgx.Tx, br *bundleReader)
 		_, err := tx.Exec(ctx, sql, args...)
 		return err
 	}
-	if err := ex(`UPDATE instance_settings SET instance_id=$1, ocr_preference=$2, backup_keep=$3, updated_at=now()`,
-		m.Settings.InstanceID, m.Settings.OCRPreference, m.Settings.BackupKeep); err != nil {
+	if err := ex(`UPDATE instance_settings SET instance_id=$1, ocr_preference=$2, backup_keep=$3, public_links=$4, updated_at=now()`,
+		m.Settings.InstanceID, m.Settings.OCRPreference, m.Settings.BackupKeep, m.Settings.PublicLinks); err != nil {
 		return err
 	}
 	for _, u := range m.Users {
-		if err := ex(`INSERT INTO users(id, username, display_name, password_hash, is_admin, disabled, pdf_viewer, created_at)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, u.ID, u.Username, u.DisplayName, u.PasswordHash, u.IsAdmin, u.Disabled, u.PDFViewer, u.CreatedAt); err != nil {
+		if err := ex(`INSERT INTO users(id, username, display_name, disabled, pdf_viewer, created_at)
+			VALUES($1,$2,$3,$4,$5,$6)`, u.ID, u.Username, u.DisplayName, u.Disabled, u.PDFViewer, u.CreatedAt); err != nil {
+			return err
+		}
+	}
+	for _, i := range m.Identities {
+		if err := ex(`INSERT INTO identities(id, user_id, provider, subject, password_hash, created_at, last_login_at) VALUES($1,$2,$3,$4,$5,$6,$7)`,
+			i.ID, i.UserID, i.Provider, i.Subject, i.PasswordHash, i.CreatedAt, i.LastLoginAt); err != nil {
+			return err
+		}
+	}
+	for _, x := range m.Roles {
+		if err := ex(`INSERT INTO roles(slug, name, scope, built_in) VALUES($1,$2,$3,$4) ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name`,
+			x.Slug, x.Name, x.Scope, x.BuiltIn); err != nil {
+			return err
+		}
+		if err := ex(`DELETE FROM role_permissions WHERE role_id = (SELECT id FROM roles WHERE slug=$1)`, x.Slug); err != nil {
+			return err
+		}
+		if err := ex(`INSERT INTO role_permissions(role_id, permission) SELECT r.id, unnest($2::text[]) FROM roles r WHERE r.slug=$1`, x.Slug, x.Permissions); err != nil {
 			return err
 		}
 	}
@@ -652,7 +724,7 @@ func (s *Service) applyRestore(ctx context.Context, tx pgx.Tx, br *bundleReader)
 			return err
 		}
 		for _, mm := range t.Members {
-			if err := ex(`INSERT INTO team_members(team_id, user_id, role, created_at) VALUES($1,$2,$3,$4)`, t.ID, mm.UserID, mm.Role, mm.CreatedAt); err != nil {
+			if err := ex(`INSERT INTO team_members(team_id, user_id, is_manager, created_at) VALUES($1,$2,$3,$4)`, t.ID, mm.UserID, mm.IsManager, mm.CreatedAt); err != nil {
 				return err
 			}
 		}
@@ -748,12 +820,6 @@ func (s *Service) applyRestore(ctx context.Context, tx pgx.Tx, br *bundleReader)
 				}
 			}
 		}
-		for _, g := range sp.Grants {
-			if err := ex(`INSERT INTO space_grants(id, space_id, user_id, team_id, role, created_by, created_at) VALUES($1,$2,$3,$4,$5,$6,$7)`,
-				g.ID, sp.ID, g.UserID, g.TeamID, g.Role, g.CreatedBy, g.CreatedAt); err != nil {
-				return err
-			}
-		}
 	}
 	for _, f := range forks {
 		if err := ex(`UPDATE documents SET forked_from=$2 WHERE id=$1 AND EXISTS (SELECT 1 FROM documents WHERE id=$2)`, f[0], f[1]); err != nil {
@@ -770,6 +836,35 @@ func (s *Service) applyRestore(ctx context.Context, tx pgx.Tx, br *bundleReader)
 				c.ID, it.DocumentID, it.AddedBy, it.AddedAt); err != nil {
 				return err
 			}
+		}
+	}
+	for _, g := range m.Grants {
+		if err := ex(`INSERT INTO grants(id, space_id, document_id, user_id, team_id, role_id, created_by, created_at)
+			VALUES($1,$2::uuid,$3::uuid,$4::uuid,$5::uuid,(SELECT id FROM roles WHERE slug=$6),$7::uuid,$8)`,
+			g.ID, g.SpaceID, g.DocumentID, g.UserID, g.TeamID, g.Role, g.CreatedBy, g.CreatedAt); err != nil {
+			return err
+		}
+		if err := ex(`INSERT INTO grant_permissions(grant_id, permission) SELECT $1, unnest($2::text[])`, g.ID, g.Permissions); err != nil {
+			return err
+		}
+	}
+	for _, l := range m.ShareLinks {
+		if err := ex(`INSERT INTO share_links(id, token_hash, space_id, document_id, folder_id, kind, preset, label, password_hash, expires_at, created_by, created_at, revoked_at)
+			VALUES($1,$2,$3::uuid,$4::uuid,$5::uuid,$6,$7,$8,$9,$10,$11,$12,$13)`, l.ID, l.TokenHash, l.SpaceID, l.DocumentID, l.FolderID, l.Kind, l.Preset, l.Label,
+			l.PasswordHash, l.ExpiresAt, l.CreatedBy, l.CreatedAt, l.RevokedAt); err != nil {
+			return err
+		}
+	}
+	for _, k := range m.APIKeys {
+		if err := ex(`INSERT INTO api_keys(id, user_id, secret_hash, label, expires_at, created_at, last_used_at, revoked_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+			k.ID, k.UserID, k.SecretHash, k.Label, k.ExpiresAt, k.CreatedAt, k.LastUsedAt, k.RevokedAt); err != nil {
+			return err
+		}
+		if err := ex(`INSERT INTO api_key_permissions(key_id, permission) SELECT $1, unnest($2::text[])`, k.ID, k.Permissions); err != nil {
+			return err
+		}
+		if err := ex(`INSERT INTO api_key_spaces(key_id, space_id) SELECT $1, unnest($2::uuid[])`, k.ID, k.SpaceIDs); err != nil {
+			return err
 		}
 	}
 	for _, k := range m.AccessKeys {

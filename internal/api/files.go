@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/tildoc/tildoc/internal/blob"
 	"github.com/tildoc/tildoc/internal/core"
 )
 
@@ -226,12 +227,18 @@ func (s *Server) fileContent(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	rd, err := s.Svc.OpenFile(r.Context(), p, f)
+	disp := s.disposition(r)
+	var rd blob.File
+	if disp == Inline && core.InlineSafe(f.MIME) { // shown in the browser: view is enough
+		rd, err = s.Svc.PreviewFile(r.Context(), p, f)
+	} else {
+		rd, err = s.Svc.OpenFile(r.Context(), p, f)
+	}
 	if err != nil {
 		return err
 	}
 	defer rd.Close()
-	ServeContent(w, r, rd, f.Name, f.MIME, f.MD5, f.ModifiedAt, s.disposition(r))
+	ServeContent(w, r, rd, f.Name, f.MIME, f.MD5, f.ModifiedAt, disp)
 	return nil
 }
 
@@ -264,7 +271,8 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) error {
 func (s *Server) documentContent(w http.ResponseWriter, r *http.Request) error {
 	q := r.URL.Query()
 	version, _ := strconv.Atoi(q.Get("version"))
-	f, ci, err := s.Svc.OpenDocument(r.Context(), principal(r), r.PathValue("id"), version, q.Get("variant"))
+	disp := s.disposition(r)
+	f, ci, err := s.Svc.OpenDocument(r.Context(), principal(r), r.PathValue("id"), version, q.Get("variant"), disp == Inline)
 	if err != nil {
 		return err
 	}
@@ -276,7 +284,7 @@ func (s *Server) documentContent(w http.ResponseWriter, r *http.Request) error {
 	case "image_only":
 		name = strings.TrimSuffix(name, ".pdf") + ".image-only.pdf"
 	}
-	ServeContent(w, r, f, name, ci.MIME, ci.MD5, ci.ModTime, s.disposition(r))
+	ServeContent(w, r, f, name, ci.MIME, ci.MD5, ci.ModTime, disp)
 	return nil
 }
 

@@ -80,7 +80,7 @@ func TestEditLease(t *testing.T) {
 	pdf := f.put(t, f.alice, ts.ID, "/scan.pdf", "%PDF-1.4 x")
 	_, err = f.svc.AcquireEditLease(f.ctx, f.alice, pdf.File.DocumentID, tabA, false)
 	wantKind(t, err, core.ErrInvalid)
-	noErr(t, f.svc.SetMember(f.ctx, f.alice, team.ID, bob.ID, "viewer"))
+	ck(f.svc.SetGrant(f.ctx, f.alice, ts.ID, "", team.ID, "viewer"))
 	_, err = f.svc.AcquireEditLease(f.ctx, f.bob, doc, tabC, false)
 	wantKind(t, err, core.ErrForbidden)
 	_, err = f.svc.AcquireEditLease(f.ctx, f.alice, doc, "not-a-uuid", false)

@@ -14,7 +14,7 @@
 
   let { children } = $props();
   let newCollection = $state(false);
-  const publicRoutes = ['/login', '/setup'];
+  const publicRoutes = ['/login', '/setup', '/s'];
 
   onMount(async () => {
     applyTheme();
@@ -71,6 +71,7 @@
 
   const nav = [
     ['/search', 'search', 'All documents'],
+    ['/shared', 'link', 'Shared with me'],
     ['/trash', 'trash', 'Trash'],
     ['/spaces', 'space', 'Spaces'],
     ['/teams', 'users', 'Teams'],
@@ -131,7 +132,7 @@
         {#each nav as [href, icon, label] (href)}
           <a class="nav" class:active={path === href} {href} aria-current={path === href ? 'page' : undefined}><Icon name={icon} size={17} /> {label}</a>
         {/each}
-        {#if session.user.is_admin}<a class="nav" class:active={path === '/admin'} href="/admin"><Icon name="shield" size={17} /> Administration</a>{/if}
+        {#if session.user.instance_permissions?.some((p) => p !== 'spaces.create' && p !== 'teams.create')}<a class="nav" class:active={path === '/admin'} href="/admin"><Icon name="shield" size={17} /> Administration</a>{/if}
         <div class="me">
           <span class="who" title={session.user.username}>{session.user.display_name || session.user.username}</span>
           <button class="icon" onclick={logout} title="Sign out" aria-label="Sign out"><Icon name="logout" size={17} /></button>

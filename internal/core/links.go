@@ -330,11 +330,11 @@ func (s *Service) MoveLink(ctx context.Context, p *Principal, linkID, dstFolderI
 	if err != nil {
 		return nil, err
 	}
-	need := PermWrite
+	need := CapWrite
 	if dst.SpaceID != f.SpaceID {
-		need = PermDelete
+		need = CapMove
 	}
-	if err := s.requirePerm(ctx, s.DB, p, f.SpaceID, need); err != nil {
+	if err := s.requireCap(ctx, s.DB, p, f.SpaceID, need); err != nil {
 		return nil, err
 	}
 	if err := s.requirePerm(ctx, s.DB, p, dst.SpaceID, PermWrite); err != nil {
@@ -411,7 +411,11 @@ func (s *Service) copyLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, linkI
 // document (no storage, shared history until one side is written:
 // copy-on-write). Across spaces the content is deduplicated by hash.
 func (s *Service) CopyLink(ctx context.Context, p *Principal, linkID, dstFolderID, newName string, overwrite bool) (*FileInfo, error) {
-	if _, err := s.GetFile(ctx, p, linkID); err != nil {
+	src, err := s.GetFile(ctx, p, linkID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.requireDocCap(ctx, s.DB, p, src.DocumentID, src.SpaceID, CapDownload); err != nil { // a copy is a download
 		return nil, err
 	}
 	if newName != "" {
@@ -443,6 +447,9 @@ func (s *Service) CopyLink(ctx context.Context, p *Principal, linkID, dstFolderI
 func (s *Service) CopyFolder(ctx context.Context, p *Principal, folderID, dstParentID, newName string) (*FolderInfo, error) {
 	src, err := s.GetFolder(ctx, p, folderID)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.requireCap(ctx, s.DB, p, src.SpaceID, CapDownload); err != nil { // a copy is a download
 		return nil, err
 	}
 	if newName == "" {

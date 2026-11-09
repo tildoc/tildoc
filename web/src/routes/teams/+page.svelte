@@ -24,7 +24,7 @@
     if (current) get(`/teams/${current.id}/members`).then((m) => (members = m)).catch(errorToast);
   });
 
-  let canManage = $derived(current && (current.role === 'owner' || current.role === 'admin' || session.user.is_admin));
+  let canManage = $derived(current && (current.role === 'manager' || session.user.is_admin));
   let teamSpaces = $derived(session.spaces.filter((s) => s.owner_team_id === current?.id));
 
   async function createTeam(e) {
@@ -113,7 +113,7 @@
       <div class="detail">
         <div class="row" style="justify-content:space-between">
           <h2 class="tname">{current.name}</h2>
-          {#if current.role === 'owner'}<button class="small ghost" onclick={() => (confirm = { kind: 'team' })}>Delete team</button>{/if}
+          {#if canManage}<button class="small ghost" onclick={() => (confirm = { kind: 'team' })}>Delete team</button>{/if}
         </div>
         <section class="section">
           <h2>Members</h2>
@@ -127,7 +127,7 @@
                     <td>
                       {#if canManage}
                         <select value={m.role} onchange={(e) => setRole(m, e.target.value)} style="width:auto" aria-label="Role of {m.username}">
-                          {#each ['owner', 'admin', 'member', 'viewer'] as r}<option value={r}>{r}</option>{/each}
+                          {#each ['manager', 'member'] as r}<option value={r}>{r}</option>{/each}
                         </select>
                       {:else}{m.role}{/if}
                     </td>
@@ -141,14 +141,12 @@
             <form class="row" style="margin-top:12px" onsubmit={add}>
               <input list="users" placeholder="Username" bind:value={addUser} required style="flex:1;min-width:140px" aria-label="Username" />
               <datalist id="users">{#each users.filter((u) => !members.some((m) => m.user_id === u.id)) as u}<option value={u.username}>{u.display_name}</option>{/each}</datalist>
-              <select bind:value={addRole} style="width:auto" aria-label="Role">{#each ['viewer', 'member', 'admin', 'owner'] as r}<option value={r}>{r}</option>{/each}</select>
+              <select bind:value={addRole} style="width:auto" aria-label="Role">{#each ['member', 'manager'] as r}<option value={r}>{r}</option>{/each}</select>
               <button class="primary">Add member</button>
             </form>
             <dl class="roles">
-              <dt>viewer</dt><dd>reads documents</dd>
-              <dt>member</dt><dd>also uploads, edits and moves</dd>
-              <dt>admin</dt><dd>also deletes and manages members</dd>
-              <dt>owner</dt><dd>also manages owners and can delete the team</dd>
+              <dt>member</dt><dd>gets what the team has on each space</dd>
+              <dt>manager</dt><dd>also owns the team's spaces and manages the team</dd>
             </dl>
           {/if}
         </section>

@@ -365,7 +365,7 @@ func (s *Service) AddDocumentVersion(ctx context.Context, p *Principal, docID st
 	if d.DeletedAt != nil {
 		return nil, errf(ErrInvalid, "document is in trash")
 	}
-	if err := s.requirePerm(ctx, s.DB, p, d.SpaceID, PermWrite); err != nil {
+	if err := s.requireDocCap(ctx, s.DB, p, docID, d.SpaceID, CapWrite); err != nil {
 		return nil, err
 	}
 	st, err := s.Blobs.Stage(r, s.Cfg.MaxUploadBytes)

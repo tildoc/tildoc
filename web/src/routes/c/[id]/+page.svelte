@@ -135,7 +135,7 @@
       <div class="toolbar" role="toolbar" aria-label="Collection actions">
         {#if single}
           <button class="ghost" onclick={() => open(single)}><Icon name="open" size={16} /> Open</button>
-          <a class="btn ghost" href={`/api/files/${single.link_id}/content`} download><Icon name="download" size={16} /> Download</a>
+          {#if session.spaces.find((x) => x.id === single.space_id)?.caps.includes('download')}<a class="btn ghost" href={`/api/files/${single.link_id}/content`} download><Icon name="download" size={16} /> Download</a>{/if}
           <button class="ghost" onclick={() => goto(`/f/${single.folder_id}?sel=${single.link_id}`)}><Icon name="folder" size={16} /> Show in folder</button>
         {/if}
         {#if c.can_edit && removable.length}

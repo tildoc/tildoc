@@ -5,6 +5,8 @@
   import { goto } from '$app/navigation';
   import Confirm from '#lib/components/Confirm.svelte';
   import ShareDialog from '#lib/components/ShareDialog.svelte';
+  import TransferDialog from '#lib/components/TransferDialog.svelte';
+  import { canShareAny } from '#lib/perms.js';
   import ImportDialog from '#lib/components/ImportDialog.svelte';
   import Icon from '#lib/components/Icon.svelte';
 
@@ -12,9 +14,10 @@
   let name = $state(''), slug = $state(''), team = $state('');
   let confirm = $state(null);
   let sharing = $state(null);
+  let transferring = $state(null);
   let importing = $state(false);
   $effect(() => { get('/teams').then((t) => (teams = t)).catch(() => {}); });
-  let manageable = $derived(teams.filter((t) => t.role === 'owner' || t.role === 'admin'));
+  let manageable = $derived(teams.filter((t) => t.role === 'manager'));
 
   async function create(e) {
     e.preventDefault();
@@ -67,11 +70,12 @@
             <td>{s.role}</td>
             <td>{date(s.created_at)}</td>
             <td class="actions">
-              <button class="small" onclick={() => (sharing = s)}>{s.caps.includes('share') ? 'Share' : 'Shared with'}</button>
+              <button class="small" onclick={() => (sharing = s)}>{canShareAny(s.caps) ? 'Share' : 'Shared with'}</button>
               {#if s.caps.includes('export')}
                 <a class="btn small ghost" href={`/api/spaces/${s.id}/export?format=zip`} download title="All current files as a ZIP archive">ZIP</a>
                 <a class="btn small ghost" href={`/api/spaces/${s.id}/export?format=bundle`} download title="Everything incl. versions, tags and collections, to import into a tildoc server">Export</a>
               {/if}
+              {#if s.caps.includes('transfer')}<button class="small" onclick={() => (transferring = s)}>Transfer</button>{/if}
               {#if s.caps.includes('manage')}<button class="small" onclick={() => rename(s)}>Rename</button>{/if}
               {#if s.caps.includes('manage')}<button class="small ghost" onclick={() => (confirm = s)}>Delete</button>{/if}
             </td>
@@ -98,6 +102,7 @@
 </div>
 
 {#if sharing}<ShareDialog space={sharing} onclose={() => (sharing = null)} />{/if}
+{#if transferring}<TransferDialog space={transferring} onclose={() => (transferring = null)} />{/if}
 {#if importing}<ImportDialog onclose={() => (importing = false)} />{/if}
 {#if confirm}
   <Confirm title="Delete space" danger confirm="Delete" message={`Delete the space “${confirm.name}”? This only works when it contains no documents.`}

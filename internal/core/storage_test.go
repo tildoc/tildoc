@@ -64,7 +64,7 @@ func (f *fixture) index(t *testing.T, r *core.PutResult, text string) {
 }
 
 func (f *fixture) readDoc(p *core.Principal, docID string) (string, error) {
-	rd, _, err := f.svc.OpenDocument(f.ctx, p, docID, 0, "")
+	rd, _, err := f.svc.OpenDocument(f.ctx, p, docID, 0, "", false)
 	if err != nil {
 		return "", err
 	}
