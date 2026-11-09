@@ -734,6 +734,12 @@ func (s *Service) applyRestore(ctx context.Context, tx pgx.Tx, br *bundleReader)
 			sp.ID, sp.Slug, sp.Name, sp.OwnerUserID, sp.OwnerTeamID, sp.CreatedAt); err != nil {
 			return err
 		}
+		if st := sp.Settings; st != nil {
+			if err := ex(`UPDATE spaces SET allow_login_links=$2, allow_public_links=$3, allow_drop_links=$4, allow_file_shares=$5, write_protected=$6, no_ocr=$7 WHERE id=$1`,
+				sp.ID, st.AllowLoginLinks, st.AllowPublicLinks, st.AllowDropLinks, st.AllowFileShares, st.WriteProtected, st.NoOCR); err != nil {
+				return err
+			}
+		}
 	}
 	for _, im := range m.Imports {
 		if err := ex(`INSERT INTO imports(id, user_id, space_id, protocol, client_root, created_at, last_activity_at) VALUES($1,$2,$3,$4,$5,$6,$7)`,

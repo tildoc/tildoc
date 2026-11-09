@@ -202,6 +202,10 @@ func (p *Processor) processPDF(ctx context.Context, sha blob.SHA256, path string
 	}
 	text := string(out)
 	pages, empty := pageStats(text)
+	allowed, err := p.Svc.OCRAllowed(ctx, sha) // the spaces holding this content
+	if err != nil {
+		return err
+	}
 	if empty == 0 {
 		// tildoc's own OCR output used as content again (e.g. the OCR PDF
 		// uploaded as a new version): its text is ours, OCR again is waste
@@ -224,7 +228,7 @@ func (p *Processor) processPDF(ctx context.Context, sha blob.SHA256, path string
 		}
 		// scanned pages with someone else's OCR layer: keep that text and
 		// add tildoc's own OCR of an image-only variant
-		if !p.HaveOCR() || !p.Svc.Cfg.OCRRedoForeign || !p.haveTool(p.Svc.Cfg.GhostscriptBin) {
+		if !allowed || !p.HaveOCR() || !p.Svc.Cfg.OCRRedoForeign || !p.haveTool(p.Svc.Cfg.GhostscriptBin) {
 			return p.Svc.SetProcessing(ctx, sha, core.StatusDone, "pdf-ocred", &pages, "")
 		}
 		return p.reOCR(ctx, sha, path, pages)
@@ -233,11 +237,14 @@ func (p *Processor) processPDF(ctx context.Context, sha blob.SHA256, path string
 	if empty < pages {
 		kind = "pdf-mixed"
 	}
-	if !p.HaveOCR() {
+	if !p.HaveOCR() || !allowed {
 		if strings.TrimSpace(text) != "" {
 			if err := p.Svc.StoreText(ctx, sha, "pdftotext", text); err != nil {
 				return err
 			}
+		}
+		if !allowed { // switched off for this content: nothing is waiting
+			return p.Svc.SetProcessing(ctx, sha, core.StatusDone, kind, &pages, "")
 		}
 		return p.Svc.SetProcessing(ctx, sha, core.StatusOCRPending, kind, &pages, "")
 	}

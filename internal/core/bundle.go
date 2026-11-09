@@ -162,14 +162,15 @@ type MTag struct {
 
 // MSpace is a space with its folder tree and documents.
 type MSpace struct {
-	ID          string      `json:"id"`
-	Slug        string      `json:"slug"`
-	Name        string      `json:"name"`
-	OwnerUserID *string     `json:"owner_user_id"`
-	OwnerTeamID *string     `json:"owner_team_id"`
-	CreatedAt   time.Time   `json:"created_at"`
-	Folders     []MFolder   `json:"folders"`
-	Documents   []MDocument `json:"documents"`
+	ID          string         `json:"id"`
+	Slug        string         `json:"slug"`
+	Name        string         `json:"name"`
+	OwnerUserID *string        `json:"owner_user_id"`
+	OwnerTeamID *string        `json:"owner_team_id"`
+	CreatedAt   time.Time      `json:"created_at"`
+	Settings    *SpaceSettings `json:"settings,omitempty"` // server backups
+	Folders     []MFolder      `json:"folders"`
+	Documents   []MDocument    `json:"documents"`
 }
 
 // MFolder is a folder; the root has no parent and an empty name.
@@ -439,6 +440,14 @@ func (b *manifestBuilder) space(id string, withTrash bool) (*MSpace, error) {
 		Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.OwnerUserID, &sp.OwnerTeamID, &sp.CreatedAt)
 	if err != nil {
 		return nil, err
+	}
+	if withTrash { // server backup
+		st := &SpaceSettings{}
+		if err := b.tx.QueryRow(b.ctx, `SELECT allow_login_links, allow_public_links, allow_drop_links, allow_file_shares, write_protected, no_ocr FROM spaces WHERE id=$1`, id).
+			Scan(&st.AllowLoginLinks, &st.AllowPublicLinks, &st.AllowDropLinks, &st.AllowFileShares, &st.WriteProtected, &st.NoOCR); err != nil {
+			return nil, err
+		}
+		sp.Settings = st
 	}
 	rows, err := b.tx.Query(b.ctx, `SELECT id::text, parent_id::text, name, created_at, created_by::text
 		FROM entries WHERE space_id=$1 AND kind='folder' ORDER BY created_at, id`, id)

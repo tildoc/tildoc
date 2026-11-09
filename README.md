@@ -119,6 +119,12 @@ Sharing, each variant separately allowed through the matrix:
 | Public link, no account | yes | yes |
 | Drop link: upload only | yes | no |
 
+Each space has settings, all off by default: sign-in links, public links, drop
+links and file shares must be enabled there before they can be used. **Write
+protection** stops all changes, by anyone and on every channel, until it is
+switched off. **No tildoc OCR** stops the OCR and the image-only variant for
+that space. Originals are never changed either way.
+
 Links can have a password and an expiry, are shown once, and stop working when
 their creator loses the rights behind them. Public and drop links are off
 until an administrator enables them. A drop link accepts anonymous uploads, so

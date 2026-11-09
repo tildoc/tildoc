@@ -1,5 +1,5 @@
 <script>
-  import { permLabel } from '#lib/perms.js';
+  import { permLabel, permHelp } from '#lib/perms.js';
   import { get, post, patch, del } from '#lib/api.js';
   import { session, toast, errorToast, prefs, setPref, getTheme, setTheme } from '#lib/state.svelte.js';
   import { date } from '#lib/format.js';
@@ -224,7 +224,7 @@ directory_markers = true` : '');
       </table>
     </div>
     <form onsubmit={createApiKey}>
-      <div class="perms">{#each apiCatalogue as p (p)}<label class="inline"><input type="checkbox" bind:group={apiPerms} value={p} /> {permLabel(p)}</label>{/each}</div>
+      <div class="perms">{#each apiCatalogue as p (p)}<label class="inline" title={permHelp(p)}><input type="checkbox" bind:group={apiPerms} value={p} /> {permLabel(p)}</label>{/each}</div>
       <div class="row newkey">
         <input placeholder="Label, for example backup-script" bind:value={apiLabel} aria-label="API key label" />
         <select bind:value={apiSpace} aria-label="API key space"><option value="">All spaces</option>{#each session.spaces as s}<option value={s.id}>{s.slug}</option>{/each}</select>

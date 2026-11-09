@@ -410,6 +410,7 @@ await step('admin', async () => {
   await page.getByRole('link', { name: 'Administration' }).click();
   await page.locator('.facts').waitFor();
   await page.locator('.tagname', { hasText: 'Steuer 2025' }).waitFor();
+  await page.getByRole('link', { name: 'Access', exact: true }).click();
   await page.getByLabel('Username').fill('bob');
   await page.getByLabel(/^First password/).fill('bobpass12');
   await page.getByRole('button', { name: 'Add person' }).click();
@@ -854,6 +855,8 @@ await step('sharing: restricted viewer, public link, drop link', async () => {
   const f = await api('POST', '/folders', { parent_id: mine.root_folder_id, name: 'Geteilt' });
   const up = await api('PUT', `/folders/${f.id}/files?path=vertraulich.txt`, 'Vertrauliche Zeilen');
   await api('PATCH', '/admin/settings', { public_links: true });
+  const allow = { allow_login_links: true, allow_public_links: true, allow_drop_links: true, allow_file_shares: true, write_protected: false, no_ocr: false };
+  await api('PATCH', `/spaces/${mine.id}/settings`, allow);
 
   // restricted viewer: can read, nothing offers the file
   await api('POST', '/users', { username: 'rita', password: 'ritapass12' });
@@ -913,6 +916,7 @@ await step('sharing: restricted viewer, public link, drop link', async () => {
 await step('transfer a space, shared with me', async () => {
   const sp = await api('POST', '/spaces', { slug: 'uebergabe', name: 'Übergabe' });
   const up = await api('PUT', `/folders/${sp.root_folder_id}/files?path=akte.txt`, 'Aktentext');
+  await api('PATCH', `/spaces/${sp.id}/settings`, { allow_login_links: false, allow_public_links: false, allow_drop_links: false, allow_file_shares: true, write_protected: false, no_ocr: false });
   await api('POST', `/documents/${up.file.document_id}/grants`, { user: 'mia', role: 'viewer' });
   const mc = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const mp = await mc.newPage();
@@ -935,8 +939,29 @@ await step('transfer a space, shared with me', async () => {
   await row('Übergabe').getByRole('button', { name: 'Shared with' }).waitFor();
 });
 
+await step('space settings: off by default, write protection', async () => {
+  const sp = await api('POST', '/spaces', { slug: 'einstellungen', name: 'Einstellungen' });
+  await page.goto(`${BASE}/f/${sp.root_folder_id}`);
+  // links are off: the sharing dialog offers none
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await page.getByRole('dialog').getByText('Links are off for this space').waitFor();
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click();
+  await page.getByRole('button', { name: 'Space settings' }).click();
+  const dlg = page.getByRole('dialog');
+  await dlg.getByLabel('Public links').check();
+  await dlg.getByLabel('Write protection').check();
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await dlg.waitFor({ state: 'detached' });
+  await page.getByText('Read only').waitFor();
+  if (await page.getByRole('button', { name: 'Upload', exact: true }).count()) throw new Error('upload offered in a write-protected space');
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  const opts = await page.getByRole('dialog').getByLabel('Type of link').locator('option').allTextContents();
+  if (opts.length !== 1 || !opts[0].startsWith('Public')) throw new Error(`link types: ${opts}`);
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click();
+});
+
 await step('roles matrix and API key', async () => {
-  await page.goto(`${BASE}/admin`);
+  await page.goto(`${BASE}/access`);
   await page.getByLabel('New role').fill('Prüfer');
   await page.getByRole('button', { name: 'Add role' }).click();
   await page.getByLabel('View for Prüfer').check();

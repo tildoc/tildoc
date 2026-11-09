@@ -288,6 +288,28 @@ func TestWorkerRunLoop(t *testing.T) {
 // A scan that was OCRed elsewhere keeps its text; tildoc adds an
 // image-only variant and its own OCR, and the OCR preference decides which
 // text search uses.
+// A space with "No tildoc OCR" gets neither OCR nor the image-only variant.
+func TestNoOCRSetting(t *testing.T) {
+	requireTool(t, "pdftotext")
+	f := newFx(t)
+	if _, err := f.env.Svc.UpdateSpaceSettings(f.ctx, f.p, f.sp.ID, core.SpaceSettings{NoOCR: true}); err != nil {
+		t.Fatal(err)
+	}
+	scan := f.put(t, "/scan.pdf", testutil.MakePDF(testutil.PDFPage{Text: "Deckblatt digital"}, testutil.PDFPage{Image: "SCANNED PAGE"}))
+	foreign := f.put(t, "/fremd.pdf", testutil.MakePDF(testutil.PDFPage{Image: "INVOICE 4711", OCRText: "Quittung Bravo"}))
+	f.drain(t)
+	d := f.doc(t, scan.DocumentID)
+	if d.Kind != "pdf-mixed" || d.Status != core.StatusDone || d.HasSearchable || len(d.Variants) != 0 {
+		t.Fatalf("scan: kind %s status %s variants %d", d.Kind, d.Status, len(d.Variants))
+	}
+	if f.search(t, "deckblatt") != 1 {
+		t.Fatal("text already in the file stays searchable")
+	}
+	if d := f.doc(t, foreign.DocumentID); d.Status != core.StatusDone || len(d.Variants) != 0 {
+		t.Fatalf("foreign OCR: status %s variants %d", d.Status, len(d.Variants))
+	}
+}
+
 func TestForeignOCRVariantTree(t *testing.T) {
 	f := newFx(t)
 	if _, err := exec.LookPath("pdfimages"); err != nil {

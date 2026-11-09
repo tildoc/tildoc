@@ -13,6 +13,7 @@
   import Prompt from '#lib/components/Prompt.svelte';
   import NewFileMenu from '#lib/components/NewFileMenu.svelte';
   import ShareDialog from '#lib/components/ShareDialog.svelte';
+  import SpaceSettings from '#lib/components/SpaceSettings.svelte';
   import { canShareAny } from '#lib/perms.js';
   import Confirm from '#lib/components/Confirm.svelte';
   import FolderPicker from '#lib/components/FolderPicker.svelte';
@@ -276,6 +277,7 @@
           <button class="ghost" onclick={() => (dialog = { kind: 'mkdir' })}><Icon name="plus" size={16} /> New folder</button>
           <NewFileMenu onpick={(t) => (dialog = { kind: 'newfile', ...t })} />
         {/if}
+        {#if data.space.caps?.includes('manage')}<button class="ghost" onclick={() => (dialog = { kind: 'spacesettings' })}><Icon name="settings" size={16} /> Space settings</button>{/if}
         {#if canShareAny(data.space.caps)}<button class="ghost" onclick={() => (dialog = { kind: 'share' })}><Icon name="link" size={16} /> Share</button>{/if}
         {#if !selected.length}
           <span class="divider" aria-hidden="true"></span>
@@ -336,6 +338,8 @@
   <CollectionPicker count={selRows.filter((r) => r.kind === 'file').length} onpick={addToCollection} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'mkdir'}
   <Prompt title="New folder" confirm="Create" onsubmit={mkdir} onclose={() => (dialog = null)} />
+{:else if dialog?.kind === 'spacesettings'}
+  <SpaceSettings space={data.space} onclose={() => { dialog = null; load(true, true); }} />
 {:else if dialog?.kind === 'share'}
   <ShareDialog space={data.space} folder={data.breadcrumbs.length === 1 ? null : data.folder} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'newfile'}

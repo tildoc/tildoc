@@ -262,6 +262,13 @@ func (s *Service) access(ctx context.Context, l *ShareLink) (*ShareAccess, error
 			return nil, gone
 		}
 	}
+	// the space must (still) allow this kind of link
+	var allowed bool
+	if err := s.DB.QueryRow(ctx, `SELECT CASE $2 WHEN 'login' THEN s.allow_login_links WHEN 'public' THEN s.allow_public_links ELSE s.allow_drop_links END
+		FROM spaces s WHERE s.id = coalesce($1::uuid, (SELECT space_id FROM documents WHERE id = $3::uuid))`,
+		l.SpaceID, l.Kind, l.DocumentID).Scan(&allowed); err != nil || !allowed {
+		return nil, gone
+	}
 	creator, err := s.principalOf(ctx, l.creatorID)
 	if err != nil {
 		return nil, gone

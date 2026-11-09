@@ -74,8 +74,7 @@
     ['/shared', 'link', 'Shared with me'],
     ['/trash', 'trash', 'Trash'],
     ['/spaces', 'space', 'Spaces'],
-    ['/teams', 'users', 'Teams'],
-    ['/settings', 'settings', 'Settings and access']
+    ['/teams', 'users', 'Teams']
   ];
 </script>
 
@@ -132,9 +131,11 @@
         {#each nav as [href, icon, label] (href)}
           <a class="nav" class:active={path === href} {href} aria-current={path === href ? 'page' : undefined}><Icon name={icon} size={17} /> {label}</a>
         {/each}
-        {#if session.user.instance_permissions?.some((p) => p !== 'spaces.create' && p !== 'teams.create')}<a class="nav" class:active={path === '/admin'} href="/admin"><Icon name="shield" size={17} /> Administration</a>{/if}
+        {#if session.user.instance_permissions?.some((p) => p === 'users.manage' || p === 'roles.manage')}<a class="nav" class:active={path === '/access'} href="/access"><Icon name="key" size={17} /> Access</a>{/if}
+        {#if session.user.instance_permissions?.some((p) => ['tags.manage', 'backups.manage', 'settings.manage'].includes(p))}<a class="nav" class:active={path === '/admin'} href="/admin"><Icon name="shield" size={17} /> Administration</a>{/if}
         <div class="me">
           <span class="who" title={session.user.username}>{session.user.display_name || session.user.username}</span>
+          <a class="btn icon" class:on={path === '/settings'} href="/settings" title="Settings and access" aria-label="Settings and access"><Icon name="settings" size={17} /></a>
           <button class="icon" onclick={logout} title="Sign out" aria-label="Sign out"><Icon name="logout" size={17} /></button>
         </div>
       </div>

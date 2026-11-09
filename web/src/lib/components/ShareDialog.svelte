@@ -82,7 +82,7 @@
     <GrantRows url={`/documents/${doc.id}/grants`} scope="file" canEdit={can('people')} held={caps} />
   {:else}
     <p class="muted">The owner{space.team_name ? ` (managers of team ${space.team_name})` : ''} always has every permission. Permissions only add up: someone gets everything their own row and their teams' rows give.</p>
-    <GrantRows url={`/spaces/${space.id}/grants`} scope="space" canEdit={can('people')} held={caps} onchanged={refreshSpaces} />
+    <GrantRows url={`/spaces/${space.id}/grants`} scope="space" canEdit={can('people')} held={space.held_caps ?? caps} onchanged={refreshSpaces} />
   {/if}
 
   <h3>Links</h3>
@@ -119,7 +119,7 @@
     </form>
     {#if kind === 'drop'}<p class="hint">Uploads land in {folder ? `the folder ${folder.name}` : 'the top of the space'}. Visitors see nothing that is already there.</p>{/if}
   {:else if !links.length}
-    <p class="muted">You may not create links here.</p>
+    <p class="muted">{isFile ? 'No links can be made here.' : 'Links are off for this space. They can be enabled in its settings.'}</p>
   {/if}
   <div class="row end"><button onclick={onclose}>Done</button></div>
 </Modal>

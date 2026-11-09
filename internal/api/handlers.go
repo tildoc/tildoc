@@ -57,6 +57,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("POST /api/spaces/{id}/grants", s.authed(s.setGrant))
 	h("DELETE /api/spaces/{id}/grants/{grant}", s.authed(s.deleteGrant))
 	h("POST /api/spaces/{id}/transfer", s.authed(s.transferSpace))
+	h("PATCH /api/spaces/{id}/settings", s.authed(s.updateSpaceSettings))
 	h("GET /api/spaces/{id}/share-links", s.authed(s.listSpaceLinks))
 	h("GET /api/documents/{id}/grants", s.authed(s.listDocGrants))
 	h("POST /api/documents/{id}/grants", s.authed(s.setDocGrant))

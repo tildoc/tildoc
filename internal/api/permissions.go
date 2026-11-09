@@ -84,6 +84,18 @@ func (s *Server) transferSpace(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+func (s *Server) updateSpaceSettings(w http.ResponseWriter, r *http.Request) error {
+	var st core.SpaceSettings
+	if err := readJSON(r, &st); err != nil {
+		return err
+	}
+	sp, err := s.Svc.UpdateSpaceSettings(r.Context(), principal(r), r.PathValue("id"), st)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, 200, sp)
+}
+
 func (s *Server) listDocGrants(w http.ResponseWriter, r *http.Request) error {
 	g, err := s.Svc.ListDocumentGrants(r.Context(), principal(r), r.PathValue("id"))
 	if err != nil {

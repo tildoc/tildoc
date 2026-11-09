@@ -9,28 +9,43 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/tildoc/tildoc/internal/blob"
 	"github.com/tildoc/tildoc/internal/db"
 )
 
 // Space is a top-level container.
 type Space struct {
-	ID           string    `json:"id"`
-	Slug         string    `json:"slug"`
-	Name         string    `json:"name"`
-	OwnerUserID  *string   `json:"owner_user_id"`
-	OwnerTeamID  *string   `json:"owner_team_id"`
-	TeamName     string    `json:"team_name,omitempty"`
-	RootFolderID string    `json:"root_folder_id"`
-	Perm         Perm      `json:"perm"` // highest level, for simple UI checks
-	Role         string    `json:"role"`
-	Caps         []string  `json:"caps"`
-	Shared       bool      `json:"shared"` // access comes from a grant, not ownership/team
-	CreatedAt    time.Time `json:"created_at"`
+	ID           string        `json:"id"`
+	Slug         string        `json:"slug"`
+	Name         string        `json:"name"`
+	OwnerUserID  *string       `json:"owner_user_id"`
+	OwnerTeamID  *string       `json:"owner_team_id"`
+	TeamName     string        `json:"team_name,omitempty"`
+	RootFolderID string        `json:"root_folder_id"`
+	Perm         Perm          `json:"perm"` // highest level, for simple UI checks
+	Role         string        `json:"role"`
+	Caps         []string      `json:"caps"`
+	Shared       bool          `json:"shared"`    // access comes from a grant, not ownership/team
+	HeldCaps     []string      `json:"held_caps"` // before the space's settings take anything away
+	Settings     SpaceSettings `json:"settings"`
+	CreatedAt    time.Time     `json:"created_at"`
+}
+
+// SpaceSettings are off by default: enabling one adds a way of sharing, stops
+// all writing, or stops tildoc's OCR and image-only step.
+type SpaceSettings struct {
+	AllowLoginLinks  bool `json:"allow_login_links"`
+	AllowPublicLinks bool `json:"allow_public_links"`
+	AllowDropLinks   bool `json:"allow_drop_links"`
+	AllowFileShares  bool `json:"allow_file_shares"`
+	WriteProtected   bool `json:"write_protected"`
+	NoOCR            bool `json:"no_ocr"`
 }
 
 const spaceSelect = `
 	SELECT s.id::text, s.slug, s.name, s.owner_user_id::text, s.owner_team_id::text, coalesce(t.name,''),
-	       f.id::text, s.created_at, space_permissions(s.id, $1::uuid),
+	       f.id::text, s.created_at, space_permissions(s.id, $1::uuid), space_permissions_held(s.id, $1::uuid),
+	       s.allow_login_links, s.allow_public_links, s.allow_drop_links, s.allow_file_shares, s.write_protected, s.no_ocr,
 	       NOT (s.owner_user_id IS NOT DISTINCT FROM $1::uuid
 	            OR EXISTS (SELECT 1 FROM team_members m WHERE m.team_id = s.owner_team_id AND m.user_id = $1::uuid))
 	FROM spaces s
@@ -39,14 +54,18 @@ const spaceSelect = `
 
 func scanSpace(row pgx.Row, p *Principal) (*Space, error) {
 	sp := &Space{}
-	var names []string
-	err := row.Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.OwnerUserID, &sp.OwnerTeamID, &sp.TeamName, &sp.RootFolderID, &sp.CreatedAt, &names, &sp.Shared)
+	var names, held []string
+	st := &sp.Settings
+	err := row.Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.OwnerUserID, &sp.OwnerTeamID, &sp.TeamName, &sp.RootFolderID, &sp.CreatedAt, &names, &held,
+		&st.AllowLoginLinks, &st.AllowPublicLinks, &st.AllowDropLinks, &st.AllowFileShares, &st.WriteProtected, &st.NoOCR, &sp.Shared)
 	if err != nil {
 		return nil, err
 	}
 	caps := effectiveCaps(p, sp.ID, capsFromNames(names))
 	sp.Perm, sp.Caps = capsPerm(caps), caps.Names()
-	sp.Role = roleLabel(caps)
+	heldCaps := effectiveCaps(p, sp.ID, capsFromNames(held))
+	sp.HeldCaps = heldCaps.Names()
+	sp.Role = roleLabel(heldCaps) // what they are, whatever the settings allow right now
 	return sp, nil
 }
 
@@ -169,6 +188,60 @@ func addTeamDefaultGrantTx(ctx context.Context, tx pgx.Tx, spaceID, teamID strin
 	_, err := tx.Exec(ctx, `INSERT INTO grants(space_id, team_id, role_id) SELECT $1, $2, id FROM roles WHERE slug='editor'
 		ON CONFLICT (space_id, team_id) WHERE space_id IS NOT NULL AND team_id IS NOT NULL DO NOTHING`, spaceID, teamID)
 	return err
+}
+
+// UpdateSpaceSettings replaces the settings of a space. Switching OCR back
+// on processes the scans that were left without it.
+func (s *Service) UpdateSpaceSettings(ctx context.Context, p *Principal, spaceID string, st SpaceSettings) (*Space, error) {
+	if err := requireSession(p); err != nil {
+		return nil, err
+	}
+	if err := s.requireCap(ctx, s.DB, p, spaceID, CapManage); err != nil {
+		return nil, err
+	}
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		var hadNoOCR bool
+		if err := tx.QueryRow(ctx, `SELECT no_ocr FROM spaces WHERE id=$1 FOR UPDATE`, spaceID).Scan(&hadNoOCR); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE spaces SET allow_login_links=$2, allow_public_links=$3, allow_drop_links=$4, allow_file_shares=$5,
+			write_protected=$6, no_ocr=$7 WHERE id=$1`, spaceID, st.AllowLoginLinks, st.AllowPublicLinks, st.AllowDropLinks, st.AllowFileShares,
+			st.WriteProtected, st.NoOCR); err != nil {
+			return err
+		}
+		if !hadNoOCR || st.NoOCR {
+			return nil
+		}
+		rows, err := tx.Query(ctx, `SELECT DISTINCT encode(v.sha256, 'hex') FROM document_versions v
+			JOIN documents d ON d.id = v.document_id JOIN blob_processing bp ON bp.sha256 = v.sha256
+			WHERE d.space_id = $1 AND bp.status = 'done' AND bp.kind IN ('pdf-scanned', 'pdf-mixed', 'pdf-ocred')`, spaceID)
+		if err != nil {
+			return err
+		}
+		shas, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return err
+		}
+		for _, sha := range shas {
+			if err := enqueueProcess(ctx, tx, sha, true); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.GetSpace(ctx, p, spaceID)
+}
+
+// OCRAllowed: content is stored and processed once, so tildoc's OCR runs if
+// at least one space holding this content allows it.
+func (s *Service) OCRAllowed(ctx context.Context, sha blob.SHA256) (bool, error) {
+	var ok bool
+	err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM document_versions v JOIN documents d ON d.id = v.document_id
+		JOIN spaces s ON s.id = d.space_id WHERE v.sha256 = $1 AND NOT s.no_ocr)`, sha[:]).Scan(&ok)
+	return ok, err
 }
 
 // TransferSpace hands a space to another user or team at once. confirm must

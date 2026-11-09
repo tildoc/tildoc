@@ -6,6 +6,7 @@
   import Confirm from '#lib/components/Confirm.svelte';
   import ShareDialog from '#lib/components/ShareDialog.svelte';
   import TransferDialog from '#lib/components/TransferDialog.svelte';
+  import SpaceSettings from '#lib/components/SpaceSettings.svelte';
   import { canShareAny } from '#lib/perms.js';
   import ImportDialog from '#lib/components/ImportDialog.svelte';
   import Icon from '#lib/components/Icon.svelte';
@@ -15,6 +16,7 @@
   let confirm = $state(null);
   let sharing = $state(null);
   let transferring = $state(null);
+  let settingsFor = $state(null);
   let importing = $state(false);
   $effect(() => { get('/teams').then((t) => (teams = t)).catch(() => {}); });
   let manageable = $derived(teams.filter((t) => t.role === 'manager'));
@@ -75,6 +77,7 @@
                 <a class="btn small ghost" href={`/api/spaces/${s.id}/export?format=zip`} download title="All current files as a ZIP archive">ZIP</a>
                 <a class="btn small ghost" href={`/api/spaces/${s.id}/export?format=bundle`} download title="Everything incl. versions, tags and collections, to import into a tildoc server">Export</a>
               {/if}
+              {#if s.caps.includes('manage')}<button class="small" onclick={() => (settingsFor = s)}>Settings</button>{/if}
               {#if s.caps.includes('transfer')}<button class="small" onclick={() => (transferring = s)}>Transfer</button>{/if}
               {#if s.caps.includes('manage')}<button class="small" onclick={() => rename(s)}>Rename</button>{/if}
               {#if s.caps.includes('manage')}<button class="small ghost" onclick={() => (confirm = s)}>Delete</button>{/if}
@@ -102,6 +105,7 @@
 </div>
 
 {#if sharing}<ShareDialog space={sharing} onclose={() => (sharing = null)} />{/if}
+{#if settingsFor}<SpaceSettings space={settingsFor} onclose={() => (settingsFor = null)} />{/if}
 {#if transferring}<TransferDialog space={transferring} onclose={() => (transferring = null)} />{/if}
 {#if importing}<ImportDialog onclose={() => (importing = false)} />{/if}
 {#if confirm}

@@ -158,7 +158,7 @@ func (s *Service) SetGrant(ctx context.Context, p *Principal, spaceID, user, tea
 	if err := s.requireCap(ctx, s.DB, p, spaceID, CapShareSpacePeople); err != nil {
 		return nil, err
 	}
-	held, err := s.spaceCaps(ctx, s.DB, p, spaceID)
+	held, err := s.heldCaps(ctx, s.DB, p, spaceID)
 	if err != nil {
 		return nil, err
 	}

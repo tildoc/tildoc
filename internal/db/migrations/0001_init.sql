@@ -90,6 +90,14 @@ CREATE TABLE spaces (
     name          text NOT NULL CHECK (btrim(name) = name AND name <> ''),
     owner_user_id uuid REFERENCES users ON DELETE RESTRICT,
     owner_team_id uuid REFERENCES teams ON DELETE CASCADE,
+    -- settings of the space, all off by default: enabling one adds a way of
+    -- sharing, stops all writing, or stops tildoc's OCR and image-only step
+    allow_login_links  boolean NOT NULL DEFAULT false,
+    allow_public_links boolean NOT NULL DEFAULT false,
+    allow_drop_links   boolean NOT NULL DEFAULT false,
+    allow_file_shares  boolean NOT NULL DEFAULT false,
+    write_protected    boolean NOT NULL DEFAULT false,
+    no_ocr             boolean NOT NULL DEFAULT false,
     created_at    timestamptz NOT NULL DEFAULT now(),
     CHECK ((owner_user_id IS NULL) <> (owner_team_id IS NULL))
 );
@@ -212,7 +220,7 @@ CREATE VIEW grant_effective AS
 
 -- the owner has every space permission (a team: its managers); others the
 -- sum of their own grants and their teams' grants
-CREATE FUNCTION space_permissions(sid uuid, uid uuid) RETURNS text[] LANGUAGE sql STABLE AS $$
+CREATE FUNCTION space_permissions_held(sid uuid, uid uuid) RETURNS text[] LANGUAGE sql STABLE AS $$
     SELECT CASE WHEN EXISTS (
         SELECT 1 FROM spaces s WHERE s.id = sid AND (s.owner_user_id = uid OR EXISTS (
             SELECT 1 FROM team_members m WHERE m.team_id = s.owner_team_id AND m.user_id = uid AND m.is_manager)))
@@ -220,6 +228,16 @@ CREATE FUNCTION space_permissions(sid uuid, uid uuid) RETURNS text[] LANGUAGE sq
     ELSE ARRAY(SELECT DISTINCT e.permission FROM grant_effective e WHERE e.space_id = sid AND (
         e.user_id = uid OR e.team_id IN (SELECT team_id FROM team_members WHERE user_id = uid)))
     END
+$$;
+
+-- what can be done now: the space's settings take away what they switch off
+CREATE FUNCTION space_permissions(sid uuid, uid uuid) RETURNS text[] LANGUAGE sql STABLE AS $$
+    SELECT ARRAY(SELECT h FROM spaces s, unnest(space_permissions_held(sid, uid)) h WHERE s.id = sid AND NOT (
+        (s.write_protected AND h IN ('write', 'move', 'delete', 'purge'))
+        OR (NOT s.allow_login_links AND h IN ('share.space.login_link', 'share.file.login_link'))
+        OR (NOT s.allow_public_links AND h IN ('share.space.public_link', 'share.file.public_link'))
+        OR (NOT s.allow_drop_links AND h = 'share.space.drop_link')
+        OR (NOT s.allow_file_shares AND h = 'share.file.people')))
 $$;
 
 CREATE FUNCTION instance_permissions(uid uuid) RETURNS text[] LANGUAGE sql STABLE AS $$
@@ -717,7 +735,9 @@ CREATE FUNCTION document_permissions(doc uuid, uid uuid) RETURNS text[] LANGUAGE
         SELECT unnest(space_permissions(d.space_id, uid)) FROM documents d WHERE d.id = doc
         UNION
         SELECT e.permission FROM grant_effective e
-        WHERE e.document_id = doc AND e.permission IN ('view', 'download', 'write') AND (
+        JOIN documents d ON d.id = e.document_id JOIN spaces s ON s.id = d.space_id
+        WHERE e.document_id = doc AND s.allow_file_shares AND e.permission IN ('view', 'download', 'write')
+          AND NOT (s.write_protected AND e.permission = 'write') AND (
             e.user_id = uid OR e.team_id IN (SELECT team_id FROM team_members WHERE user_id = uid)))
 $$;
 

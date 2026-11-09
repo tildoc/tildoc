@@ -9,6 +9,11 @@ import (
 	"github.com/tildoc/tildoc/internal/core"
 )
 
+func allowSharing(t *testing.T, f *fixture, spaceID string) {
+	t.Helper()
+	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, spaceID, core.SpaceSettings{AllowLoginLinks: true, AllowPublicLinks: true, AllowDropLinks: true, AllowFileShares: true}))
+}
+
 func TestRestrictedViewerCannotGetTheFile(t *testing.T) {
 	f := newFixture(t)
 	doc := f.put(t, f.alice, f.home.ID, "/a.pdf", "%PDF-1.7 secret")
@@ -183,6 +188,7 @@ func TestTransferSpace(t *testing.T) {
 
 func TestFileGrant(t *testing.T) {
 	f := newFixture(t)
+	allowSharing(t, f, f.home.ID)
 	doc := f.put(t, f.alice, f.home.ID, "/Geheim/Ordner/a.txt", "text")
 	other := f.put(t, f.alice, f.home.ID, "/b.txt", "other")
 	id := doc.File.DocumentID
@@ -224,6 +230,7 @@ func TestFileGrant(t *testing.T) {
 func TestShareLinks(t *testing.T) {
 	f := newFixture(t)
 	admin := session(t, f.svc, "admin", "supersecret")
+	allowSharing(t, f, f.home.ID)
 	doc := f.put(t, f.alice, f.home.ID, "/a.txt", "text")
 	id := doc.File.DocumentID
 	pub := core.NewShareLink{DocumentID: id, Kind: "public", Preset: "restricted"}
@@ -318,6 +325,7 @@ func TestDropLink(t *testing.T) {
 	admin := session(t, f.svc, "admin", "supersecret")
 	on := true
 	ck(f.svc.UpdateSettings(f.ctx, admin, core.SettingsUpdate{PublicLinks: &on}))
+	allowSharing(t, f, f.home.ID)
 	f.put(t, f.alice, f.home.ID, "/Eingang/a.txt", "already there")
 	inbox := ck(f.svc.FolderByPath(f.ctx, f.alice, f.home.ID, []string{"Eingang"}))
 	l, token := ck2(f.svc.CreateShareLink(f.ctx, f.alice, core.NewShareLink{SpaceID: f.home.ID, FolderID: inbox.ID, Kind: "drop"}))
@@ -391,4 +399,74 @@ func TestAPIKeys(t *testing.T) {
 	past := time.Now().Add(-time.Hour)
 	_, _, err = f.svc.CreateAPIKey(f.ctx, f.alice, "old", []string{"view"}, nil, &past)
 	wantKind(t, err, core.ErrInvalid)
+}
+
+func TestSpaceSettings(t *testing.T) {
+	f := newFixture(t)
+	admin := session(t, f.svc, "admin", "supersecret")
+	on := true
+	ck(f.svc.UpdateSettings(f.ctx, admin, core.SettingsUpdate{PublicLinks: &on}))
+	doc := f.put(t, f.alice, f.home.ID, "/a.txt", "text")
+
+	// everything off by default: no way of sharing by link or file
+	if st := spaceFor(t, f, f.alice, f.home.ID).Settings; st != (core.SpaceSettings{}) {
+		t.Fatalf("defaults %+v", st)
+	}
+	_, _, err := f.svc.CreateShareLink(f.ctx, f.alice, core.NewShareLink{SpaceID: f.home.ID, Kind: "public", Preset: "view"})
+	wantKind(t, err, core.ErrForbidden)
+	_, err = f.svc.SetDocumentGrant(f.ctx, f.alice, doc.File.DocumentID, "bob", "", "viewer")
+	wantKind(t, err, core.ErrForbidden)
+	// sharing with people on the space itself doesn't need a setting; a
+	// Manager can still be granted although links are off
+	ck(f.svc.SetGrant(f.ctx, f.alice, f.home.ID, "bob", "", "manager"))
+	if sp := spaceFor(t, f, f.bob, f.home.ID); sp.Role != "manager" {
+		t.Fatalf("label follows what is held: %+v", sp)
+	}
+	wantKind(t, errOf(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.bhome.ID, core.SpaceSettings{})), core.ErrNotFound)
+
+	// enabled: works; off again: existing links and file shares stop at once
+	allowSharing(t, f, f.home.ID)
+	l, token := ck2(f.svc.CreateShareLink(f.ctx, f.alice, core.NewShareLink{SpaceID: f.home.ID, Kind: "public", Preset: "view"}))
+	_, sess := ck2(f.svc.OpenShare(f.ctx, token, "", "", nil))
+	ck(f.svc.SetDocumentGrant(f.ctx, f.alice, doc.File.DocumentID, "bob", "", "viewer"))
+	carol := ck(f.svc.CreateUser(f.ctx, admin, "carol", "carolpass", "", false))
+	ck(f.svc.SetDocumentGrant(f.ctx, f.alice, doc.File.DocumentID, carol.Username, "", "viewer"))
+	cp := session(t, f.svc, "carol", "carolpass")
+	ck(f.svc.GetDocument(f.ctx, cp, doc.File.DocumentID))
+	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{}))
+	_, err = f.svc.ResolveShare(f.ctx, l.ID, sess, nil)
+	wantKind(t, err, core.ErrNotFound)
+	_, err = f.svc.GetDocument(f.ctx, cp, doc.File.DocumentID)
+	wantKind(t, err, core.ErrNotFound)
+
+	// write protection: nobody writes, the owner neither, until it is switched off
+	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{WriteProtected: true}))
+	_, err = f.svc.PutFile(f.ctx, f.alice, f.home.ID, []string{"x.txt"}, strings.NewReader("x"), core.PutOptions{})
+	wantKind(t, err, core.ErrForbidden)
+	_, err = f.svc.AddDocumentVersion(f.ctx, f.alice, doc.File.DocumentID, strings.NewReader("y"), "web")
+	wantKind(t, err, core.ErrForbidden)
+	wantKind(t, f.svc.DeleteLink(f.ctx, f.alice, doc.File.LinkID), core.ErrForbidden)
+	ck(f.svc.GetDocument(f.ctx, f.alice, doc.File.DocumentID)) // reading goes on
+	sp := spaceFor(t, f, f.alice, f.home.ID)
+	if sp.Role != "owner" || slices.Contains(sp.Caps, "write") || !slices.Contains(sp.Caps, "manage") {
+		t.Fatalf("write protected %+v", sp)
+	}
+	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{}))
+	f.put(t, f.alice, f.home.ID, "/x.txt", "x")
+
+	// OCR: content is processed once, so one space allowing it is enough
+	same := f.put(t, f.alice, f.home.ID, "/scan.pdf", "%PDF same scan")
+	other := ck(f.svc.CreateSpace(f.ctx, f.alice, "zweite", "", ""))
+	f.put(t, f.alice, other.ID, "/scan.pdf", "%PDF same scan")
+	if !ck(f.svc.OCRAllowed(f.ctx, same.File.SHA256)) {
+		t.Fatal("OCR on by default")
+	}
+	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{NoOCR: true}))
+	if !ck(f.svc.OCRAllowed(f.ctx, same.File.SHA256)) {
+		t.Fatal("the other space still allows it")
+	}
+	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, other.ID, core.SpaceSettings{NoOCR: true}))
+	if ck(f.svc.OCRAllowed(f.ctx, same.File.SHA256)) {
+		t.Fatal("no space allows it")
+	}
 }

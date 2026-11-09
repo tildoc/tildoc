@@ -1268,6 +1268,70 @@ effect without acceptance; personal spaces can be transferred; per space only.
 Also (2026-11-09): drop links are included; the restricted viewer simply offers
 no download or export.
 
+### Phase 25 — Space settings, Access page, permission help
+
+**Goal:** settings on each space; every permission explained where it is shown;
+people and permissions on their own page.
+
+All settings are **off by default**; enabling one adds a way of sharing, stops
+writing, or stops tildoc's processing. Stored on `spaces`, changed with `manage`.
+
+| Setting | When enabled |
+|---|---|
+| Sign-in links, public links, drop links, file shares | that kind of sharing is available (the matrix and the server switch still apply); off again stops existing ones at once |
+| Write protection | nobody, the owner included, can upload, edit, move or delete, by any channel, until it is switched off |
+| No tildoc OCR | no OCR and no image-only variant |
+
+- `space_permissions()` applies the settings to `space_permissions_held()`, so
+  every channel follows. What someone may pass on and their role label use the
+  held permissions.
+- Originals are never changed. Text extraction for search stays.
+- Content is processed once: tildoc's OCR runs if at least one space holding
+  that content allows it. Switching it back on processes that space's scans.
+  Variants that exist already stay.
+- Built-in roles stay as they are.
+
+- [x] 25.1 Schema and core: settings, write protection, links and file shares follow them
+- [x] 25.2 Worker: no OCR or image-only step where switched off
+- [x] 25.3 Settings dialog (space list and folder view)
+- [x] 25.4 Permission descriptions on hover
+- [x] 25.5 Access page, settings icon next to sign-out
+- [x] 25.6 Tests, docs
+
+---
+
+### Phase 26 — Drop-In API token (proposal)
+
+**Goal:** scripts and devices send files into a space with one request.
+
+An API key limited to one thing: a new space permission `drop_in`, bound to one
+space and optionally one folder.
+
+```
+curl -T file.pdf -H "Authorization: Bearer tildoc_…" https://host/api/drop/
+```
+
+- Created in Settings > API keys ("Drop-In") or in the space's sharing dialog; the command is shown with the real token, once.
+- `PUT /api/drop/{name}`: uploads only. Without `view` the key can't list or read anything.
+- Always a new file; an existing name gets a counter, identical content is not merged.
+- Never more than its owner: the key stops if they lose `drop_in`. Optional expiry; last use shown.
+- Editor, Manager and owners hold `drop_in`; a new space setting "Drop-In tokens" (off by default) allows it.
+- Separate from drop links: a link is for people in a browser and needs the public-link switch; a token belongs to an account and doesn't.
+
+---
+
+### Phase 27 — Google login (OIDC) (planned)
+
+Prepared: `identities`, `Authenticator`, `team_links`. Google is the first provider and the reference for others.
+
+- Authorization Code with PKCE; state and nonce checked; ID token verified against Google's keys. `golang.org/x/oauth2` (BSD), `coreos/go-oidc` (Apache-2.0).
+- Configuration: `TILDOC_GOOGLE_CLIENT_ID`, `TILDOC_GOOGLE_CLIENT_SECRET` (`.env` only); without them no Google button. Redirect URI `<public URL>/api/auth/google/callback`.
+- **Approval:** first login creates a pending account (`users.status`: `pending`, `active`). It can't sign in or hold permissions until an administrator approves it on the Access page; declining deletes it. It gets a personal space on approval.
+- Accounts link by Google's `sub`, never by e-mail address. Password login stays.
+- WebDAV, S3 and SFTP use access keys, as for everyone.
+
+To set up: a Google Cloud OAuth client (web application) with that redirect URI.
+
 ## Open Topics
 
 Collected 2026-11-08; each becomes a phase or step when picked up.
@@ -1353,6 +1417,7 @@ Collected 2026-11-08; each becomes a phase or step when picked up.
 | 39 | Office servers | Collabora or ONLYOFFICE, chosen per deployment; one interface (WOPI), ONLYOFFICE's Docs API not used |
 | 40 | Permissions | Permissions fixed in the schema; roles and grants (user or team × role + extras, on a space, file or the instance) are data; only additive; per space, not per folder; Teams kept as the groups |
 | 41 | Sharing | people, sign-in link, public link for spaces and files, drop link for spaces; each its own permission; public links off until enabled; a link never exceeds its creator's current rights |
+| 42 | Space settings | off by default; applied in `space_permissions()`; one "no OCR" setting also stops the image-only step |
 
 ## Open Questions
 

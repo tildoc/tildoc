@@ -4,7 +4,7 @@
   import Icon from './Icon.svelte';
   import { get, post, del } from '../api.js';
   import { errorToast, session } from '../state.svelte.js';
-  import { permLabel } from '../perms.js';
+  import { permLabel, permHelp } from '../perms.js';
 
   let { url, scope, canEdit = false, held = null, onchanged } = $props(); // held: what the caller may give
   let grants = $state([]);
@@ -100,7 +100,7 @@
           <div class="matrix">
             {#each perms as p (p)}
               {@const inRole = fromRole(g).includes(p)}
-              <label class="inline" title={inRole ? 'Comes with the role' : ''}>
+              <label class="inline help" title={permHelp(p)}>
                 <input type="checkbox" checked={inRole || g.permissions.includes(p)} disabled={inRole} onchange={(e) => toggle(g, p, e.currentTarget.checked)} /> {permLabel(p)}
               </label>
             {/each}
@@ -141,6 +141,7 @@
   .line select { width: auto; }
   .who { flex: 1; min-width: 120px; }
   .matrix { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 12px; padding: 10px 0 4px 26px; }
+  .help { cursor: help; }
   .add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
   .add input { flex: 1; min-width: 160px; width: auto; }
   .add select { width: auto; }

@@ -183,16 +183,16 @@ func permCap(want Perm) Cap {
 // capsPerm summarizes permissions as the highest level (for the UI).
 func capsPerm(c Cap) Perm {
 	switch {
+	case !c.Has(CapView):
+		return PermNone
+	case !c.Has(CapWrite): // also for an owner of a write-protected space
+		return PermRead
 	case c.Has(CapManage):
 		return PermManage
 	case c.Has(CapDelete):
 		return PermDelete
-	case c.Has(CapWrite):
-		return PermWrite
-	case c.Has(CapView):
-		return PermRead
 	}
-	return PermNone
+	return PermWrite
 }
 
 // roleLabel names a permission set for display: a built-in role if it matches.
@@ -228,6 +228,16 @@ func (s *Service) spaceCaps(ctx context.Context, q db.Querier, p *Principal, spa
 		return 0, errf(ErrNotFound, "space not found")
 	}
 	if err != nil {
+		return 0, err
+	}
+	return effectiveCaps(p, spaceID, capsFromNames(names)), nil
+}
+
+// heldCaps is what the caller holds on a space before the space's settings
+// take anything away: the limit for what they may pass on.
+func (s *Service) heldCaps(ctx context.Context, q db.Querier, p *Principal, spaceID string) (Cap, error) {
+	var names []string
+	if err := q.QueryRow(ctx, `SELECT space_permissions_held($1::uuid, $2::uuid)`, spaceID, p.userRef()).Scan(&names); err != nil {
 		return 0, err
 	}
 	return effectiveCaps(p, spaceID, capsFromNames(names)), nil

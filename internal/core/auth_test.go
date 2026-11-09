@@ -21,6 +21,8 @@ func ck[T any](v T, err error) T {
 	return v
 }
 
+func errOf[T any](_ T, err error) error { return err }
+
 func ck2[A, B any](a A, b B, err error) (A, B) {
 	if err != nil {
 		panic(err)
