@@ -679,6 +679,47 @@ await step('places across spaces, only readable ones', async () => {
   if (await page.getByRole('button', { name: /Also show in/ }).count()) throw new Error('"Also show in…" still offered');
 });
 
+await step('selection in the URL, shareable', async () => {
+  const spaces = await api('GET', '/spaces');
+  const team = spaces.find((x) => x.name === 'Belege');
+  await page.goto(`${BASE}/f/${team.root_folder_id}`);
+  await page.evaluate(() => (window.__noReload = true));
+  await row('quittung-team.txt').click();
+  await page.waitForURL(/[?&]sel=/);
+  const first = new URL(page.url()).searchParams.get('sel');
+  await page.getByRole('button', { name: 'New folder' }).waitFor();
+  // selecting another file updates the URL, without reloading the page
+  await api('PUT', `/folders/${team.root_folder_id}/files?path=beleg-2.txt`, 'Beleg zwei');
+  await row('beleg-2.txt').click();
+  await page.waitForURL((u) => u.searchParams.get('sel') && u.searchParams.get('sel') !== first);
+  if (!(await page.evaluate(() => window.__noReload))) throw new Error('the page reloaded');
+  // several files selected: no single file in the URL
+  await row('quittung-team.txt').click({ modifiers: ['Control'] });
+  await page.waitForURL((u) => !u.searchParams.has('sel'));
+  await row('beleg-2.txt').click();
+  await page.waitForURL(/[?&]sel=/);
+  const shared = page.url();
+
+  // a colleague with access opens the link: same folder, same file, preview shown
+  const mia = await api('POST', '/users', { username: 'mia', password: 'miapass12' });
+  const grant = await api('POST', `/spaces/${team.id}/grants`, { user: 'mia', role: 'viewer' });
+  const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const p2 = await ctx2.newPage();
+  await p2.request.post(BASE + '/api/auth/login', { data: { username: 'mia', password: 'miapass12' } });
+  await p2.goto(BASE + '/');
+  await p2.evaluate(() => localStorage.setItem('tildoc.peek', 'false')); // she closed the preview before
+  await p2.goto(shared);
+  await p2.locator('tbody tr.sel', { hasText: 'beleg-2.txt' }).waitFor();
+  await p2.locator('aside.peek', { hasText: 'Beleg zwei' }).waitFor();
+  // without access the link opens nothing
+  await api('DELETE', `/spaces/${team.id}/grants/${grant.id}`);
+  await p2.goto(shared);
+  await p2.locator('.empty-state', { hasText: "can't be opened" }).waitFor();
+  if (await p2.getByText('Beleg zwei').count()) throw new Error('content shown without access');
+  await ctx2.close();
+  void mia;
+});
+
 await browser.close();
 if (errors.length) {
   console.error('\nBrowser errors:\n' + errors.join('\n'));

@@ -27,7 +27,9 @@ toggles it). Clicking the file name (or Enter, double click) shows the
 document full-window: continuous pages, thumbnails, zoom, find in document
 with highlighted hits (Ctrl+F), original vs. OCR version, versions and places
 in a details drawer, `[`/`]` for the previous/next document in the folder,
-Esc to close. Ctrl+K searches everywhere; a hit opens on the right page with
+Esc to close. The address bar always names the selected file
+(`/f/<folder>?sel=<file>`); sending that URL opens the same folder with the
+file selected and previewed for anyone who can read the space. Ctrl+K searches everywhere; a hit opens on the right page with
 the terms highlighted. PDFs are rendered with pdf.js; the browser's built-in
 viewer can be chosen instead under *Settings and access → Opening documents*.
 

@@ -1,5 +1,6 @@
 <script>
-  import { openView } from '#lib/nav.js';
+  import { openView, syncSelection } from '#lib/nav.js';
+  import { untrack } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { del, cachedData, revalidate } from '#lib/api.js';
@@ -25,6 +26,7 @@
     error = '';
     const want = page.url.searchParams.get('sel');
     if (!keep) selected = want ? [`l:${want}`] : [];
+    if (!keep && want && d.items?.some((i) => i.link_id === want)) peekOpen = true; // a link to a file shows it (not stored)
   }
 
   async function load(keep = false, quiet = false) {
@@ -49,7 +51,13 @@
 
   $effect(() => {
     id;
-    load();
+    untrack(() => load()); // only the collection id triggers loading, not URL changes
+  });
+
+  // the address bar names the selected file (?sel=), ready to be shared
+  $effect(() => {
+    const sel = single?.kind === 'file' ? single.link_id : null;
+    if (data) untrack(() => syncSelection(sel));
   });
 
   let c = $derived(data?.collection);
