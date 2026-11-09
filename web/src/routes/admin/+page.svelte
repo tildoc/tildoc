@@ -1,4 +1,6 @@
 <script>
+  import Rich from '#lib/i18n/Rich.svelte';
+  import { tx } from '#lib/i18n/index.js';
   import { get, post, patch, del } from '#lib/api.js';
   import { session, toast, errorToast } from '#lib/state.svelte.js';
   import { size, date, statusLabel } from '#lib/format.js';
@@ -24,14 +26,14 @@
   async function startBackup(mode) {
     try {
       await post('/admin/backups', { mode });
-      toast(mode === 'full' ? 'Full backup started' : 'Differential backup started', 'success');
+      toast(mode === 'full' ? tx('admin_full_backup_started') : tx('admin_differential_backup_started'), 'success');
       loadBackups();
     } catch (e) {
       errorToast(e);
     }
   }
   async function deleteBackup(b) {
-    if (!confirm(`Delete the ${b.mode} backup ${b.file || b.id}? The file is removed from the server.`)) return;
+    if (!confirm(tx('admin_delete_the_x_backup_x_the', { mode: b.mode, backup: b.file || b.id }))) return;
     try {
       await del(`/admin/backups/${b.id}`);
       loadBackups();
@@ -56,7 +58,7 @@
   $effect(() => { loadTags().catch(errorToast); });
 
   async function renameTag(t) {
-    const name = prompt('New name for the tag', t.name);
+    const name = prompt(tx('admin_new_name_for_the_tag'), t.name);
     if (!name || name === t.name) return;
     try {
       await patch(`/tags/${t.id}`, { name });
@@ -76,7 +78,7 @@
   async function mergeTag() {
     try {
       await post(`/tags/${mergeFrom.id}/merge`, { into: mergeInto });
-      toast(`Merged ${mergeFrom.name} into ${tags.find((x) => x.id === mergeInto)?.name}`, 'success');
+      toast(tx('admin_merged_x_into_x', { mergeFrom: mergeFrom.name, mergeInto: tags.find((x) => x.id === mergeInto)?.name }), 'success');
       mergeFrom = null;
       mergeInto = '';
       loadTags();
@@ -85,7 +87,7 @@
     }
   }
   async function deleteTag(t) {
-    if (!confirm(`Delete the tag ${t.name}? It is removed from every document on this server.`)) return;
+    if (!confirm(tx('admin_delete_the_tag_x_it_is', { name: t.name }))) return;
     try {
       await del(`/tags/${t.id}`);
       loadTags();
@@ -102,7 +104,7 @@
   async function reprocess(statuses) {
     try {
       const r = await post('/admin/reprocess', { statuses });
-      toast(`Queued ${r.queued} file${r.queued === 1 ? '' : 's'} for processing`, 'success');
+      toast(tx('admin_queued_for_processing', { count: r.queued }), 'success');
       load();
     } catch (e) {
       errorToast(e);
@@ -112,35 +114,35 @@
 
 <div class="page">
   <header>
-    <h1>Administration</h1>
-    <p>Storage, backups and background processing for the whole installation. Administrators cannot open other people’s spaces.</p>
+    <h1>{tx('admin_administration')}</h1>
+    <p>{tx('admin_storage_backups_and_background_processing_for')}</p>
   </header>
   {#if stats}
     <section class="section">
-      <h2>Storage</h2>
+      <h2>{tx('admin_storage')}</h2>
       <dl class="facts">
-        <dt>Documents</dt><dd>{stats.documents}</dd>
-        <dt>In the trash</dt><dd>{stats.trashed}</dd>
-        <dt>Stored files</dt><dd>{stats.blobs}, together {size(stats.blob_bytes)}</dd>
-        <dt>People</dt><dd>{stats.users}</dd>
-        <dt>Spaces</dt><dd>{stats.spaces}</dd>
+        <dt>{tx('admin_documents')}</dt><dd>{stats.documents}</dd>
+        <dt>{tx('admin_in_the_trash')}</dt><dd>{stats.trashed}</dd>
+        <dt>{tx('admin_stored_files')}</dt><dd>{tx('admin_x_together_x', { blobs: stats.blobs, blob_bytes: size(stats.blob_bytes) })}</dd>
+        <dt>{tx('access_people')}</dt><dd>{stats.users}</dd>
+        <dt>{tx('common_spaces')}</dt><dd>{stats.spaces}</dd>
       </dl>
     </section>
     <section class="section">
-      <h2>Text extraction</h2>
+      <h2>{tx('admin_text_extraction')}</h2>
       <div class="row">
         {#each Object.entries(stats.processing) as [k, v]}<span class="pill status {k}">{statusLabel[k] ?? k}: {v}</span>{/each}
-        {#each Object.entries(stats.jobs) as [k, v]}<span class="pill">jobs {k}: {v}</span>{/each}
+        {#each Object.entries(stats.jobs) as [k, v]}<span class="pill">{tx('admin_jobs_x_x', { state: k, number: v })}</span>{/each}
       </div>
       <div class="row" style="margin-top:12px">
-        <button onclick={() => reprocess(['failed'])}>Retry failed</button>
-        <button onclick={() => reprocess(['ocr_pending'])}>Run OCR again where pending</button>
-        <button class="ghost" onclick={() => reprocess([])}>Process everything again</button>
+        <button onclick={() => reprocess(['failed'])}>{tx('admin_retry_failed')}</button>
+        <button onclick={() => reprocess(['ocr_pending'])}>{tx('admin_run_ocr_again_where_pending')}</button>
+        <button class="ghost" onclick={() => reprocess([])}>{tx('admin_process_everything_again')}</button>
       </div>
       {#if stats.failed_jobs.length}
-        <h3 style="margin:18px 0 8px">Failed jobs</h3>
+        <h3 style="margin:18px 0 8px">{tx('admin_failed_jobs')}</h3>
         <div class="table-wrap">
-          <table class="plain"><thead><tr><th>ID</th><th>Kind</th><th>Attempts</th><th>Error</th></tr></thead>
+          <table class="plain"><thead><tr><th>{tx('admin_id')}</th><th>{tx('admin_kind')}</th><th>{tx('admin_attempts')}</th><th>{tx('admin_error')}</th></tr></thead>
             <tbody>{#each stats.failed_jobs as j}<tr><td>{j.id}</td><td>{j.kind}</td><td>{j.attempts}</td><td class="muted">{j.last_error}</td></tr>{/each}</tbody></table>
         </div>
       {/if}
@@ -148,60 +150,60 @@
   {/if}
     {#if can('settings.manage') && settings}
   <section class="section">
-    <h2>Sharing</h2>
-    <label class="inline"><input type="checkbox" checked={settings.public_links} onchange={(e) => saveSetting({ public_links: e.currentTarget.checked }, 'Saved the sharing setting')} /> Allow public and drop links, which work without an account</label>
-    <p class="hint">Turning this off stops all existing public and drop links at once.</p>
+    <h2>{tx('admin_sharing')}</h2>
+    <label class="inline"><input type="checkbox" checked={settings.public_links} onchange={(e) => saveSetting({ public_links: e.currentTarget.checked }, tx('admin_saved_the_sharing_setting'))} /> {tx('admin_allow_public_and_drop_links_which')}</label>
+    <p class="hint">{tx('admin_turning_this_off_stops_all_existing')}</p>
   </section>
   {/if}
   {#if can('backups.manage')}
   <section class="section">
-    <h2>Backups</h2>
-    <p>A <strong>full</strong> backup holds everything: people, teams, spaces with trash and all versions, tags, collections and keys. A <strong>differential</strong> backup holds the same information but only the files added since the last full backup; restoring needs the full backup and the newest differential. Backups stay on the server{settings ? ` in ${settings.backup_dir}` : ''}; copy them elsewhere from the file system. Restoring is done on the command line: <code>tildoc restore FULL [DIFFERENTIAL]</code> into an empty server, with the same <code>TILDOC_MASTER_KEY</code>.</p>
+    <h2>{tx('admin_backups')}</h2>
+    <p><Rich key="admin_backup_kinds" /> {settings ? tx('admin_backup_location_dir', { dir: settings.backup_dir }) : tx('admin_backup_location')} <Rich key="admin_backup_restore" vars={{ command: 'tildoc restore FULL [DIFFERENTIAL]', secret: 'TILDOC_MASTER_KEY' }} /></p>
     <div class="row">
-      <button class="primary" onclick={() => startBackup('full')}>Create full backup</button>
-      <button onclick={() => startBackup('differential')} disabled={!backups.some((b) => b.mode === 'full' && b.status === 'done')}>Create differential backup</button>
+      <button class="primary" onclick={() => startBackup('full')}>{tx('admin_create_full_backup')}</button>
+      <button onclick={() => startBackup('differential')} disabled={!backups.some((b) => b.mode === 'full' && b.status === 'done')}>{tx('admin_create_differential_backup')}</button>
       {#if settings}
-        <label class="inline keep">Keep the last
+        <label class="inline keep">{tx('admin_keep_the_last')}
           <input type="number" min="1" max="100" value={settings.backup_keep}
-            onchange={(e) => saveSetting({ backup_keep: +e.currentTarget.value }, 'Saved how many full backups are kept')} aria-label="Full backups to keep" />
-          full backups (with their differentials)</label>
+            onchange={(e) => saveSetting({ backup_keep: +e.currentTarget.value }, tx('admin_saved_how_many_full_backups_are'))} aria-label={tx('admin_full_backups_to_keep')} />
+          {tx('admin_full_backups_with_their_differentials')}</label>
       {/if}
     </div>
     {#if backups.length}
       <div class="table-wrap" style="margin-top:12px">
         <table class="plain">
-          <thead><tr><th>Started</th><th>Kind</th><th>Status</th><th>Size</th><th>Files</th><th>File</th><th></th></tr></thead>
+          <thead><tr><th>{tx('admin_started')}</th><th>{tx('admin_kind')}</th><th>{tx('access_status')}</th><th>{tx('common_size')}</th><th>{tx('admin_files')}</th><th>{tx('admin_file')}</th><th></th></tr></thead>
           <tbody>
             {#each backups as b (b.id)}
               <tr>
                 <td>{date(b.started_at)}</td>
-                <td>{b.mode === 'full' ? 'Full' : `Differential of ${date(baseOf(b)?.started_at) || 'a deleted backup'}`}</td>
+                <td>{b.mode === 'full' ? tx('admin_full_2') : tx('admin_differential_of_x', { started_at: date(baseOf(b)?.started_at) || tx('admin_a_deleted_backup') })}</td>
                 <td><span class="pill status {b.status === 'done' ? 'done' : b.status === 'failed' ? 'failed' : 'pending'}">{b.status}</span>{#if b.error}<small class="err"> {b.error}</small>{/if}</td>
                 <td>{b.status === 'done' ? size(b.size) : ''}</td>
                 <td>{b.status === 'done' ? b.blob_count : ''}</td>
                 <td class="mono small">{b.file}</td>
-                <td class="actions">{#if b.status === 'done' || b.status === 'failed'}<button class="small ghost" onclick={() => deleteBackup(b)}>Delete</button>{/if}</td>
+                <td class="actions">{#if b.status === 'done' || b.status === 'failed'}<button class="small ghost" onclick={() => deleteBackup(b)}>{tx('common_delete')}</button>{/if}</td>
               </tr>
             {/each}
           </tbody>
         </table>
       </div>
     {:else}
-      <p class="muted">No backups yet.</p>
+      <p class="muted">{tx('admin_no_backups_yet')}</p>
     {/if}
   </section>
   {/if}
 
   {#if can('settings.manage')}
   <section class="section">
-    <h2>OCR</h2>
-    <p>Some PDFs arrive as scans that someone else already ran OCR on. tildoc keeps that text and additionally removes it to run its own OCR on the plain images. Choose which text search and the text view use for these documents.</p>
+    <h2>{tx('admin_ocr')}</h2>
+    <p>{tx('admin_some_pdfs_arrive_as_scans_that')}</p>
     {#if settings}
-      <div class="seg" role="radiogroup" aria-label="Preferred OCR">
+      <div class="seg" role="radiogroup" aria-label={tx('admin_preferred_ocr')}>
         <button role="radio" aria-checked={settings.ocr_preference === 'existing'} class:active={settings.ocr_preference === 'existing'}
-          onclick={() => saveSetting({ ocr_preference: 'existing' }, 'Search now uses the existing OCR text')}>Existing OCR in the file</button>
+          onclick={() => saveSetting({ ocr_preference: 'existing' }, tx('admin_search_now_uses_the_existing_ocr'))}>{tx('admin_existing_ocr_in_the_file')}</button>
         <button role="radio" aria-checked={settings.ocr_preference === 'tildoc'} class:active={settings.ocr_preference === 'tildoc'}
-          onclick={() => saveSetting({ ocr_preference: 'tildoc' }, 'Search now uses tildoc’s OCR')}>tildoc OCR</button>
+          onclick={() => saveSetting({ ocr_preference: 'tildoc' }, tx('admin_search_now_uses_tildoc_s_ocr'))}>{tx('admin_tildoc_ocr')}</button>
       </div>
     {/if}
   </section>
@@ -209,22 +211,22 @@
 
   {#if can('tags.manage')}
   <section class="section">
-    <h2>Tags</h2>
-    <p>One tag list for the whole server. Everyone can create tags; only administrators rename, merge or delete them. Usage counts cover your own spaces only.</p>
+    <h2>{tx('admin_tags')}</h2>
+    <p>{tx('admin_one_tag_list_for_the_whole')}</p>
     {#if tags.length}
       <div class="table-wrap">
         <table class="plain">
-          <thead><tr><th>Tag</th><th>Colour</th><th>Used in your spaces</th><th></th></tr></thead>
+          <thead><tr><th>{tx('admin_tag')}</th><th>{tx('admin_colour')}</th><th>{tx('admin_used_in_your_spaces')}</th><th></th></tr></thead>
           <tbody>
             {#each tags as t (t.id)}
               <tr>
                 <td><span class="tagname"><span class="dot" style:background={t.color || null}></span>{t.name}</span></td>
-                <td><input type="color" aria-label="Colour of {t.name}" value={t.color || '#56636b'} onchange={(e) => colorTag(t, e.currentTarget.value)} /></td>
+                <td><input type="color" aria-label={tx('admin_colour_of', { tag: t.name })} value={t.color || '#56636b'} onchange={(e) => colorTag(t, e.currentTarget.value)} /></td>
                 <td>{t.count}</td>
                 <td class="actions">
-                  <button class="small" onclick={() => renameTag(t)}>Rename</button>
-                  <button class="small" onclick={() => { mergeFrom = t; mergeInto = ''; }} disabled={tags.length < 2}>Merge into…</button>
-                  <button class="small ghost" onclick={() => deleteTag(t)}>Delete</button>
+                  <button class="small" onclick={() => renameTag(t)}>{tx('common_rename')}</button>
+                  <button class="small" onclick={() => { mergeFrom = t; mergeInto = ''; }} disabled={tags.length < 2}>{tx('admin_merge_into')}</button>
+                  <button class="small ghost" onclick={() => deleteTag(t)}>{tx('common_delete')}</button>
                 </td>
               </tr>
             {/each}
@@ -233,17 +235,17 @@
       </div>
       {#if mergeFrom}
         <form class="row merge" onsubmit={(e) => { e.preventDefault(); mergeTag(); }}>
-          <span>Merge <strong>{mergeFrom.name}</strong> into</span>
-          <select bind:value={mergeInto} required aria-label="Target tag">
-            <option value="" disabled>Choose a tag</option>
+          <span><Rich key="admin_merge_into" vars={{ tag: mergeFrom.name }} /></span>
+          <select bind:value={mergeInto} required aria-label={tx('admin_target_tag')}>
+            <option value="" disabled>{tx('admin_choose_a_tag')}</option>
             {#each tags.filter((x) => x.id !== mergeFrom.id) as x (x.id)}<option value={x.id}>{x.name}</option>{/each}
           </select>
-          <button class="primary" disabled={!mergeInto}>Merge tags</button>
-          <button type="button" onclick={() => (mergeFrom = null)}>Cancel</button>
+          <button class="primary" disabled={!mergeInto}>{tx('admin_merge_tags')}</button>
+          <button type="button" onclick={() => (mergeFrom = null)}>{tx('common_cancel')}</button>
         </form>
       {/if}
     {:else}
-      <p class="muted">No tags yet. Tags are added on documents, in the details of the preview or viewer.</p>
+      <p class="muted">{tx('admin_no_tags_yet_tags_are_added')}</p>
     {/if}
   </section>
   {/if}

@@ -10,7 +10,9 @@
     "prebuild": "node scripts/vendor-assets.mjs",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test src/lib/"
+    "test": "node --test src/lib/",
+    "i18n:check": "node scripts/i18n-check.mjs",
+    "i18n:template": "node scripts/i18n-check.mjs --write"
   },
   "devDependencies": {
     "@fontsource-variable/atkinson-hyperlegible-next": "5.3.0",

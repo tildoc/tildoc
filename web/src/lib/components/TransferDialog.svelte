@@ -1,4 +1,6 @@
 <script>
+  import Rich from '#lib/i18n/Rich.svelte';
+  import { tx } from '#lib/i18n/index.js';
   // Hands a space to another user or team, at once.
   import Modal from './Modal.svelte';
   import { get, post } from '../api.js';
@@ -17,7 +19,7 @@
     try {
       await post(`/spaces/${space.id}/transfer`, { ...(who === 'user' ? { user } : { team_id: team }), keep_role: keep, confirm });
       await refreshSpaces();
-      toast(`Transferred ${space.name}`, 'success');
+      toast(tx('transferdialog_transferred_x', { space: space.name }), 'success');
       onclose();
     } catch (err) {
       errorToast(err);
@@ -25,21 +27,21 @@
   }
 </script>
 
-<Modal title={`Transfer ${space.name}`} {onclose}>
+<Modal title={tx('transferdialog_transfer_x', { space: space.name })} {onclose}>
   <form onsubmit={submit}>
-    <p class="muted">The new owner gets every permission at once. This cannot be undone by you unless you keep a role that allows it.</p>
-    <div class="seg" role="radiogroup" aria-label="Transfer to">
-      <button type="button" role="radio" aria-checked={who === 'user'} class:active={who === 'user'} onclick={() => (who = 'user')}>A person</button>
-      <button type="button" role="radio" aria-checked={who === 'team'} class:active={who === 'team'} onclick={() => (who = 'team')}>A team</button>
+    <p class="muted">{tx('transferdialog_the_new_owner_gets_every_permission')}</p>
+    <div class="seg" role="radiogroup" aria-label={tx('transferdialog_transfer_to')}>
+      <button type="button" role="radio" aria-checked={who === 'user'} class:active={who === 'user'} onclick={() => (who = 'user')}>{tx('grantrows_a_person')}</button>
+      <button type="button" role="radio" aria-checked={who === 'team'} class:active={who === 'team'} onclick={() => (who = 'team')}>{tx('grantrows_a_team')}</button>
     </div>
     {#if who === 'user'}
-      <label>New owner<input list="transfer-users" bind:value={user} required /></label>
+      <label>{tx('transferdialog_new_owner')}<input list="transfer-users" bind:value={user} required /></label>
       <datalist id="transfer-users">{#each users as u (u.id)}<option value={u.username}>{u.display_name}</option>{/each}</datalist>
     {:else}
-      <label>New owner<select bind:value={team} required><option value="" disabled>Choose a team</option>{#each teams as t (t.id)}<option value={t.id}>{t.name}</option>{/each}</select></label>
+      <label>{tx('transferdialog_new_owner')}<select bind:value={team} required><option value="" disabled>{tx('grantrows_choose_a_team')}</option>{#each teams as t (t.id)}<option value={t.id}>{t.name}</option>{/each}</select></label>
     {/if}
-    <label>What you keep<select bind:value={keep}><option value="">Nothing</option>{#each roles as r (r.id)}<option value={r.slug}>{r.name}</option>{/each}</select></label>
-    <label>Type <code>{space.slug}</code> to confirm<input bind:value={confirm} autocomplete="off" required /></label>
-    <div class="row end"><button type="button" onclick={onclose}>Cancel</button><button class="primary" disabled={confirm !== space.slug}>Transfer</button></div>
+    <label>{tx('transferdialog_what_you_keep')}<select bind:value={keep}><option value="">{tx('transferdialog_nothing')}</option>{#each roles as r (r.id)}<option value={r.slug}>{r.name}</option>{/each}</select></label>
+    <label><Rich key="transferdialog_type_to_confirm" vars={{ slug: space.slug }} /><input bind:value={confirm} autocomplete="off" required /></label>
+    <div class="row end"><button type="button" onclick={onclose}>{tx('common_cancel')}</button><button class="primary" disabled={confirm !== space.slug}>{tx('spaces_transfer')}</button></div>
   </form>
 </Modal>

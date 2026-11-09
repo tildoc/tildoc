@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   import { goto } from '$app/navigation';
   import { session } from '#lib/state.svelte.js';
   $effect(() => {
@@ -7,4 +8,4 @@
   });
 </script>
 
-<div class="page"><p class="muted">{session.spaces.length ? 'Opening your space…' : 'You have no spaces yet. Create one under Spaces.'}</p></div>
+<div class="page"><p class="muted">{session.spaces.length ? tx('home_opening_your_space') : tx('home_you_have_no_spaces_yet_create')}</p></div>

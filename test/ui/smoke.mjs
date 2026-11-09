@@ -211,7 +211,7 @@ await step('version next to the program name', async () => {
 await step('search by tag', async () => {
   await page.goto(BASE + '/search');
   await page.getByLabel('Tag').selectOption({ label: 'Steuer 2025 (1)' });
-  await page.locator('.total', { hasText: '1 document' }).waitFor();
+  await page.locator('.total', { hasText: /^\s*1 document\s*$/ }).waitFor();
   await page.locator('.results').getByRole('button', { name: 'Handbuch.pdf' }).waitFor();
   if ((await page.locator('.results li').count()) !== 1) throw new Error('tag filter returned more than one document');
   await page.goto(BASE + '/');
@@ -1098,6 +1098,17 @@ await step('text editor: one editor at a time, live hand-over', async () => {
   const doc = await api('GET', `/documents/${up.file.document_id}`);
   if (doc.version !== 3 || doc.versions[0].source !== 'editor' || doc.versions[1].source !== 'web') throw new Error('versions');
   await ctx2.close();
+});
+
+await step('language: chosen in Settings, untranslated text stays English', async () => {
+  await page.goto(`${BASE}/settings`);
+  const pick = page.getByRole('combobox', { name: 'Language' });
+  await Promise.all([page.waitForEvent('load'), pick.selectOption('de-de')]);
+  await page.locator('html[lang="de-de"]').waitFor({ state: 'attached' });
+  await page.getByRole('heading', { name: 'Sprache' }).first().waitFor();
+  await page.getByRole('heading', { name: 'Appearance' }).first().waitFor();
+  await Promise.all([page.waitForEvent('load'), page.getByRole('combobox', { name: 'Sprache' }).selectOption('')]);
+  await page.locator('html[lang="en-us"]').waitFor({ state: 'attached' });
 });
 
 await browser.close();

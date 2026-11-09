@@ -1,7 +1,8 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   import { untrack, onMount } from 'svelte';
   import Modal from './Modal.svelte';
-  let { title, label = 'Name', value = '', confirm = 'OK', onsubmit, onclose } = $props();
+  let { title, label = tx('common_name'), value = '', confirm = 'OK', onsubmit, onclose } = $props();
   let v = $state(untrack(() => value));
   let input;
   // once when the dialog opens: focus and select the name without its
@@ -17,6 +18,6 @@
 <Modal {title} {onclose}>
   <form onsubmit={(e) => { e.preventDefault(); v.trim() && onsubmit(v.trim()); }}>
     <label>{label}<input bind:this={input} bind:value={v} /></label>
-    <div class="row end"><button type="button" onclick={onclose}>Cancel</button><button class="primary" type="submit">{confirm}</button></div>
+    <div class="row end"><button type="button" onclick={onclose}>{tx('common_cancel')}</button><button class="primary" type="submit">{confirm}</button></div>
   </form>
 </Modal>

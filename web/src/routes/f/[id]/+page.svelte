@@ -1,4 +1,6 @@
 <script>
+  import Rich from '#lib/i18n/Rich.svelte';
+  import { tx } from '#lib/i18n/index.js';
   import { openView, syncSelection } from '#lib/nav.js';
   import { untrack } from 'svelte';
   import { page } from '$app/state';
@@ -148,7 +150,7 @@
     try {
       await post(`/collections/${c.id}/items`, { document_ids: docs });
       await refreshCollections();
-      toast(`Added ${docs.length} ${docs.length === 1 ? 'document' : 'documents'} to ${c.name}`, 'success');
+      toast(tx('f_added_to_collection', { count: docs.length, collection: c.name }), 'success');
     } catch (e) {
       errorToast(e);
     }
@@ -188,7 +190,7 @@
     try {
       const res = await post('/bulk/delete', splitKeys(selected));
       if (res.errors.length) toast(`${res.errors.length} failed: ${res.errors[0].error}`, 'error');
-      else toast(`Moved ${res.done} item${res.done === 1 ? '' : 's'} to trash`, 'success');
+      else toast(tx('f_moved_to_trash', { count: res.done }), 'success');
       bumpTree();
       load();
     } catch (e) {
@@ -205,7 +207,7 @@
           if (r.kind === 'folder') await post(`/folders/${r.id}/copy`, { parent_id: target });
           else await post(`/files/${r.link_id}/copy`, { folder_id: target });
         }
-        toast(`Copied ${selRows.length} item(s)`, 'success');
+        toast(tx('f_copied', { count: selRows.length }), 'success');
         bumpTree();
       }
     } catch (e) {
@@ -217,7 +219,7 @@
     try {
       const ids = splitKeys(selected).link_ids;
       await post('/bulk/restore-original', { link_ids: ids });
-      toast('Moved back to the original import location', 'success');
+      toast(tx('f_moved_back_to_the_original_import'), 'success');
       bumpTree();
       load();
     } catch (e) {
@@ -252,56 +254,56 @@
 <svelte:window onkeydown={keydown} />
 
 <div class="browser" class:withpanel={panelFile}>
-  <section class="main" aria-label="Folder contents"
+  <section class="main" aria-label={tx('f_folder_contents')}
     ondragover={(e) => { if (e.dataTransfer.types.includes('Files') && canWrite) { e.preventDefault(); dragging = true; } }}
     ondragleave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) dragging = false; }}
     ondrop={dropFiles}>
     {#if error}
-      <div class="empty-state"><strong>This folder can't be opened</strong>{error}</div>
+      <div class="empty-state"><strong>{tx('f_this_folder_can_t_be_opened')}</strong>{error}</div>
     {:else if data}
       <header class="head">
-        <nav class="crumbs" aria-label="Folder path">
+        <nav class="crumbs" aria-label={tx('f_folder_path')}>
           {#each data.breadcrumbs.slice(0, -1) as c, i (c.id)}
             <button class="link" onclick={() => goto(`/f/${c.id}`)}>{i === 0 ? data.space.name : c.name}</button><span class="sep" aria-hidden="true">/</span>
           {/each}
         </nav>
         <div class="titlerow">
           <h1>{data.breadcrumbs.length === 1 ? data.space.name : data.folder.name}</h1>
-          {#if !canWrite}<span class="pill">Read only</span>{/if}
+          {#if !canWrite}<span class="pill">{tx('f_read_only')}</span>{/if}
         </div>
       </header>
 
-      <div class="toolbar" role="toolbar" aria-label="Folder actions">
+      <div class="toolbar" role="toolbar" aria-label={tx('f_folder_actions')}>
         {#if canWrite}
-          <button class="primary" onclick={() => fileInput.click()} title="Upload files (U)"><Icon name="upload" size={16} /> Upload</button>
-          <button onclick={() => dirInput.click()}><Icon name="folder" size={16} /> Upload folder</button>
-          <button class="ghost" onclick={() => (dialog = { kind: 'mkdir' })}><Icon name="plus" size={16} /> New folder</button>
+          <button class="primary" onclick={() => fileInput.click()} title={tx('f_upload_files_u')}><Icon name="upload" size={16} /> {tx('f_upload')}</button>
+          <button onclick={() => dirInput.click()}><Icon name="folder" size={16} /> {tx('f_upload_folder')}</button>
+          <button class="ghost" onclick={() => (dialog = { kind: 'mkdir' })}><Icon name="plus" size={16} /> {tx('f_new_folder')}</button>
           <NewFileMenu onpick={(t) => (dialog = { kind: 'newfile', ...t })} />
         {/if}
-        {#if data.space.caps?.includes('manage')}<button class="ghost" onclick={() => (dialog = { kind: 'spacesettings' })}><Icon name="settings" size={16} /> Space settings</button>{/if}
-        {#if canShareAny(data.space.caps)}<button class="ghost" onclick={() => (dialog = { kind: 'share' })}><Icon name="link" size={16} /> Share</button>{/if}
+        {#if data.space.caps?.includes('manage')}<button class="ghost" onclick={() => (dialog = { kind: 'spacesettings' })}><Icon name="settings" size={16} /> {tx('f_space_settings')}</button>{/if}
+        {#if canShareAny(data.space.caps)}<button class="ghost" onclick={() => (dialog = { kind: 'share' })}><Icon name="link" size={16} /> {tx('common_share')}</button>{/if}
         {#if !selected.length}
           <span class="divider" aria-hidden="true"></span>
-          {#if data.space.caps?.includes('export')}<a class="btn ghost" href={`/api/folders/${folderId}/export`} download title="This folder with all subfolders as a ZIP archive"><Icon name="download" size={16} /> Export as ZIP</a>{/if}
-          {#if canWrite}<button class="ghost" onclick={() => (dialog = { kind: 'import' })} title="Import a ZIP or a tildoc export into this folder"><Icon name="upload" size={16} /> Import</button>{/if}
+          {#if data.space.caps?.includes('export')}<a class="btn ghost" href={`/api/folders/${folderId}/export`} download title={tx('f_this_folder_with_all_subfolders_as')}><Icon name="download" size={16} /> {tx('f_export_as_zip')}</a>{/if}
+          {#if canWrite}<button class="ghost" onclick={() => (dialog = { kind: 'import' })} title={tx('f_import_a_zip_or_a_tildoc')}><Icon name="upload" size={16} /> {tx('f_import')}</button>{/if}
         {/if}
         {#if selected.length}
           <span class="divider" aria-hidden="true"></span>
           {#if single?.kind === 'file'}
-            <button class="ghost" onclick={() => open(single)}><Icon name="open" size={16} /> Open</button>
-            {#if data.space.caps?.includes('download')}<a class="btn ghost" href={`/api/files/${single.link_id}/content`} download><Icon name="download" size={16} /> Download</a>{/if}
+            <button class="ghost" onclick={() => open(single)}><Icon name="open" size={16} /> {tx('common_open')}</button>
+            {#if data.space.caps?.includes('download')}<a class="btn ghost" href={`/api/files/${single.link_id}/content`} download><Icon name="download" size={16} /> {tx('common_download')}</a>{/if}
           {/if}
-          {#if canWrite && single}<button class="ghost" onclick={() => (dialog = { kind: 'rename' })}><Icon name="edit" size={16} /> Rename</button>{/if}
-          {#if canWrite}<button class="ghost" onclick={() => (dialog = { kind: 'pick', mode: 'move' })}><Icon name="move" size={16} /> Move</button>{/if}
-          <button class="ghost" onclick={() => (dialog = { kind: 'pick', mode: 'copy' })}><Icon name="copy" size={16} /> Copy</button>
+          {#if canWrite && single}<button class="ghost" onclick={() => (dialog = { kind: 'rename' })}><Icon name="edit" size={16} /> {tx('common_rename')}</button>{/if}
+          {#if canWrite}<button class="ghost" onclick={() => (dialog = { kind: 'pick', mode: 'move' })}><Icon name="move" size={16} /> {tx('f_move')}</button>{/if}
+          <button class="ghost" onclick={() => (dialog = { kind: 'pick', mode: 'copy' })}><Icon name="copy" size={16} /> {tx('common_copy')}</button>
           {#if canWrite && selRows.some((r) => r.kind === 'file' && r.original_path !== r.path)}
-            <button class="ghost" onclick={restoreOriginal} title="Move back to where it was imported"><Icon name="restore" size={16} /> Move to original place</button>
+            <button class="ghost" onclick={restoreOriginal} title={tx('f_move_back_to_where_it_was')}><Icon name="restore" size={16} /> {tx('f_move_to_original_place')}</button>
           {/if}
-          {#if selRows.some((r) => r.kind === 'file')}<button class="ghost" onclick={() => (dialog = { kind: 'collect' })}><Icon name="collection" size={16} /> Add to collection</button>{/if}
-          {#if canDelete}<button class="ghost" onclick={() => (dialog = { kind: 'delete' })}><Icon name="trash" size={16} /> Delete</button>{/if}
+          {#if selRows.some((r) => r.kind === 'file')}<button class="ghost" onclick={() => (dialog = { kind: 'collect' })}><Icon name="collection" size={16} /> {tx('common_add_to_collection')}</button>{/if}
+          {#if canDelete}<button class="ghost" onclick={() => (dialog = { kind: 'delete' })}><Icon name="trash" size={16} /> {tx('common_delete')}</button>{/if}
         {/if}
         {#if single?.kind === 'file' && !peekOpen}
-          <button class="ghost peekbtn" onclick={() => peek(single)} title="Show preview (Space)"><Icon name="panel" size={16} /> Preview</button>
+          <button class="ghost peekbtn" onclick={() => peek(single)} title={tx('f_show_preview_space')}><Icon name="panel" size={16} /> {tx('f_preview')}</button>
         {/if}
       </div>
 
@@ -309,8 +311,8 @@
         ondropon={(keys, row) => canWrite && moveKeys(keys, row.id).catch(errorToast)}>
         {#snippet empty()}
           <div class="empty-state">
-            <strong>This folder is empty</strong>
-            {#if canWrite}Drop files or whole folders here, or press <kbd>U</kbd> to upload. Folder structure is kept.{:else}Nothing has been added here yet.{/if}
+            <strong>{tx('f_this_folder_is_empty')}</strong>
+            {#if canWrite}<Rich key="f_drop_files_here" vars={{ key: 'U' }} />{:else}{tx('f_nothing_has_been_added_here_yet')}{/if}
           </div>
         {/snippet}
       </FileTable>
@@ -318,8 +320,8 @@
       {#if dragging}
         <div class="dropzone" aria-hidden="true">
           <Icon name="upload" size={36} />
-          <p>Drop to upload into <strong>{data.breadcrumbs.length === 1 ? data.space.name : data.folder.name}</strong></p>
-          <small>Folders keep their structure. Files that are already stored are only added as another place.</small>
+          <p><Rich key="f_drop_to_upload_into" vars={{ folder: data.breadcrumbs.length === 1 ? data.space.name : data.folder.name }} /></p>
+          <small>{tx('f_folders_keep_their_structure_files_that')}</small>
         </div>
       {/if}
     {/if}
@@ -338,22 +340,22 @@
 {:else if dialog?.kind === 'collect'}
   <CollectionPicker count={selRows.filter((r) => r.kind === 'file').length} onpick={addToCollection} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'mkdir'}
-  <Prompt title="New folder" confirm="Create" onsubmit={mkdir} onclose={() => (dialog = null)} />
+  <Prompt title={tx('f_new_folder')} confirm={tx('f_create')} onsubmit={mkdir} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'spacesettings'}
   <SpaceSettings space={data.space} onclose={() => { dialog = null; load(true, true); }} />
 {:else if dialog?.kind === 'share'}
   <ShareDialog space={data.space} folder={data.breadcrumbs.length === 1 ? null : data.folder} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'newfile'}
-  <Prompt title={`New ${dialog.label}`} value={`Untitled.${dialog.ext || 'txt'}`} confirm="Create" onsubmit={newFile} onclose={() => (dialog = null)} />
+  <Prompt title={tx('f_new_x', { label: dialog.label })} value={`Untitled.${dialog.ext || 'txt'}`} confirm={tx('f_create')} onsubmit={newFile} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'rename'}
-  <Prompt title="Rename" value={single.name} confirm="Rename" onsubmit={rename} onclose={() => (dialog = null)} />
+  <Prompt title={tx('common_rename')} value={single.name} confirm={tx('common_rename')} onsubmit={rename} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'delete'}
-  <Confirm title="Delete" danger confirm="Move to trash"
-    message={`Move ${selected.length} item(s) to the trash? Documents that also appear elsewhere (links) stay available there.`}
+  <Confirm title="Delete" danger confirm={tx('f_move_to_trash')}
+    message={tx('f_confirm_trash', { count: selected.length })}
     onconfirm={remove} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'pick'}
-  <FolderPicker title={{ move: 'Move to…', copy: 'Copy to…' }[dialog.mode]}
-    confirm={{ move: 'Move here', copy: 'Copy here' }[dialog.mode]}
+  <FolderPicker title={{ move: tx('f_move_to'), copy: tx('f_copy_to') }[dialog.mode]}
+    confirm={{ move: tx('f_move_here'), copy: tx('f_copy_here') }[dialog.mode]}
     spaceId={data.space.id} exclude={selRows.filter((r) => r.kind === 'folder').map((r) => r.id)}
     onpick={(t) => pickTarget(t, dialog.mode)} onclose={() => (dialog = null)} />
 {/if}

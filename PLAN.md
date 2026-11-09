@@ -1359,6 +1359,123 @@ productivation (to be defined) importing older exports is mandatory.
 - [x] 28.9 Sealed secrets carry a key version; per-space encryption keys ruled out
 - [x] 28.10 Real lint bugs fixed
 
+### Phase 29 — Translations
+
+**Goal:** the English text moves out of the code into `en-us`, so that others
+can contribute translations from a template. Decided: UI only for now (server
+messages stay English), contributions by pull request, Weblate-compatible files.
+
+No library: `web/src/lib/i18n/index.js` (`tx`, `labels`, `txParts`).
+Format: i18next JSON v4 (flat keys, `{{name}}`, `key_one` / `key_other` / …).
+
+```
+web/src/lib/i18n/locales/en-us.json     source of truth
+web/src/lib/i18n/locales/template.json  generated: same keys, empty values
+web/src/lib/i18n/locales/<locale>.json  one file per translation
+```
+
+```mermaid
+flowchart LR
+  code["tx('key') / Rich key=..."] --> lookup
+  lookup -->|chosen language| tr[de-de.json]
+  lookup -->|missing or empty| en[en-us.json]
+  tpl[template.json] -->|copy, translate, PR| tr
+  en -->|npm run i18n:template| tpl
+```
+
+- Translations load on demand; a missing or empty text falls back to English.
+- Language: `users.locale` (Settings), else the browser's. English keeps the browser's date and number formats.
+- Sentences with inline emphasis stay whole: `<strong>`, `<code>`, `<kbd>` in the text, rendered by `Rich.svelte` without `{@html}`.
+- `npm run i18n:check`: runs in `npm test` and CI.
+
+- [x] 29.1 `tx()`, locale loading, fallback, language setting (`users.locale`, breaking schema change)
+- [x] 29.2 Move all UI text into `en-us.json`
+- [x] 29.3 Template generator and `i18n:check`, in tests and CI
+- [x] 29.4 `docs/translating.md`, tests (browser test switches to a fixture translation)
+- [ ] 29.5 Server messages: stable codes the UI translates (later)
+
+### Phase 30 — Public REST API v1 and append-only spaces
+
+**Goal:** a complete, stable REST API under `/api/v1` that any application can
+use as its document store, next to S3, WebDAV and SFTP; and spaces that only
+accept new documents. tildoc stays independent: no client application is named
+or special-cased in code, schema, docs or tests. Status: proposal, questions open.
+
+#### Append-only
+
+`spaces.write_protected` becomes one column, because the states exclude each other:
+
+| `write_policy` | New documents | Change, rename, move, delete |
+|---|---|---|
+| `open` (default) | yes | yes |
+| `append_only` | yes | no |
+| `read_only` (today's write protection) | no | no |
+
+- New permission `add` (new documents and folders); `write` now only changes what exists. Every role with `write` also gets `add`. A key with only `add` can upload but never overwrite.
+- `space_permissions()` removes `write`, `move`, `delete`, `purge` under `append_only`, and `add` too under `read_only`. Every protocol goes through `core`, so all are covered.
+- Still possible under `append_only`: Drop-In, OCR and derived variants (originals stay untouched).
+- Enforced in the database as well: triggers refuse changing or deleting links and versions in an `append_only` space.
+- Known limit: clients that upload to a temporary name and rename afterwards (rclone over WebDAV/SFTP without `--inplace`, some desktop clients) fail, because a rename is a change. S3 is not affected.
+
+#### API v1
+
+- New package `internal/api/v1`, only through `core`, with its own response types, so internal changes can't alter the contract.
+- API keys only (`Authorization: Bearer tildoc_…`); no cookies, no CSRF surface. Keys keep their permission and space limits.
+- Contract: `docs/api/openapi.json` (OpenAPI 3.1; JSON so that tests need no YAML library), served at `/api/v1/openapi.json`.
+- Errors: `{ "code": "...", "message": "..." }` with a documented list of codes. Lists: `?limit=&cursor=`.
+- Stability: within v1 only additions; breaking changes need v2. Binding from productivation, like the export format.
+
+| Resource | Operations |
+|---|---|
+| me | key's user, permissions and spaces |
+| spaces | list, get |
+| folders | create, get with paged children, find by path, rename/move, copy, delete, export |
+| files (links) | upload by path, get, content, rename/move, copy, delete |
+| documents | get, content (Range, ETag), text, versions, new version, restore version, delete version, extra link |
+| external references | put (create or new version), get, list, delete the reference |
+| tags, collections | list, create, change, delete; tag and untag documents; collection items |
+| share links | list, create, revoke |
+| trash | list, restore, delete for good |
+| search, events | search; SSE stream, filtered as in the UI |
+
+Not in v1: administration (users, teams, roles, grants, backups, settings, audit), login, API key management, office sessions, edit leases.
+
+```mermaid
+flowchart LR
+  app[Any application] -->|API key| v1[internal/api/v1]
+  ui[Web UI] --> api[internal/api]
+  s3[S3 / WebDAV / SFTP] --> core
+  v1 --> core[internal/core]
+  api --> core
+  core --> db[(PostgreSQL + blobs)]
+```
+
+**External references** (new glossary term): an application's own id for a document, so retries are safe.
+
+```
+PUT /api/v1/spaces/{space}/external/{source}/{ref}?path=Invoices/2026/42.pdf
+    Content-Type, X-Content-SHA256, If-Match (all but the first optional); raw body
+201 created | 200 same content (nothing new) or new version
+403 append_only | 412 If-Match failed | 422 hash mismatch
+```
+
+Table `external_refs(space_id, source, ref, document_id)`, unique on the first three; in backups and bundles.
+
+#### Steps
+
+- [ ] 30.1 Schema: `write_policy`, permission `add`, triggers, `external_refs`; backup and bundle; breaking, dev stacks are recreated
+- [ ] 30.2 `core`: `add` / `write` split on every path; checksum and If-Match on upload; external references
+- [ ] 30.3 Space settings UI: three-way choice, permission help, translations
+- [ ] 30.4 `internal/api/v1`, error codes, cursors, every route above
+- [ ] 30.5 `openapi.json`, stability policy, `docs/api.md` with curl examples
+- [ ] 30.6 Tests: every route against real Postgres; contract test (routes and OpenAPI paths match both ways, responses match their schemas); append-only over REST, WebDAV, S3 and SFTP (`make e2e`)
+
+#### Open questions (recommendation first)
+
+1. Switching `append_only` off: **allowed with `manage`, written to the audit log** / one-way, the space can then never shrink.
+2. Tags and collections in an `append_only` space: **allowed, they describe a document and don't change it** / frozen too.
+3. Scope of v1: **documents and their organisation, as listed; administration stays out** / also users, teams, roles and grants.
+
 ## Open Topics
 
 Collected 2026-11-08; each becomes a phase or step when picked up.
@@ -1447,6 +1564,7 @@ Collected 2026-11-08; each becomes a phase or step when picked up.
 | 42 | Space settings | off by default; applied in `space_permissions()`; one "no OCR" setting also stops the image-only step |
 | 43 | Export compatibility | development: only the current format; from productivation (to be defined) importing older exports is mandatory |
 | 44 | Encryption scope | instance-level only; no per-space keys |
+| 45 | Translations | UI first, server messages stay English for now; pull requests on i18next JSON files, compatible with Weblate |
 
 ## Open Questions
 

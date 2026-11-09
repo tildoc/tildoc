@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   import { untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import TagChips from './TagChips.svelte';
@@ -193,20 +194,20 @@
 
 <div class="wrap">
   <div class="tools">
-    <span class="count">{rows.length} item{rows.length === 1 ? '' : 's'}{selected.length ? `, ${selected.length} selected` : ''}</span>
+    <span class="count">{selected.length ? tx('filetable_items_selected', { count: rows.length, selected: selected.length }) : tx('filetable_items', { count: rows.length })}</span>
     <div class="chooser">
-      <button class="ghost small" onclick={() => (chooser = !chooser)} aria-expanded={chooser}><Icon name="columns" size={15} /> Columns</button>
+      <button class="ghost small" onclick={() => (chooser = !chooser)} aria-expanded={chooser}><Icon name="columns" size={15} /> {tx('filetable_columns')}</button>
       {#if chooser}
         <div class="menu" role="menu">
           {#each [...cfg.columns, ...Object.keys(COLUMNS).filter((c) => !cfg.columns.includes(c))] as c (c)}
             <div class="opt">
               <label><input type="checkbox" checked={cfg.columns.includes(c)} disabled={COLUMNS[c].always} onchange={() => toggleColumn(c)} /> {COLUMNS[c].label}</label>
               {#if cfg.columns.includes(c) && !COLUMNS[c].always}
-                <span><button class="icon" onclick={() => moveColumn(c, -1)} aria-label="Move left"><Icon name="up" size={14} /></button><button class="icon" onclick={() => moveColumn(c, 1)} aria-label="Move right"><Icon name="down" size={14} /></button></span>
+                <span><button class="icon" onclick={() => moveColumn(c, -1)} aria-label={tx('filetable_move_left')}><Icon name="up" size={14} /></button><button class="icon" onclick={() => moveColumn(c, 1)} aria-label={tx('filetable_move_right')}><Icon name="down" size={14} /></button></span>
               {/if}
             </div>
           {/each}
-          <button class="ghost small" onclick={() => (chooser = false)}>Done</button>
+          <button class="ghost small" onclick={() => (chooser = false)}>{tx('common_done')}</button>
         </div>
       {/if}
     </div>
@@ -216,7 +217,7 @@
     <table>
       <thead>
         <tr>
-          <th class="check"><input type="checkbox" aria-label="Select all" checked={rows.length > 0 && selected.length === rows.length} onchange={toggleAll} /></th>
+          <th class="check"><input type="checkbox" aria-label={tx('filetable_select_all')} checked={rows.length > 0 && selected.length === rows.length} onchange={toggleAll} /></th>
           {#each cfg.columns as c (c)}
             <th class="c-{c}" class:right={COLUMNS[c].align === 'right'} class:secondary={c !== 'name'}>
               <button class="sort" onclick={() => sortBy(c)}>{COLUMNS[c].label}{#if sortable && cfg.sort === c}<span class="arrow">{cfg.desc ? '▾' : '▴'}</span>{/if}</button>
@@ -231,18 +232,18 @@
           <tr data-key={row.key} aria-selected={selected.includes(row.key)} class:sel={selected.includes(row.key)} class:over={dragOver === row.key} draggable="true"
             onclick={(e) => click(e, row, i)} ondblclick={() => onopen?.(row)}
             ondragstart={(e) => dragstart(e, row)} ondragover={(e) => dragover(e, row)} ondragleave={() => (dragOver = null)} ondrop={(e) => drop(e, row)}>
-            <td class="check"><input type="checkbox" checked={selected.includes(row.key)} onclick={(e) => e.stopPropagation()} onchange={() => toggle(row, i)} aria-label="Select" /></td>
+            <td class="check"><input type="checkbox" checked={selected.includes(row.key)} onclick={(e) => e.stopPropagation()} onchange={() => toggle(row, i)} aria-label={tx('filetable_select')} /></td>
             {#each cfg.columns as c (c)}
               {#if c === 'name'}
                 <td class="name"><div class="namecell">
                   <span class="ic {iconFor(row)}"><Icon name={iconFor(row)} /></span>
                   <span class="nm">
-                    <button class="link" title={row.kind === 'folder' ? 'Open folder' : 'Open document'} onclick={(e) => { e.stopPropagation(); onopen?.(row); }}
+                    <button class="link" title={row.kind === 'folder' ? tx('filetable_open_folder') : tx('filetable_open_document')} onclick={(e) => { e.stopPropagation(); onopen?.(row); }}
                       onpointerenter={() => preloadDoc(row)} onpointerleave={cancelPreload} onfocus={() => preloadDoc(row)}>{row.name}</button>
-                    <small class="mobile-meta">{row.kind === 'folder' ? 'Folder' : `${size(row.size)}, ${date(row.modified_at)}`}</small>
+                    <small class="mobile-meta">{row.kind === 'folder' ? tx('filetable_folder') : `${size(row.size)}, ${date(row.modified_at)}`}</small>
                   </span>
-                  {#if row.link_count > 1}<span class="badge" title="Appears in {row.link_count} places"><Icon name="link" size={12} />{row.link_count}</span>{/if}
-                  {#if row.in_office}<span class="badge" title="Open in Office. A new version follows when everyone has closed it.">In Office</span>{/if}
+                  {#if row.link_count > 1}<span class="badge" title={tx('filetable_appears_in', { count: row.link_count })}><Icon name="link" size={12} />{row.link_count}</span>{/if}
+                  {#if row.in_office}<span class="badge" title={tx('filetable_open_in_office_a_new_version')}>{tx('filetable_in_office')}</span>{/if}
                   {#if row.tags?.length}<span class="tags"><TagChips tags={row.tags} small /></span>{/if}
                 </div></td>
               {:else}
@@ -253,7 +254,7 @@
             {/each}
           </tr>
         {:else}
-          <tr><td class="empty" colspan={cfg.columns.length + 1}>{#if empty}{@render empty()}{:else}Nothing here.{/if}</td></tr>
+          <tr><td class="empty" colspan={cfg.columns.length + 1}>{#if empty}{@render empty()}{:else}{tx('filetable_nothing_here')}{/if}</td></tr>
         {/each}
         {#if virtual && last < sorted.length}<tr class="spacer" aria-hidden="true" style:height="{(sorted.length - last) * rowH}px"><td colspan={cfg.columns.length + 1}></td></tr>{/if}
       </tbody>

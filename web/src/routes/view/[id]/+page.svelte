@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // Full-window document viewer: /view/<linkId>?page=&q=&v=
   import { openView } from '#lib/nav.js';
   import { tick, untrack } from 'svelte';
@@ -233,17 +234,17 @@
   const spaceSlug = $derived(session.spaces.find((s) => s.id === file?.space_id)?.slug ?? '');
 </script>
 
-<svelte:head><title>{file ? `${file.name} – tildoc` : 'tildoc'}</title></svelte:head>
+<svelte:head><title>{file ? tx('view_x_tildoc', { file: file.name }) : 'tildoc'}</title></svelte:head>
 <svelte:window onkeydown={keydown} />
 
 <div class="viewer" class:withinfo={info && doc}>
   <header class="bar">
     <div class="left">
-      <button class="icon" onclick={close} aria-label="Close viewer" title="Close (Esc)"><Icon name="close" /></button>
+      <button class="icon" onclick={close} aria-label={tx('view_close_viewer')} title={tx('view_close_esc')}><Icon name="close" /></button>
       {#if file}
         <div class="title">
           <h1 title={file.name}>{file.name}</h1>
-          <span class="where" title="{spaceSlug}{file.path}">{collectionName ? `In collection ${collectionName}, from ` : ''}{spaceSlug}{file.path.slice(0, file.path.length - file.name.length - 1) || '/'}</span>
+          <span class="where" title="{spaceSlug}{file.path}">{collectionName ? tx('view_in_collection_x_from', { collectionName }) : ''}{spaceSlug}{file.path.slice(0, file.path.length - file.name.length - 1) || '/'}</span>
         </div>
       {/if}
     </div>
@@ -251,42 +252,42 @@
     {#if doc}
       <div class="mid">
         {#if caps.pages}
-          <button class="icon hide-sm" class:on={thumbs} onclick={toggleThumbs} aria-pressed={thumbs} aria-label="Page thumbnails" title="Page thumbnails (T)"><Icon name="pages" /></button>
+          <button class="icon hide-sm" class:on={thumbs} onclick={toggleThumbs} aria-pressed={thumbs} aria-label={tx('view_page_thumbnails')} title={tx('view_page_thumbnails_t')}><Icon name="pages" /></button>
           <form class="pager" onsubmit={submitPage}>
-            <button type="button" class="icon" onclick={() => view?.goTo(page - 1)} disabled={page <= 1} aria-label="Previous page"><Icon name="up" size={16} /></button>
-            <input aria-label="Page" inputmode="numeric" bind:value={pageInput} onfocus={(e) => e.currentTarget.select()} />
-            <span>of {numPages || '…'}</span>
-            <button type="button" class="icon" onclick={() => view?.goTo(page + 1)} disabled={page >= numPages} aria-label="Next page"><Icon name="down" size={16} /></button>
+            <button type="button" class="icon" onclick={() => view?.goTo(page - 1)} disabled={page <= 1} aria-label={tx('view_previous_page')}><Icon name="up" size={16} /></button>
+            <input aria-label={tx('view_page')} inputmode="numeric" bind:value={pageInput} onfocus={(e) => e.currentTarget.select()} />
+            <span>{tx('view_of_x', { numPages: numPages || '…' })}</span>
+            <button type="button" class="icon" onclick={() => view?.goTo(page + 1)} disabled={page >= numPages} aria-label={tx('view_next_page')}><Icon name="down" size={16} /></button>
           </form>
         {/if}
         {#if caps.zoom}
           <div class="zoom">
-            <button class="icon hide-sm" onclick={() => zoomBy(-1)} aria-label="Zoom out" title="Zoom out (−)"><Icon name="zoom-out" /></button>
-            <select aria-label="Zoom" value={zoomSelect} onchange={(e) => (zoom = e.currentTarget.value === 'custom' ? scale : e.currentTarget.value)}>
-              <option value="auto">Automatic</option>
-              <option value="width">Fit width</option>
-              <option value="page">Fit page</option>
+            <button class="icon hide-sm" onclick={() => zoomBy(-1)} aria-label={tx('view_zoom_out')} title={tx('view_zoom_out_2')}><Icon name="zoom-out" /></button>
+            <select aria-label={tx('view_zoom')} value={zoomSelect} onchange={(e) => (zoom = e.currentTarget.value === 'custom' ? scale : e.currentTarget.value)}>
+              <option value="auto">{tx('view_automatic')}</option>
+              <option value="width">{tx('view_fit_width')}</option>
+              <option value="page">{tx('view_fit_page')}</option>
               <option value="custom">{Math.round(scale * 100)} %</option>
             </select>
-            <button class="icon hide-sm" onclick={() => zoomBy(1)} aria-label="Zoom in" title="Zoom in (+)"><Icon name="zoom-in" /></button>
-            {#if caps.pages}<button class="icon hide-sm" onclick={() => view?.rotate()} aria-label="Rotate view" title="Rotate view"><Icon name="rotate" /></button>{/if}
+            <button class="icon hide-sm" onclick={() => zoomBy(1)} aria-label={tx('view_zoom_in')} title={tx('view_zoom_in_2')}><Icon name="zoom-in" /></button>
+            {#if caps.pages}<button class="icon hide-sm" onclick={() => view?.rotate()} aria-label={tx('view_rotate_view')} title={tx('view_rotate_view')}><Icon name="rotate" /></button>{/if}
           </div>
         {/if}
       </div>
 
       <div class="right">
-        {#if canShareFile}<button class="icon" onclick={() => (sharing = true)} aria-label="Share" title="Share this file"><Icon name="link" /></button>{/if}
+        {#if canShareFile}<button class="icon" onclick={() => (sharing = true)} aria-label={tx('common_share')} title={tx('view_share_this_file')}><Icon name="link" /></button>{/if}
         {#if canOfficeEdit}
-          <button class:on={officeEdit} onclick={() => (officeEdit = !officeEdit)} title="A new version follows when you leave the editor">{officeEdit ? 'Back to PDF viewer' : 'Edit in Office'}</button>
+          <button class:on={officeEdit} onclick={() => (officeEdit = !officeEdit)} title={tx('view_a_new_version_follows_when_you')}>{officeEdit ? tx('view_back_to_pdf_viewer') : tx('peekpanel_edit_in_office')}</button>
         {/if}
-        {#if caps.find}<button class="icon" class:on={findOpen} onclick={() => (findOpen ? closeFind() : openFind())} aria-label="Find in document" title="Find in document (Ctrl+F)"><Icon name="search" /></button>{/if}
+        {#if caps.find}<button class="icon" class:on={findOpen} onclick={() => (findOpen ? closeFind() : openFind())} aria-label={tx('view_find_in_document')} title={tx('view_find_in_document_ctrl_f')}><Icon name="search" /></button>{/if}
         {#if siblings.length > 1}
-          <button class="icon" onclick={() => openSibling(prevDoc)} disabled={!prevDoc} aria-label="Previous document" title={collectionName ? 'Previous document in collection ([)' : 'Previous document in folder ([)'}><Icon name="left" /></button>
-          <button class="icon" onclick={() => openSibling(nextDoc)} disabled={!nextDoc} aria-label="Next document" title={collectionName ? 'Next document in collection (])' : 'Next document in folder (])'}><Icon name="right" /></button>
+          <button class="icon" onclick={() => openSibling(prevDoc)} disabled={!prevDoc} aria-label={tx('view_previous_document')} title={collectionName ? tx('view_previous_document_in_collection') : tx('view_previous_document_in_folder')}><Icon name="left" /></button>
+          <button class="icon" onclick={() => openSibling(nextDoc)} disabled={!nextDoc} aria-label={tx('view_next_document')} title={collectionName ? tx('view_next_document_in_collection') : tx('view_next_document_in_folder')}><Icon name="right" /></button>
         {/if}
-        <button class="icon" class:on={info} onclick={toggleInfo} aria-pressed={info} aria-label="Document details" title="Details (I)"><Icon name="panel" /></button>
+        <button class="icon" class:on={info} onclick={toggleInfo} aria-pressed={info} aria-label={tx('view_document_details')} title={tx('view_details_i')}><Icon name="panel" /></button>
         {#if canDownload(doc)}
-        <a class="btn icon" href={`/api/files/${linkId}/content`} download aria-label="Download original" title="Download the original file"><Icon name="download" /></a>
+        <a class="btn icon" href={`/api/files/${linkId}/content`} download aria-label={tx('view_download_original')} title={tx('view_download_the_original_file')}><Icon name="download" /></a>
         {/if}
       </div>
     {/if}
@@ -295,22 +296,22 @@
   {#if findOpen && caps.find}
     <div class="find" role="search">
       <Icon name="search" size={16} />
-      <input bind:this={findInput} bind:value={findText} oninput={onFindInput} onkeydown={findKey} placeholder="Find in document" aria-label="Find in document" />
+      <input bind:this={findInput} bind:value={findText} oninput={onFindInput} onkeydown={findKey} placeholder={tx('view_find_in_document')} aria-label={tx('view_find_in_document')} />
       <span class="count" aria-live="polite">
-        {#if !query}&nbsp;{:else if searching && !matchCount}Searching…{:else if matchCount}{current + 1} of {matchCount}{:else}No matches{/if}
+        {#if !query}&nbsp;{:else if searching && !matchCount}{tx('view_searching')}{:else if matchCount}{tx('view_x_of_x', { current: current + 1, matchCount })}{:else}{tx('view_no_matches')}{/if}
       </span>
-      <button class="icon" onclick={() => view?.findPrev()} disabled={!matchCount} aria-label="Previous match" title="Previous match (Shift+Enter)"><Icon name="up" size={16} /></button>
-      <button class="icon" onclick={() => view?.findNext()} disabled={!matchCount} aria-label="Next match" title="Next match (Enter)"><Icon name="down" size={16} /></button>
-      <button class="icon" onclick={closeFind} aria-label="Close find"><Icon name="close" size={16} /></button>
+      <button class="icon" onclick={() => view?.findPrev()} disabled={!matchCount} aria-label={tx('view_previous_match')} title={tx('view_previous_match_shift_enter')}><Icon name="up" size={16} /></button>
+      <button class="icon" onclick={() => view?.findNext()} disabled={!matchCount} aria-label={tx('view_next_match')} title={tx('view_next_match_enter')}><Icon name="down" size={16} /></button>
+      <button class="icon" onclick={closeFind} aria-label={tx('view_close_find')}><Icon name="close" size={16} /></button>
       {#if query && !matchCount && !searching && hasVariant(doc, viewVersion, 'searchable') && variant === 'original'}
-        <span class="hint-ocr">Scanned pages are only searchable in the version with OCR text. <button class="link" onclick={() => (viewVariant = 'searchable')}>Switch</button></span>
+        <span class="hint-ocr">{tx('view_scanned_pages_are_only_searchable_in')} <button class="link" onclick={() => (viewVariant = 'searchable')}>{tx('view_switch')}</button></span>
       {/if}
     </div>
   {/if}
 
   <main class="stage">
     {#if error}
-      <div class="msg"><strong>This document can't be opened</strong><span>{error}</span><button onclick={close}>Back</button></div>
+      <div class="msg"><strong>{tx('view_this_document_can_t_be_opened')}</strong><span>{error}</span><button onclick={close}>{tx('view_back')}</button></div>
     {:else if doc && file}
       <!-- a new version re-creates the view (PDF pages reload), but never an editor -->
       {#key editsInPlace ? file.document_id : `${file.document_id}:${doc.version}`}
@@ -319,14 +320,14 @@
           bind:page bind:numPages bind:zoom bind:scale bind:matchCount bind:current bind:searching />
       {/key}
     {:else}
-      <div class="msg">Opening document…</div>
+      <div class="msg">{tx('common_opening_document')}</div>
     {/if}
   </main>
 
   {#if info && doc}
-    <aside class="drawer" aria-label="Document details">
-      <header><h2>Details</h2><button class="icon" onclick={toggleInfo} aria-label="Close details"><Icon name="close" size={16} /></button></header>
-      {#if viewVersion}<p class="viewing">You are viewing version {viewVersion}. <button class="link" onclick={() => (viewVersion = 0)}>Show current version</button></p>{/if}
+    <aside class="drawer" aria-label={tx('view_document_details')}>
+      <header><h2>{tx('common_details')}</h2><button class="icon" onclick={toggleInfo} aria-label={tx('view_close_details')}><Icon name="close" size={16} /></button></header>
+      {#if viewVersion}<p class="viewing">{tx('view_you_are_viewing_version_x', { viewVersion })} <button class="link" onclick={() => (viewVersion = 0)}>{tx('view_show_current_version')}</button></p>{/if}
       <DocDetails {doc} {file} bind:viewVersion bind:viewVariant onchanged={reloadDoc} />
     </aside>
   {/if}

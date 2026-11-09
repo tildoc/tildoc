@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   import { openView } from '#lib/nav.js';
   import { preloadDoc, cancelPreload } from '#lib/preload.js';
   import { page } from '$app/state';
@@ -73,45 +74,45 @@
 
 <div class="page">
   <header>
-    <h1>{q || tag || coll ? 'Search' : 'All documents'}</h1>
+    <h1>{q || tag || coll ? tx('layout_search') : tx('layout_all_documents')}</h1>
   </header>
 
   <form class="searchbar" onsubmit={submit} role="search">
     <Icon name="search" />
-    <input bind:value={input} placeholder="Words in names and contents" aria-label="Search names and contents" />
-    <button class="primary">Search</button>
+    <input bind:value={input} placeholder={tx('search_words_in_names_and_contents')} aria-label={tx('quicksearch_search_names_and_contents')} />
+    <button class="primary">{tx('layout_search')}</button>
   </form>
 
   <div class="filters row">
-    <select bind:value={space} aria-label="Where" onchange={() => (offset = 0)}>
-      <option value="">{folder ? 'This folder and its subfolders' : 'All spaces'}</option>
+    <select bind:value={space} aria-label={tx('search_where')} onchange={() => (offset = 0)}>
+      <option value="">{folder ? tx('search_this_folder_and_its_subfolders') : tx('search_all_spaces')}</option>
       {#each session.spaces as s}<option value={s.id}>{s.name}</option>{/each}
     </select>
-    <select bind:value={mime} aria-label="Type" onchange={() => (offset = 0)}>
-      <option value="">All types</option>
-      <option value="application/pdf">PDF</option>
-      <option value="text/">Text</option>
-      <option value="image/">Images</option>
+    <select bind:value={mime} aria-label={tx('common_type')} onchange={() => (offset = 0)}>
+      <option value="">{tx('search_all_types')}</option>
+      <option value="application/pdf">{tx('search_pdf')}</option>
+      <option value="text/">{tx('docdetails_text')}</option>
+      <option value="image/">{tx('search_images')}</option>
     </select>
-    <select bind:value={status} aria-label="Text status" onchange={() => (offset = 0)}>
-      <option value="">Any text status</option>
-      <option value="done">Indexed</option>
-      <option value="ocr_pending">Waiting for OCR</option>
-      <option value="pending">Queued</option>
-      <option value="unsupported">Stored only</option>
-      <option value="failed">Failed</option>
+    <select bind:value={status} aria-label={tx('search_text_status')} onchange={() => (offset = 0)}>
+      <option value="">{tx('search_any_text_status')}</option>
+      <option value="done">{tx('search_indexed')}</option>
+      <option value="ocr_pending">{tx('search_waiting_for_ocr')}</option>
+      <option value="pending">{tx('search_queued')}</option>
+      <option value="unsupported">{tx('search_stored_only')}</option>
+      <option value="failed">{tx('search_failed')}</option>
     </select>
-    <select bind:value={tag} aria-label="Tag" onchange={() => (offset = 0)}>
-      <option value="">Any tag</option>
+    <select bind:value={tag} aria-label={tx('admin_tag')} onchange={() => (offset = 0)}>
+      <option value="">{tx('search_any_tag')}</option>
       {#each session.tags.filter((t) => t.count > 0 || t.id === tag) as t (t.id)}<option value={t.id}>{t.name} ({t.count})</option>{/each}
     </select>
     {#if session.collections.length}
-      <select bind:value={coll} aria-label="Collection" onchange={() => (offset = 0)}>
-        <option value="">In any collection or none</option>
+      <select bind:value={coll} aria-label={tx('search_collection')} onchange={() => (offset = 0)}>
+        <option value="">{tx('search_in_any_collection_or_none')}</option>
         {#each session.collections as c (c.id)}<option value={c.id}>{c.name}{c.team_name ? ` (${c.team_name})` : ''}</option>{/each}
       </select>
     {/if}
-    {#if result}<span class="muted total" aria-live="polite">{result.total} {result.total === 1 ? 'document' : 'documents'}</span>{/if}
+    {#if result}<span class="muted total" aria-live="polite">{tx('search_total', { count: result.total })}</span>{/if}
   </div>
 
   {#if result}
@@ -124,12 +125,12 @@
               <button class="link name" onclick={() => open(h)} onpointerenter={() => preloadDoc(h)} onpointerleave={cancelPreload} onfocus={() => preloadDoc(h)}>{h.name}</button>
               {#if h.snippet}<p class="snip">{@html snippet(h.snippet)}</p>{/if}
               <div class="meta">
-                {#if h.page}<span class="pill">page {h.page}</span>{/if}
+                {#if h.page}<span class="pill">{tx('quicksearch_page_x', { page: h.page })}</span>{/if}
                 <span>{shortType(h.mime, h.name)}, {size(h.size)}</span>
-                <span>changed {date(h.modified_at)}</span>
+                <span>{tx('search_changed_x', { modified_at: date(h.modified_at) })}</span>
                 {#if h.status !== 'done'}<span class="pill status {h.status}">{statusLabel[h.status] ?? h.status}</span>{/if}
                 <TagChips tags={h.tags} small onpick={(t) => { tag = t.id; offset = 0; }} />
-                <button class="link where" onclick={() => goto(`/f/${h.folder_id}?sel=${h.link_id}`)} title="Show in folder">{slug(h.space_id)}{dir(h)}</button>
+                <button class="link where" onclick={() => goto(`/f/${h.folder_id}?sel=${h.link_id}`)} title={tx('c_show_in_folder')}>{slug(h.space_id)}{dir(h)}</button>
               </div>
             </div>
           </li>
@@ -137,15 +138,15 @@
       </ol>
       {#if result.total > limit}
         <div class="row pager">
-          <button disabled={offset === 0} onclick={() => (offset = Math.max(0, offset - limit))}>Previous</button>
-          <span class="muted">{offset + 1} to {Math.min(offset + limit, result.total)} of {result.total}</span>
-          <button disabled={offset + limit >= result.total} onclick={() => (offset += limit)}>Next</button>
+          <button disabled={offset === 0} onclick={() => (offset = Math.max(0, offset - limit))}>{tx('search_previous')}</button>
+          <span class="muted">{tx('search_x_to_x_of_x', { from: offset + 1, to: Math.min(offset + limit, result.total), total: result.total })}</span>
+          <button disabled={offset + limit >= result.total} onclick={() => (offset += limit)}>{tx('search_next')}</button>
         </div>
       {/if}
     {:else}
       <div class="empty-state">
-        <strong>No documents match</strong>
-        Try fewer or different words. Scanned PDFs become searchable once OCR has run.
+        <strong>{tx('search_no_documents_match')}</strong>
+        {tx('search_try_fewer_or_different_words_scanned')}
       </div>
     {/if}
   {/if}

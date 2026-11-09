@@ -472,5 +472,7 @@ separate containers and not part of tildoc.
 
 ## Contributing
 
+Translations are welcome: see [docs/translating.md](docs/translating.md).
+
 Contributions need a signed [Contributor License Agreement](CLA.md), because
 of the dual licensing.

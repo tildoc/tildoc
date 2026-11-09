@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   import { untrack } from 'svelte';
   import Modal from './Modal.svelte';
   import Icon from './Icon.svelte';
@@ -6,7 +7,7 @@
   import { session } from '../state.svelte.js';
 
   // Picks a target folder in a writable space (move, copy).
-  let { title, confirm = 'Select', spaceId, exclude = [], onpick, onclose } = $props();
+  let { title, confirm = tx('filetable_select'), spaceId, exclude = [], onpick, onclose } = $props();
   let space = $state(untrack(() => spaceId));
   let tree = $state([]);
   let selected = $state(null);
@@ -24,7 +25,7 @@
 </script>
 
 <Modal {title} {onclose}>
-  <label>Space
+  <label>{tx('common_space')}
     <select bind:value={space}>
       {#each spaces as s}<option value={s.id}>{s.name} ({s.slug})</option>{/each}
     </select>
@@ -35,13 +36,13 @@
         <button class:sel={selected === f.id} disabled={excluded(f)} style="padding-left:{8 + depth(f.path) * 16}px"
           onclick={() => (selected = f.id)} ondblclick={() => onpick(selected, space)}>
           <Icon name={f.path === '/' ? 'home' : 'folder'} size={16} />
-          {f.path === '/' ? 'Top level' : f.name}
+          {f.path === '/' ? tx('folderpicker_top_level') : f.name}
         </button>
       </li>
     {/each}
   </ul>
   <div class="row end">
-    <button onclick={onclose}>Cancel</button>
+    <button onclick={onclose}>{tx('common_cancel')}</button>
     <button class="primary" disabled={!selected} onclick={() => onpick(selected, space)}>{confirm}</button>
   </div>
 </Modal>

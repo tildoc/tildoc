@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   import Icon from './Icon.svelte';
   import { get } from '../api.js';
   import { ui } from '../state.svelte.js';
@@ -71,7 +72,7 @@
       role="treeitem" aria-selected={current === f.id} tabindex="-1"
       ondragover={(e) => dragover(e, f.id)} ondragleave={() => (over = null)} ondrop={(e) => drop(e, f.id)}>
       {#if children[f.id]}
-        <button class="tw" class:openned={expanded[f.id]} onclick={() => (expanded[f.id] = !expanded[f.id])} aria-label="Toggle"><Icon name="chevron" size={14} /></button>
+        <button class="tw" class:openned={expanded[f.id]} onclick={() => (expanded[f.id] = !expanded[f.id])} aria-label={tx('foldertree_toggle')}><Icon name="chevron" size={14} /></button>
       {:else}<span class="tw"></span>{/if}
       <button class="lbl" onclick={() => goto(`/f/${f.id}`)}><Icon name="folder" size={16} /> <span>{f.name}</span></button>
     </div>
@@ -85,7 +86,7 @@
   <div class="row-node top" class:active={root && current === root.id} class:over={root && over === root.id}
     role="treeitem" aria-selected={root && current === root.id} tabindex="-1"
     ondragover={(e) => root && dragover(e, root.id)} ondragleave={() => (over = null)} ondrop={(e) => root && drop(e, root.id)}>
-    <button class="tw" class:openned={open} onclick={() => (open = !open)} aria-label="Toggle"><Icon name="chevron" size={14} /></button>
+    <button class="tw" class:openned={open} onclick={() => (open = !open)} aria-label={tx('foldertree_toggle')}><Icon name="chevron" size={14} /></button>
     <button class="lbl" onclick={() => goto(`/f/${space.root_folder_id}`)}>
       <Icon name="space" size={16} /> <span>{space.name}</span>
       {#if space.team_name}<small class="team">{space.team_name}</small>{/if}

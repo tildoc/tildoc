@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"regexp"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -16,12 +17,13 @@ const (
 // Prefs are per-user UI preferences.
 type Prefs struct {
 	PDFViewer string `json:"pdf_viewer"`
+	Locale    string `json:"locale"` // UI language; empty: the browser's
 }
 
 // GetPrefs returns the preferences of a user.
 func (s *Service) GetPrefs(ctx context.Context, userID string) (Prefs, error) {
 	var p Prefs
-	err := s.DB.QueryRow(ctx, `SELECT pdf_viewer FROM users WHERE id=$1`, userID).Scan(&p.PDFViewer)
+	err := s.DB.QueryRow(ctx, `SELECT pdf_viewer, locale FROM users WHERE id=$1`, userID).Scan(&p.PDFViewer, &p.Locale)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, errf(ErrNotFound, "user not found")
 	}
@@ -31,7 +33,10 @@ func (s *Service) GetPrefs(ctx context.Context, userID string) (Prefs, error) {
 // PrefsUpdate changes individual preferences; nil fields stay unchanged.
 type PrefsUpdate struct {
 	PDFViewer *string `json:"pdf_viewer"`
+	Locale    *string `json:"locale"`
 }
+
+var localeRe = regexp.MustCompile(`^([a-z]{2,3}(-[a-z0-9]{2,8})*)?$`)
 
 // SetPrefs updates the caller's own preferences.
 func (s *Service) SetPrefs(ctx context.Context, p *Principal, upd PrefsUpdate) (Prefs, error) {
@@ -45,6 +50,14 @@ func (s *Service) SetPrefs(ctx context.Context, p *Principal, upd PrefsUpdate) (
 			return Prefs{}, errf(ErrInvalid, "pdf_viewer must be %q or %q", PDFViewerPDFJS, PDFViewerNative)
 		}
 		if _, err := s.DB.Exec(ctx, `UPDATE users SET pdf_viewer=$2 WHERE id=$1`, p.UserID, *upd.PDFViewer); err != nil {
+			return Prefs{}, err
+		}
+	}
+	if upd.Locale != nil {
+		if !localeRe.MatchString(*upd.Locale) {
+			return Prefs{}, errf(ErrInvalid, "invalid language")
+		}
+		if _, err := s.DB.Exec(ctx, `UPDATE users SET locale=$2 WHERE id=$1`, p.UserID, *upd.Locale); err != nil {
 			return Prefs{}, err
 		}
 	}

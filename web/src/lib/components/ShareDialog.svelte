@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // Sharing a space or a single file: with people and teams (matrix), or by link.
   import Modal from './Modal.svelte';
   import GrantRows from './GrantRows.svelte';
@@ -15,13 +16,13 @@
 
   // what can be made here: kinds the caller may create
   const kinds = $derived(
-    [['login', 'Link for signed-in users', 'login_link'], ['public', 'Public link, no account needed', 'public_link'], ['drop', 'Drop link: others can only upload', 'drop_link']].filter(
+    [['login', tx('sharedialog_link_for_signed_in_users'), 'login_link'], ['public', tx('sharedialog_public_link_no_account_needed'), 'public_link'], ['drop', tx('sharedialog_drop_link_others_can_only_upload'), 'drop_link']].filter(
       ([, , c]) => can(c)
     )
   );
   const presets = $derived([
-    ...(caps.includes('view') ? [['restricted', 'View only']] : []),
-    ...(caps.includes('download') ? [['view', 'View and download']] : [])
+    ...(caps.includes('view') ? [['restricted', tx('sharedialog_view_only')]] : []),
+    ...(caps.includes('download') ? [['view', tx('sharedialog_view_and_download')]] : [])
   ]);
 
   let links = $state([]);
@@ -71,9 +72,9 @@
   async function copyCmd() {
     try {
       await navigator.clipboard.writeText(dropCmd);
-      toast('Command copied', 'success');
+      toast(tx('sharedialog_command_copied'), 'success');
     } catch {
-      toast('Select the command and copy it', 'info');
+      toast(tx('sharedialog_select_the_command_and_copy_it'), 'info');
     }
   }
   async function revoke(l) {
@@ -87,74 +88,74 @@
   async function copy() {
     try {
       await navigator.clipboard.writeText(created);
-      toast('Link copied', 'success');
+      toast(tx('sharedialog_link_copied'), 'success');
     } catch {
-      toast('Select the link and copy it', 'info');
+      toast(tx('sharedialog_select_the_link_and_copy_it'), 'info');
     }
   }
-  const kindName = { login: 'Signed-in users', public: 'Public', drop: 'Drop' };
-  const presetName = { restricted: 'View only', view: 'View and download', drop: 'Upload only' };
+  const kindName = { login: tx('sharedialog_signed_in_users'), public: tx('sharedialog_public'), drop: tx('sharedialog_drop') };
+  const presetName = { restricted: tx('sharedialog_view_only'), view: tx('sharedialog_view_and_download'), drop: tx('sharedialog_upload_only') };
 </script>
 
-<Modal title={`Share ${title}`} wide {onclose}>
-  <h3>People and teams</h3>
+<Modal title={tx('sharedialog_share_x', { title })} wide {onclose}>
+  <h3>{tx('sharedialog_people_and_teams')}</h3>
   {#if isFile}
     <GrantRows url={`/documents/${doc.id}/grants`} scope="file" canEdit={can('people')} held={caps} />
   {:else}
-    <p class="muted">The owner{space.team_name ? ` (managers of team ${space.team_name})` : ''} always has every permission. Permissions only add up: someone gets everything their own row and their teams' rows give.</p>
+    <p class="muted">{space.team_name ? tx('sharedialog_owner_team', { team: space.team_name }) : tx('sharedialog_owner')}</p>
     <GrantRows url={`/spaces/${space.id}/grants`} scope="space" canEdit={can('people')} held={space.held_caps ?? caps} onchanged={refreshSpaces} />
   {/if}
 
-  <h3>Links</h3>
+  <h3>{tx('sharedialog_links')}</h3>
   {#if links.length}
     <ul class="links">
       {#each links as l (l.id)}
         <li>
           <span class="what">{l.label || kindName[l.kind]}</span>
           <span class="pill">{kindName[l.kind]}</span><span class="pill">{presetName[l.preset]}</span>
-          {#if l.has_password}<span class="pill">Password</span>{/if}
-          {#if l.expires_at}<span class="muted small">until {date(l.expires_at)}</span>{/if}
-          <button class="small ghost" onclick={() => revoke(l)}>Revoke</button>
+          {#if l.has_password}<span class="pill">{tx('common_password')}</span>{/if}
+          {#if l.expires_at}<span class="muted small">{tx('sharedialog_until_x', { expires_at: date(l.expires_at) })}</span>{/if}
+          <button class="small ghost" onclick={() => revoke(l)}>{tx('settings_revoke')}</button>
         </li>
       {/each}
     </ul>
   {/if}
   {#if created}
     <div class="created">
-      <p>Copy this link now, it is shown only once:</p>
-      <input readonly value={created} aria-label="New link" onfocus={(e) => e.currentTarget.select()} />
-      <button onclick={copy}>Copy</button>
+      <p>{tx('sharedialog_copy_this_link_now_it_is')}</p>
+      <input readonly value={created} aria-label={tx('sharedialog_new_link')} onfocus={(e) => e.currentTarget.select()} />
+      <button onclick={copy}>{tx('common_copy')}</button>
     </div>
   {/if}
   {#if kinds.length}
     <form class="newlink" onsubmit={create}>
-      <select bind:value={kind} aria-label="Type of link">{#each kinds as [k, l] (k)}<option value={k}>{l}</option>{/each}</select>
+      <select bind:value={kind} aria-label={tx('sharedialog_type_of_link')}>{#each kinds as [k, l] (k)}<option value={k}>{l}</option>{/each}</select>
       {#if kind !== 'drop'}
-        <select bind:value={preset} aria-label="What it allows">{#each presets as [p, l] (p)}<option value={p}>{l}</option>{/each}</select>
+        <select bind:value={preset} aria-label={tx('sharedialog_what_it_allows')}>{#each presets as [p, l] (p)}<option value={p}>{l}</option>{/each}</select>
       {/if}
-      <input bind:value={label} placeholder="Label (optional)" aria-label="Label" />
-      <input type="password" bind:value={password} placeholder="Password (optional)" aria-label="Link password" autocomplete="new-password" />
-      <input type="datetime-local" bind:value={expires} aria-label="Expires" title="Expires (optional)" />
-      <button class="primary">Create link</button>
+      <input bind:value={label} placeholder={tx('settings_label_optional')} aria-label={tx('settings_label')} />
+      <input type="password" bind:value={password} placeholder={tx('sharedialog_password_optional')} aria-label={tx('sharedialog_link_password')} autocomplete="new-password" />
+      <input type="datetime-local" bind:value={expires} aria-label={tx('sharedialog_expires')} title={tx('sharedialog_expires_optional')} />
+      <button class="primary">{tx('sharedialog_create_link')}</button>
     </form>
-    {#if kind === 'drop'}<p class="hint">Uploads land in {folder ? `the folder ${folder.name}` : 'the top of the space'}. Visitors see nothing that is already there.</p>{/if}
+    {#if kind === 'drop'}<p class="hint">{folder ? tx('sharedialog_uploads_land_in_folder', { folder: folder.name }) : tx('sharedialog_uploads_land_at_top')}</p>{/if}
   {:else if !links.length}
-    <p class="muted">{isFile ? 'No links can be made here.' : 'Links are off for this space. They can be enabled in its settings.'}</p>
+    <p class="muted">{isFile ? tx('sharedialog_no_links_can_be_made_here') : tx('sharedialog_links_are_off_for_this_space')}</p>
   {/if}
   {#if !isFile && caps.includes('drop_in')}
-    <h3>Drop-In token</h3>
-    <p class="hint">For scripts and devices: sends files in{folder ? ` to the folder ${folder.name}` : ''} and can do nothing else. It is listed under Settings, where it can be revoked.</p>
+    <h3>{tx('sharedialog_drop_in_token')}</h3>
+    <p class="hint">{folder ? tx('sharedialog_for_scripts_folder', { folder: folder.name }) : tx('sharedialog_for_scripts')}</p>
     <form class="newlink" onsubmit={createDropIn}>
-      <input bind:value={dropLabel} placeholder="Label, for example office-scanner" aria-label="Drop-In label" required />
-      <button class="primary">Create token</button>
+      <input bind:value={dropLabel} placeholder={tx('sharedialog_label_for_example_office_scanner')} aria-label={tx('sharedialog_drop_in_label')} required />
+      <button class="primary">{tx('sharedialog_create_token')}</button>
     </form>
     {#if dropCmd}
-      <p>Copy this command now, the token is shown only once:</p>
+      <p>{tx('sharedialog_copy_this_command_now_the_token')}</p>
       <pre class="snippet" aria-label="Drop-In command">{dropCmd}</pre>
-      <button onclick={copyCmd}>Copy</button>
+      <button onclick={copyCmd}>{tx('common_copy')}</button>
     {/if}
   {/if}
-  <div class="row end"><button onclick={onclose}>Done</button></div>
+  <div class="row end"><button onclick={onclose}>{tx('common_done')}</button></div>
 </Modal>
 
 <style>

@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // Create or edit a collection: name, owner (me or a team I manage), optional tag rule.
   import { untrack } from 'svelte';
   import Modal from './Modal.svelte';
@@ -33,27 +34,27 @@
   }
 </script>
 
-<Modal title={collection ? 'Edit collection' : 'New collection'} {onclose}>
+<Modal title={collection ? tx('collectionform_edit_collection') : tx('common_new_collection')} {onclose}>
   <form onsubmit={save}>
-    <label>Name<input bind:value={name} required placeholder="For example Steuer 2025" /></label>
+    <label>{tx('common_name')}<input bind:value={name} required placeholder={tx('collectionform_for_example_steuer_2025')} /></label>
     {#if !collection}
-      <label>Belongs to
+      <label>{tx('common_belongs_to')}
         <select bind:value={team}>
-          <option value="">Just me</option>
-          {#each teams as t (t.id)}<option value={t.id}>Team {t.name}</option>{/each}
+          <option value="">{tx('common_just_me')}</option>
+          {#each teams as t (t.id)}<option value={t.id}>{tx('common_team_x', { name: t.name })}</option>{/each}
         </select>
-        <span class="hint">Team members see the documents of it they already have access to.</span>
+        <span class="hint">{tx('collectionform_team_members_see_the_documents_of')}</span>
       </label>
     {/if}
-    <label>Also include every document tagged
+    <label>{tx('collectionform_also_include_every_document_tagged')}
       <select bind:value={tag}>
-        <option value="">No tag (only documents added by hand)</option>
+        <option value="">{tx('collectionform_no_tag_only_documents_added_by')}</option>
         {#each session.tags as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
       </select>
     </label>
     <div class="row end">
-      <button type="button" onclick={onclose}>Cancel</button>
-      <button class="primary" disabled={busy}>{collection ? 'Save' : 'Create collection'}</button>
+      <button type="button" onclick={onclose}>{tx('common_cancel')}</button>
+      <button class="primary" disabled={busy}>{collection ? tx('collectionform_save') : tx('collectionform_create_collection')}</button>
     </div>
   </form>
 </Modal>

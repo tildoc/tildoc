@@ -175,5 +175,10 @@ When the user requests a programming task, **do not start coding immediately.**
   (unit tests: `cd web && npm test`); restores are stored
   (`document_versions.restored_from`), continuations are derived from
   content hashes, never stored.
+- **UI text:** never hard-code it. `tx('key', {vars})` from `#lib/i18n/index.js`,
+  new text goes into `locales/en-us.json`, then `npm run i18n:template`.
+  Files are i18next JSON v4 (Weblate-compatible). Whole sentences only: no
+  gluing of fragments or English in placeholder values; inline emphasis through
+  `Rich.svelte`; plurals through `count`. Module-level names use `labels()`.
 - **Large lists:** `FileTable` renders a window of rows above 200 rows;
   rows must keep one fixed height.

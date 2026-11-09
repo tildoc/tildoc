@@ -32,6 +32,7 @@ CREATE TABLE users (
     display_name  text NOT NULL DEFAULT '',
     status        text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'pending', 'disabled')), -- pending: first login with a provider, waits for approval
     pdf_viewer    text NOT NULL DEFAULT 'pdfjs' CHECK (pdf_viewer IN ('pdfjs', 'native')),
+    locale        text NOT NULL DEFAULT '' CHECK (locale ~ '^([a-z]{2,3}(-[a-z0-9]{2,8})*)?$'), -- UI language; empty: the browser's
     created_at    timestamptz NOT NULL DEFAULT now()
 );
 

@@ -1,6 +1,8 @@
 // Global client state (Svelte 5 runes).
 import { get, patch, setUnauthorizedHandler, clearCache } from './api.js';
 import { startEvents, stopEvents, onEvent } from './events.svelte.js';
+import { setLocale, matchLocale, SOURCE_LOCALE } from './i18n/index.js';
+import { loaders, availableLocales } from './i18n/locales.js';
 
 export const session = $state({ user: null, ready: false, spaces: [], info: null, teams: [], collections: [], tags: [], office: { extensions: [], editable: [], create: [] } });
 export const ui = $state({ toasts: [], uploads: [], sidebarOpen: false, treeVersion: 0, palette: false, returnTo: null, currentSpace: null });
@@ -46,6 +48,10 @@ export async function loadSession() {
     session.user = null;
   }
   if (info.status === 'fulfilled') session.info = info.value;
+  // the language is settled before the first screen renders
+  const wanted = session.user?.prefs?.locale;
+  const id = wanted === SOURCE_LOCALE || availableLocales.includes(wanted) ? wanted : matchLocale(navigator.languages ?? [], availableLocales);
+  await setLocale(id, loaders).catch(() => {});
   session.ready = true;
 }
 

@@ -1,4 +1,6 @@
 <script>
+  import Rich from '#lib/i18n/Rich.svelte';
+  import { tx } from '#lib/i18n/index.js';
   // Text editor for text/* documents in the full viewer (CodeMirror, loaded on
   // demand). One editor per document: this window holds a lease renewed every
   // 5 s (free again 15 s after the last renewal). Others see the text
@@ -88,7 +90,7 @@
         // taken over (another window of yours, or expired after a long sleep)
         const cur = await get(`/documents/${doc.id}`).catch(() => null);
         lease = cur?.edit_lease ?? null;
-        setMode('readonly', 'This document is being edited elsewhere now. Your unsaved changes are still here; copy them if you need them.');
+        setMode('readonly', tx('texteditor_this_document_is_being_edited_elsewhere'));
       }
     }
   }
@@ -106,7 +108,7 @@
     }
     if (await acquire().catch(() => false)) {
       setMode('editing');
-      toast('You can edit this document now', 'success');
+      toast(tx('texteditor_you_can_edit_this_document_now'), 'success');
     } else setMode('readonly', 'lease');
   }
 
@@ -128,9 +130,9 @@
       onSave: () => mode === 'editing' && openReview()
     });
     if (!alive) return ed.destroy();
-    if (!canWrite()) setMode('readonly', 'You can read this document, but not change it.');
-    else if (doc.size > MAX) setMode('readonly', 'Text files larger than 5 MB are shown read-only.');
-    else if (!t.utf8) setMode('readonly', 'This file is not UTF-8 text; it is shown read-only so its characters are not damaged.');
+    if (!canWrite()) setMode('readonly', tx('texteditor_you_can_read_this_document_but'));
+    else if (doc.size > MAX) setMode('readonly', tx('texteditor_text_files_larger_than_5_mb'));
+    else if (!t.utf8) setMode('readonly', tx('texteditor_this_file_is_not_utf_8'));
     else if (await acquire().catch(() => false)) {
       setMode('editing');
       await tick(); // the editor is hidden while loading; hidden elements take no focus
@@ -179,7 +181,7 @@
 
   // leaving with unsaved changes asks first
   beforeNavigate((nav) => {
-    if (dirty && mode === 'editing' && !confirm('Discard your unsaved changes?')) nav.cancel();
+    if (dirty && mode === 'editing' && !confirm(tx('texteditor_discard_your_unsaved_changes'))) nav.cancel();
   });
   function beforeUnload(e) {
     if (dirty && mode === 'editing') e.preventDefault();
@@ -203,7 +205,7 @@
       if (latest) original = latest.text;
     }
     if (text === original) {
-      toast(changedMeanwhile ? 'Your text equals the newest version; nothing to save' : 'No changes to save');
+      toast(changedMeanwhile ? tx('texteditor_your_text_equals_the_newest_version') : tx('texteditor_no_changes_to_save'));
       return;
     }
     const v = cur.versions?.[0];
@@ -231,7 +233,7 @@
       dirty = ed.getText() !== base.text;
       newer = null;
       closeReview();
-      toast(`Saved as version ${d.version}`, 'success');
+      toast(tx('texteditor_saved_as_version_x', { version: d.version }), 'success');
       onsaved?.(d);
     } catch (err) {
       review.saving = false;
@@ -248,10 +250,10 @@
       <Icon name="lock" size={15} />
       {#if reason === 'lease'}
         {#if lease?.mine}
-          <span>You are editing this document in another window.</span>
-          <button class="small" onclick={async () => (await acquire(true)) && setMode('editing')}>Edit here instead</button>
+          <span>{tx('texteditor_you_are_editing_this_document_in')}</span>
+          <button class="small" onclick={async () => (await acquire(true)) && setMode('editing')}>{tx('texteditor_edit_here_instead')}</button>
         {:else}
-          <span><strong>{lease?.name ?? 'Someone'}</strong> is editing this document. You see their saved versions live and can edit once they are done.</span>
+          <span><Rich key="texteditor_is_editing" vars={{ name: lease?.name ?? tx('texteditor_someone') }} /></span>
         {/if}
       {:else}
         <span>{reason}</span>
@@ -259,27 +261,27 @@
     </div>
   {:else if mode === 'editing'}
     <div class="bar">
-      <span class="state" class:dirty>{dirty ? 'Unsaved changes' : 'Saved'}</span>
-      {#if newer}<span class="warn">Version {newer.version} arrived meanwhile ({newer.source}{newer.by ? `, ${newer.by}` : ''}). Saving makes yours the newest; it stays in the history.</span>{/if}
-      <span class="keys">Ctrl+F search and replace, Alt+↑/↓ move lines</span>
-      <button class="primary small" onclick={openReview} disabled={!dirty} title="Review the changes and save (Ctrl+S)"><Icon name="check" size={15} /> Save…</button>
+      <span class="state" class:dirty>{dirty ? tx('texteditor_unsaved_changes') : tx('texteditor_saved')}</span>
+      {#if newer}<span class="warn">{newer.by ? tx('texteditor_arrived_meanwhile_by', { version: newer.version, source: newer.source, by: newer.by }) : tx('texteditor_arrived_meanwhile', { version: newer.version, source: newer.source })}</span>{/if}
+      <span class="keys">{tx('texteditor_ctrl_f_search_and_replace_alt')}</span>
+      <button class="primary small" onclick={openReview} disabled={!dirty} title={tx('texteditor_review_the_changes_and_save_ctrl')}><Icon name="check" size={15} /> {tx('texteditor_save')}</button>
     </div>
   {/if}
   <div class="host" bind:this={host} class:loading={mode === 'loading'}></div>
 </div>
 
 {#if review}
-  <Modal title="Save changes" wide onclose={closeReview}>
+  <Modal title={tx('texteditor_save_changes')} wide onclose={closeReview}>
     <form onsubmit={save}>
       {#if review.warn}
-        <p class="warn">Version {review.warn.version} was saved meanwhile{review.warn.by ? ` by ${review.warn.by}` : ''}{review.warn.source ? ` via ${review.warn.source}` : ''}. The changes below are against that version. Saving makes your text the newest version; version {review.warn.version} stays in the history.</p>
+        <p class="warn">{(review.warn.by ? (review.warn.source ? tx('texteditor_saved_meanwhile_by_via', { version: review.warn.version, by: review.warn.by, source: review.warn.source }) : tx('texteditor_saved_meanwhile_by', { version: review.warn.version, by: review.warn.by, source: review.warn.source })) : review.warn.source ? tx('texteditor_saved_meanwhile_via', { version: review.warn.version, by: review.warn.by, source: review.warn.source }) : tx('texteditor_saved_meanwhile', { version: review.warn.version, by: review.warn.by, source: review.warn.source }))}</p>
       {:else}
-        <p class="muted small">Changes against the version you opened. Saving creates version {review.next}.</p>
+        <p class="muted small">{tx('texteditor_changes_against_the_version_you_opened', { next: review.next })}</p>
       {/if}
       <div class="diff" bind:this={diffHost}></div>
       <div class="row end">
-        <button type="button" onclick={closeReview}>Keep editing</button>
-        <button class="primary" type="submit" bind:this={saveBtn} disabled={review.saving}>{review.saving ? 'Saving…' : `Save as version ${review.next}`}</button>
+        <button type="button" onclick={closeReview}>{tx('texteditor_keep_editing')}</button>
+        <button class="primary" type="submit" bind:this={saveBtn} disabled={review.saving}>{review.saving ? tx('texteditor_saving') : tx('texteditor_save_as_version_x', { next: review.next })}</button>
       </div>
     </form>
   </Modal>

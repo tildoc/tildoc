@@ -193,10 +193,10 @@ func (s *Service) serverManifest(ctx context.Context, b *Backup, exclude map[str
 			Scan(&m.Settings.InstanceID, &m.Settings.OCRPreference, &m.Settings.BackupKeep, &m.Settings.PublicLinks); err != nil {
 			return err
 		}
-		if err := collectRows(ctx, tx, `SELECT id::text, username, display_name, status, pdf_viewer, created_at
+		if err := collectRows(ctx, tx, `SELECT id::text, username, display_name, status, pdf_viewer, locale, created_at
 			FROM users ORDER BY created_at, id`, func(r pgx.Rows) error {
 			var u MUser
-			if err := r.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Status, &u.PDFViewer, &u.CreatedAt); err != nil {
+			if err := r.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Status, &u.PDFViewer, &u.Locale, &u.CreatedAt); err != nil {
 				return err
 			}
 			m.Users = append(m.Users, u)
@@ -755,8 +755,8 @@ func (s *Service) applyRestore(ctx context.Context, tx pgx.Tx, br *bundleReader)
 		return err
 	}
 	for _, u := range m.Users {
-		if err := ex(`INSERT INTO users(id, username, display_name, status, pdf_viewer, created_at)
-			VALUES($1,$2,$3,$4,$5,$6)`, u.ID, u.Username, u.DisplayName, u.Status, u.PDFViewer, u.CreatedAt); err != nil {
+		if err := ex(`INSERT INTO users(id, username, display_name, status, pdf_viewer, locale, created_at)
+			VALUES($1,$2,$3,$4,$5,$6,$7)`, u.ID, u.Username, u.DisplayName, u.Status, u.PDFViewer, u.Locale, u.CreatedAt); err != nil {
 			return err
 		}
 	}

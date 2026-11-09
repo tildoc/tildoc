@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // Continuous-scroll PDF view on pdf.js. Only pages near the viewport are
   // rendered; canvases and text layers are released again when scrolled away.
   import { onMount, tick, untrack } from 'svelte';
@@ -102,7 +103,7 @@
     } catch (e) {
       if (!alive || gen !== loadGen) return;
       loading = false;
-      error = e?.name === 'InvalidPDFException' ? 'The file is not a valid PDF.' : e?.message || String(e);
+      error = e?.name === 'InvalidPDFException' ? tx('pdfview_the_file_is_not_a_valid') : e?.message || String(e);
     }
   }
 
@@ -352,7 +353,7 @@
       const [x1, y1, x2, y2] = vp1.convertToViewportRectangle(a.rect);
       const link = document.createElement('a');
       link.href = a.url && /^(https?:|mailto:)/i.test(a.url) ? a.url : '#';
-      link.title = a.url ? a.url : 'Go to linked page';
+      link.title = a.url ? a.url : tx('pdfview_go_to_linked_page');
       Object.assign(link.style, {
         left: (Math.min(x1, x2) / vp1.width) * 100 + '%',
         top: (Math.min(y1, y2) / vp1.height) * 100 + '%',
@@ -377,7 +378,7 @@
 
   function openExternal(u) {
     if (!/^(https?:|mailto:)/i.test(u)) return;
-    if (confirm(`This link in the document leaves tildoc:\n\n${u}\n\nOpen it in a new tab?`)) window.open(u, '_blank', 'noopener,noreferrer');
+    if (confirm(tx('pdfview_this_link_in_the_document_leaves', { url: u }))) window.open(u, '_blank', 'noopener,noreferrer');
   }
 
   // ------------------------------------------------------------ find
@@ -659,12 +660,12 @@
 
 <div class="pdfview {mode}" class:withthumbs={thumbs}>
   {#if thumbs}
-    <nav class="thumbs" bind:this={thumbBox} aria-label="Pages">
+    <nav class="thumbs" bind:this={thumbBox} aria-label={tx('docdetails_pages')}>
       {#each sizes as s, i (i)}
         <button class="thumb" class:active={page === i + 1} data-n={i + 1} use:thumbSlot={i + 1} onclick={() => goTo(i + 1)}
-          aria-label="Page {i + 1}{pageHits[i + 1] ? `, ${pageHits[i + 1]} matches` : ''}" aria-current={page === i + 1 ? 'page' : undefined}>
+          aria-label={pageHits[i + 1] ? tx('pdfview_page_matches', { page: i + 1, count: pageHits[i + 1] }) : tx('pdfview_page', { page: i + 1 })} aria-current={page === i + 1 ? 'page' : undefined}>
           <span class="paper" style:aspect-ratio="{s.w} / {s.h}"></span>
-          <span class="tn">{i + 1}{#if pageHits[i + 1]}<span class="hitmark" title="{pageHits[i + 1]} matches"></span>{/if}</span>
+          <span class="tn">{i + 1}{#if pageHits[i + 1]}<span class="hitmark" title={tx('pdfview_matches', { count: pageHits[i + 1] })}></span>{/if}</span>
         </button>
       {/each}
     </nav>
@@ -672,23 +673,23 @@
 
   <div class="scroller" bind:this={scroller} onscroll={onScroll} use:wheel tabindex="-1">
     {#if loading && !password}
-      <p class="state">Opening document…</p>
+      <p class="state">{tx('common_opening_document')}</p>
     {:else if password}
       <form class="state pw" onsubmit={submitPassword}>
-        <strong>This PDF is password protected</strong>
-        {#if password.wrong}<span class="err">That password is not correct.</span>{/if}
-        <input type="password" bind:value={pwValue} aria-label="PDF password" autocomplete="off" />
-        <button class="primary">Open</button>
+        <strong>{tx('pdfview_this_pdf_is_password_protected')}</strong>
+        {#if password.wrong}<span class="err">{tx('pdfview_that_password_is_not_correct')}</span>{/if}
+        <input type="password" bind:value={pwValue} aria-label={tx('pdfview_pdf_password')} autocomplete="off" />
+        <button class="primary">{tx('common_open')}</button>
       </form>
     {:else if error}
-      <div class="state"><strong>This PDF can't be displayed</strong><span>{error}</span><span>Download it to open it in another program.</span></div>
+      <div class="state"><strong>{tx('pdfview_this_pdf_can_t_be_displayed')}</strong><span>{error}</span><span>{tx('pdfview_download_it_to_open_it_in')}</span></div>
     {/if}
     <div class="pages" style:padding="{PAD}px" style:gap="{GAP}px">
       {#each sizes as s, i (i)}
         <div class="pg" data-n={i + 1} use:slot={i + 1}
           style:width="{s.w * scale}px" style:height="{s.h * scale}px" style:--total-scale-factor={scale * CSS_UNITS}
           style:view-transition-name={transitionName && i + 1 === page ? transitionName : null}
-          aria-label="Page {i + 1}"></div>
+          aria-label={tx('pdfview_page', { page: i + 1 })}></div>
       {/each}
     </div>
   </div>

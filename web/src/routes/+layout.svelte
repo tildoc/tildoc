@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   import { SOURCE_URL } from '#lib/format.js';
   import '../app.css';
   import { onMount } from 'svelte';
@@ -70,11 +71,11 @@
   }
 
   const nav = [
-    ['/search', 'search', 'All documents'],
-    ['/shared', 'link', 'Shared with me'],
-    ['/trash', 'trash', 'Trash'],
-    ['/spaces', 'space', 'Spaces'],
-    ['/teams', 'users', 'Teams']
+    ['/search', 'search', tx('layout_all_documents')],
+    ['/shared', 'link', tx('layout_shared_with_me')],
+    ['/trash', 'trash', tx('layout_trash')],
+    ['/spaces', 'space', tx('common_spaces')],
+    ['/teams', 'users', tx('layout_teams')]
   ];
 </script>
 
@@ -89,28 +90,28 @@
 {:else}
   <div class="shell" class:open={ui.sidebarOpen}>
     <header class="mobilebar">
-      <button class="icon" onclick={() => (ui.sidebarOpen = !ui.sidebarOpen)} aria-label="Menu" aria-expanded={ui.sidebarOpen}><Icon name="menu" /></button>
-      <div class="brand"><a href={SOURCE_URL} target="_blank" rel="noopener noreferrer" title="Source code on GitHub">tildoc</a><span class="ver" title="Version {session.user?.version}">{session.user?.version}</span></div>
-      <button class="icon" onclick={() => (ui.palette = true)} aria-label="Search"><Icon name="search" /></button>
+      <button class="icon" onclick={() => (ui.sidebarOpen = !ui.sidebarOpen)} aria-label={tx('layout_menu')} aria-expanded={ui.sidebarOpen}><Icon name="menu" /></button>
+      <div class="brand"><a href={SOURCE_URL} target="_blank" rel="noopener noreferrer" title={tx('common_source_code_on_github')}>tildoc</a><span class="ver" title={tx('history_version', { version: session.user?.version })}>{session.user?.version}</span></div>
+      <button class="icon" onclick={() => (ui.palette = true)} aria-label={tx('layout_search')}><Icon name="search" /></button>
     </header>
 
-    <nav class="rail" aria-label="Spaces and settings" onclick={(e) => e.target.closest('a,button.lbl') && (ui.sidebarOpen = false)} role="presentation">
-      <div class="brand"><a href="/" class="home" aria-label="Home"><img src="/icon-64.png" alt="" width="22" height="22" /></a><a href={SOURCE_URL} target="_blank" rel="noopener noreferrer" title="Source code on GitHub">tildoc</a><span class="ver" title="Version {session.user?.version}">{session.user?.version}</span></div>
+    <nav class="rail" aria-label={tx('layout_spaces_and_settings')} onclick={(e) => e.target.closest('a,button.lbl') && (ui.sidebarOpen = false)} role="presentation">
+      <div class="brand"><a href="/" class="home" aria-label="Home"><img src="/icon-64.png" alt="" width="22" height="22" /></a><a href={SOURCE_URL} target="_blank" rel="noopener noreferrer" title={tx('common_source_code_on_github')}>tildoc</a><span class="ver" title={tx('history_version', { version: session.user?.version })}>{session.user?.version}</span></div>
       <button class="searchbtn" onclick={() => (ui.palette = true)}>
-        <Icon name="search" size={16} /><span>Search</span><kbd>Ctrl K</kbd>
+        <Icon name="search" size={16} /><span>{tx('layout_search')}</span><kbd>Ctrl K</kbd>
       </button>
 
-      <h2 class="group">Spaces</h2>
+      <h2 class="group">{tx('common_spaces')}</h2>
       <div class="scrollpart">
-        <ul class="tree" role="tree" aria-label="Folders">
+        <ul class="tree" role="tree" aria-label={tx('layout_folders')}>
           {#each session.spaces as s (s.id)}
             <FolderTree space={s} current={currentFolder} ondropon={dropOnTree} />
           {/each}
         </ul>
 
         <div class="grouprow">
-          <h2 class="group">Collections</h2>
-          <button class="icon add" onclick={() => (newCollection = true)} aria-label="New collection" title="New collection"><Icon name="plus" size={15} /></button>
+          <h2 class="group">{tx('docdetails_collections')}</h2>
+          <button class="icon add" onclick={() => (newCollection = true)} aria-label={tx('common_new_collection')} title={tx('common_new_collection')}><Icon name="plus" size={15} /></button>
         </div>
         <ul class="colls">
           {#each session.collections as c (c.id)}
@@ -122,7 +123,7 @@
               </a>
             </li>
           {:else}
-            <li class="none">Group documents from several spaces, for example all bills for your tax return.</li>
+            <li class="none">{tx('layout_group_documents_from_several_spaces_for')}</li>
           {/each}
         </ul>
       </div>
@@ -131,12 +132,12 @@
         {#each nav as [href, icon, label] (href)}
           <a class="nav" class:active={path === href} {href} aria-current={path === href ? 'page' : undefined}><Icon name={icon} size={17} /> {label}</a>
         {/each}
-        {#if session.user.instance_permissions?.some((p) => p === 'users.manage' || p === 'roles.manage')}<a class="nav" class:active={path === '/access'} href="/access"><Icon name="key" size={17} /> Access</a>{/if}
-        {#if session.user.instance_permissions?.some((p) => ['tags.manage', 'backups.manage', 'settings.manage'].includes(p))}<a class="nav" class:active={path === '/admin'} href="/admin"><Icon name="shield" size={17} /> Administration</a>{/if}
+        {#if session.user.instance_permissions?.some((p) => p === 'users.manage' || p === 'roles.manage')}<a class="nav" class:active={path === '/access'} href="/access"><Icon name="key" size={17} /> {tx('common_access')}</a>{/if}
+        {#if session.user.instance_permissions?.some((p) => ['tags.manage', 'backups.manage', 'settings.manage'].includes(p))}<a class="nav" class:active={path === '/admin'} href="/admin"><Icon name="shield" size={17} /> {tx('admin_administration')}</a>{/if}
         <div class="me">
           <span class="who" title={session.user.username}>{session.user.display_name || session.user.username}</span>
-          <a class="btn icon" class:on={path === '/settings'} href="/settings" title="Settings and access" aria-label="Settings and access"><Icon name="settings" size={17} /></a>
-          <button class="icon" onclick={logout} title="Sign out" aria-label="Sign out"><Icon name="logout" size={17} /></button>
+          <a class="btn icon" class:on={path === '/settings'} href="/settings" title={tx('layout_settings_and_access')} aria-label={tx('layout_settings_and_access')}><Icon name="settings" size={17} /></a>
+          <button class="icon" onclick={logout} title={tx('layout_sign_out')} aria-label={tx('layout_sign_out')}><Icon name="logout" size={17} /></button>
         </div>
       </div>
     </nav>
@@ -153,8 +154,8 @@
 </div>
 
 {#if ui.uploads.length}
-  <div class="uploads" aria-label="Uploads">
-    <strong>Uploading</strong>
+  <div class="uploads" aria-label={tx('layout_uploads')}>
+    <strong>{tx('importdialog_uploading')}</strong>
     {#each ui.uploads.slice(-8) as u (u.id)}
       <div class="up {u.state}">
         <span class="nm" title={u.name}>{u.name}</span>
@@ -162,7 +163,7 @@
         {#if u.note}<small>{u.note}</small>{/if}
       </div>
     {/each}
-    {#if ui.uploads.length > 8}<small class="muted">and {ui.uploads.length - 8} more</small>{/if}
+    {#if ui.uploads.length > 8}<small class="muted">{tx('layout_and_x_more', { number: ui.uploads.length - 8 })}</small>{/if}
   </div>
 {/if}
 

@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // Picks the right view for a document: pdf.js (or the browser's viewer, by
   // preference), image, text, or a file sheet for types without a preview.
   import PdfView from './PdfView.svelte';
@@ -101,15 +102,15 @@
     <div class="filesheet" style:view-transition-name={transitionName || null}>
       <Icon name="file" size={40} />
       <strong>{file.name}</strong>
-      <span>{shortType(file.mime, file.name)} file, {fmtSize(file.size)}</span>
+      <span>{tx('docview_x_file_x', { file: shortType(file.mime, file.name), size: fmtSize(file.size) })}</span>
       {#if doc?.office_session}
-        <p>Open in Office right now. Changes become a new version when everyone has closed it.</p>
+        <p>{tx('docview_open_in_office_right_now_changes')}</p>
       {:else if inOffice}
-        <p>No preview for this format. Open it to view and edit.</p>
+        <p>{tx('docview_no_preview_for_this_format_open')}</p>
       {:else}
-        <p>There is no preview for this type.{canGet ? ' The file is stored unchanged and can be downloaded.' : ''}</p>
+        <p>{canGet ? tx('docview_no_preview_download') : tx('docview_no_preview')}</p>
       {/if}
-      {#if canGet}<a class="btn primary" href={`${base}${contentParams.file ? `?file=${contentParams.file}` : ''}`} download><Icon name="download" size={16} /> Download</a>{/if}
+      {#if canGet}<a class="btn primary" href={`${base}${contentParams.file ? `?file=${contentParams.file}` : ''}`} download><Icon name="download" size={16} /> {tx('common_download')}</a>{/if}
     </div>
   </div>
 {/if}

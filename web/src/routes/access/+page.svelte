@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // Who is on this server and what they may do.
   import { get, post, patch, del } from '#lib/api.js';
   import { session, toast, errorToast } from '#lib/state.svelte.js';
@@ -50,7 +51,7 @@
   async function approve(u) {
     try {
       await post(`/users/${u.id}/approve`, {});
-      toast(`Approved ${u.username}`, 'success');
+      toast(tx('access_approved_x', { username: u.username }), 'success');
       load();
     } catch (e) {
       errorToast(e);
@@ -60,7 +61,7 @@
     e.preventDefault();
     try {
       await post('/users', nu);
-      toast(`Added ${nu.username} with a personal space`, 'success');
+      toast(tx('access_added_x_with_a_personal_space', { username: nu.username }), 'success');
       nu = { username: '', password: '', display_name: '', is_admin: false };
       load();
     } catch (err) {
@@ -76,11 +77,11 @@
     }
   }
   async function resetPw(u) {
-    const pw = prompt(`New password for ${u.username} (min. 8 characters)`);
+    const pw = prompt(tx('access_new_password_for_x_min_8', { username: u.username }));
     if (pw) update(u, { password: pw });
   }
   async function remove(u) {
-    if (!confirm(`Delete ${u.username}? Their empty spaces go too. Spaces with documents must be transferred or deleted first.`)) return;
+    if (!confirm(tx('access_delete_x_their_empty_spaces_go', { username: u.username }))) return;
     try {
       await del(`/users/${u.id}`);
       load();
@@ -90,34 +91,34 @@
   }
 </script>
 
-<svelte:head><title>Access – tildoc</title></svelte:head>
+<svelte:head><title>{tx('access_access_tildoc')}</title></svelte:head>
 
 <div class="page">
   <header>
-    <h1>Access</h1>
-    <p>People on this server, roles, and server permissions. Permissions on single spaces are set in each space's sharing dialog.</p>
+    <h1>{tx('common_access')}</h1>
+    <p>{tx('access_people_on_this_server_roles_and')}</p>
   </header>
   {#if can('users.manage')}
   <section class="section">
-    <h2>People</h2>
+    <h2>{tx('access_people')}</h2>
     <div class="table-wrap">
       <table class="plain">
-        <thead><tr><th>Person</th><th>Administrator</th><th>Status</th><th>Created</th><th></th></tr></thead>
+        <thead><tr><th>{tx('access_person')}</th><th>{tx('access_administrator')}</th><th>{tx('access_status')}</th><th>{tx('common_created')}</th><th></th></tr></thead>
         <tbody>
           {#each users as u (u.id)}
             <tr>
               <td>{u.display_name} <small class="muted">@{u.username}</small></td>
-              <td><input type="checkbox" aria-label="Administrator" checked={u.is_admin} disabled={u.id === session.user.id} onchange={(e) => update(u, { is_admin: e.target.checked })} /></td>
-              <td>{#if u.status === 'pending'}<span class="pill">Waiting for approval</span>{:else}{u.status === 'disabled' ? 'Disabled' : 'Active'}{/if}</td>
+              <td><input type="checkbox" aria-label={tx('access_administrator')} checked={u.is_admin} disabled={u.id === session.user.id} onchange={(e) => update(u, { is_admin: e.target.checked })} /></td>
+              <td>{#if u.status === 'pending'}<span class="pill">{tx('access_waiting_for_approval')}</span>{:else}{u.status === 'disabled' ? tx('access_disabled') : tx('access_active')}{/if}</td>
               <td>{date(u.created_at)}</td>
               <td class="actions">
                 {#if u.status === 'pending'}
-                  <button class="small primary" onclick={() => approve(u)}>Approve</button>
-                  <button class="small ghost" onclick={() => remove(u)}>Decline</button>
+                  <button class="small primary" onclick={() => approve(u)}>{tx('access_approve')}</button>
+                  <button class="small ghost" onclick={() => remove(u)}>{tx('access_decline')}</button>
                 {:else if u.id !== session.user.id}
-                  <button class="small" onclick={() => update(u, { disabled: !u.disabled })}>{u.disabled ? 'Enable' : 'Disable'}</button>
-                  <button class="small" onclick={() => resetPw(u)}>Set password</button>
-                  <button class="small ghost" onclick={() => remove(u)}>Delete</button>
+                  <button class="small" onclick={() => update(u, { disabled: !u.disabled })}>{u.disabled ? tx('access_enable') : tx('access_disable')}</button>
+                  <button class="small" onclick={() => resetPw(u)}>{tx('access_set_password')}</button>
+                  <button class="small ghost" onclick={() => remove(u)}>{tx('common_delete')}</button>
                 {/if}
               </td>
             </tr>
@@ -126,33 +127,33 @@
       </table>
     </div>
     <form onsubmit={createUser} style="margin-top:18px">
-      <h3 style="margin-bottom:8px">Add a person</h3>
+      <h3 style="margin-bottom:8px">{tx('access_add_a_person')}</h3>
       <div class="section-grid">
-        <label>Username<input bind:value={nu.username} required /></label>
-        <label>Display name<input bind:value={nu.display_name} /></label>
-        <label>First password<input type="password" autocomplete="new-password" minlength="8" bind:value={nu.password} required /><span class="hint">At least 8 characters.</span></label>
+        <label>{tx('common_username')}<input bind:value={nu.username} required /></label>
+        <label>{tx('common_display_name')}<input bind:value={nu.display_name} /></label>
+        <label>{tx('access_first_password')}<input type="password" autocomplete="new-password" minlength="8" bind:value={nu.password} required /><span class="hint">{tx('common_at_least_8_characters')}</span></label>
       </div>
-      <div class="row"><label class="inline" style="margin:0"><input type="checkbox" bind:checked={nu.is_admin} /> Administrator</label><button class="primary">Add person</button></div>
+      <div class="row"><label class="inline" style="margin:0"><input type="checkbox" bind:checked={nu.is_admin} /> {tx('access_administrator')}</label><button class="primary">{tx('access_add_person')}</button></div>
     </form>
   </section>
   {/if}
   {#if can('roles.manage')}
   <section class="section">
-    <h2>Roles</h2>
-    <p>A role is a set of permissions. Changing one changes it for everyone who holds it.</p>
-    {#each [['space', 'On spaces'], ['instance', 'On this server']] as [scope, title] (scope)}
+    <h2>{tx('access_roles')}</h2>
+    <p>{tx('access_a_role_is_a_set_of')}</p>
+    {#each [['space', tx('access_on_spaces')], ['instance', tx('access_on_this_server')]] as [scope, title] (scope)}
       <h3 class="sub">{title}</h3>
       <div class="table-wrap">
         <table class="plain matrix">
-          <thead><tr><th>Role</th>{#each catalogue[scope] ?? [] as p (p)}<th title={permHelp(p)}><span>{permLabel(p)}</span></th>{/each}<th></th></tr></thead>
+          <thead><tr><th>{tx('common_role')}</th>{#each catalogue[scope] ?? [] as p (p)}<th title={permHelp(p)}><span>{permLabel(p)}</span></th>{/each}<th></th></tr></thead>
           <tbody>
             {#each roles.filter((r) => r.scope === scope) as r (r.id)}
               <tr>
                 <td>{r.name}</td>
                 {#each catalogue[scope] ?? [] as p (p)}
-                  <td><input type="checkbox" aria-label="{permLabel(p)} for {r.name}" checked={r.permissions.includes(p)} disabled={r.slug === 'administrator'} onchange={(e) => setRolePerm(r, p, e.currentTarget.checked)} /></td>
+                  <td><input type="checkbox" aria-label={tx('access_permission_for_role', { permission: permLabel(p), role: r.name })} checked={r.permissions.includes(p)} disabled={r.slug === 'administrator'} onchange={(e) => setRolePerm(r, p, e.currentTarget.checked)} /></td>
                 {/each}
-                <td class="actions">{#if !r.built_in}<button class="small ghost" onclick={() => deleteRole(r)}>Delete</button>{/if}</td>
+                <td class="actions">{#if !r.built_in}<button class="small ghost" onclick={() => deleteRole(r)}>{tx('common_delete')}</button>{/if}</td>
               </tr>
             {/each}
           </tbody>
@@ -160,28 +161,28 @@
       </div>
     {/each}
     <form class="row" style="margin-top:12px" onsubmit={addRole}>
-      <input placeholder="New role" bind:value={newRole} aria-label="New role" required style="flex:1;min-width:160px" />
-      <select bind:value={newScope} aria-label="Applies to" style="width:auto"><option value="space">On spaces</option><option value="instance">On this server</option></select>
-      <button class="primary">Add role</button>
+      <input placeholder={tx('access_new_role')} bind:value={newRole} aria-label={tx('access_new_role')} required style="flex:1;min-width:160px" />
+      <select bind:value={newScope} aria-label={tx('access_applies_to')} style="width:auto"><option value="space">{tx('access_on_spaces')}</option><option value="instance">{tx('access_on_this_server')}</option></select>
+      <button class="primary">{tx('access_add_role')}</button>
     </form>
   </section>
   <section class="section">
-    <h2>Server permissions</h2>
-    <p>Who may do what on this server. These never give access to documents.</p>
+    <h2>{tx('access_server_permissions')}</h2>
+    <p>{tx('access_who_may_do_what_on_this')}</p>
     <GrantRows url="/instance/grants" scope="instance" canEdit />
   </section>
   {/if}
   {#if can('audit.view')}
   <section class="section">
-    <h2>Activity</h2>
-    <p>The newest changes to permissions, shares, keys and accounts. This list can't be edited.</p>
+    <h2>{tx('access_activity')}</h2>
+    <p>{tx('access_the_newest_changes_to_permissions_shares')}</p>
     <div class="table-wrap">
       <table class="plain">
-        <thead><tr><th>When</th><th>Who</th><th>What</th><th>On</th><th>Details</th></tr></thead>
+        <thead><tr><th>{tx('access_when')}</th><th>{tx('access_who')}</th><th>{tx('access_what')}</th><th>{tx('access_on')}</th><th>{tx('common_details')}</th></tr></thead>
         <tbody>
           {#each events as e (e.id)}
             <tr><td>{date(e.at)}</td><td>{e.actor}</td><td>{e.action}</td><td>{e.target_type}</td><td class="muted small">{detail(e)}</td></tr>
-          {:else}<tr><td colspan="5" class="muted">Nothing yet.</td></tr>{/each}
+          {:else}<tr><td colspan="5" class="muted">{tx('access_nothing_yet')}</td></tr>{/each}
         </tbody>
       </table>
     </div>

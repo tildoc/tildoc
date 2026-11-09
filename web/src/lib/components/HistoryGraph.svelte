@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   import { canDownload } from '../perms.js';
   // History of a document as one graph: versions on the main line, derived
   // variants branching off diagonally, joins where a version continues from a
@@ -28,28 +29,28 @@
   }
   const contentURL = $derived(`/api/documents/${doc.id}/content`);
 
-  const ORIGINAL = { 'pdf-ocred': 'scan with an existing OCR layer', 'pdf-scanned': 'scan without text', 'pdf-mixed': 'partly scanned',
-    'pdf-digital': 'with a text layer', 'pdf-tildoc-ocr': 'tildoc OCR result' };
+  const ORIGINAL = { 'pdf-ocred': tx('historygraph_scan_with_an_existing_ocr_layer'), 'pdf-scanned': tx('historygraph_scan_without_text'), 'pdf-mixed': tx('historygraph_partly_scanned'),
+    'pdf-digital': tx('historygraph_with_a_text_layer'), 'pdf-tildoc-ocr': tx('historygraph_tildoc_ocr_result') };
 
   function relation(v) {
-    if (v.restored_from) return `restored from version ${v.restored_from}`;
+    if (v.restored_from) return tx('historygraph_restored_from_version_x', { restored_from: v.restored_from });
     const c = v.continued_from;
     if (!c) return '';
-    return c.variant ? `continued from ${VARIANT_LABEL[c.variant] ?? c.variant} of version ${c.version}` : `same content as version ${c.version}`;
+    return c.variant ? tx('historygraph_continued_from_x_of_version_x', { variant: VARIANT_LABEL[c.variant] ?? c.variant, version: c.version }) : tx('historygraph_same_content_as_version_x', { version: c.version });
   }
 
   // Row metadata, always in this order: date | size | where it came from
   // (upload channel of a version, program and version that made a variant).
   // Further details go into the tooltip.
-  const SOURCE = { web: 'Web upload', api: 'API', webdav: 'WebDAV', sftp: 'SFTP', s3: 'S3', rename: 'Rename', copy: 'Copy', restore: 'Restore', editor: 'Editor', office: 'Office' };
+  const SOURCE = { web: tx('historygraph_web_upload'), api: 'API', webdav: tx('historygraph_webdav'), sftp: 'SFTP', s3: 'S3', rename: tx('common_rename'), copy: tx('common_copy'), restore: tx('historygraph_restore'), editor: tx('historygraph_editor'), office: tx('historygraph_office') };
   const versionInfo = (v) => [date(v.created_at), size(v.size), SOURCE[v.source] ?? v.source].join(' | ');
-  const variantInfo = (x) => [date(x.created_at), size(x.size), x.engine || 'unknown program'].join(' | ');
+  const variantInfo = (x) => [date(x.created_at), size(x.size), x.engine || tx('historygraph_unknown_program')].join(' | ');
 
   function versionTip(v) {
     return [versionInfo(v), v.created_by ? `by ${v.created_by}` : '', v.variants?.length ? ORIGINAL[v.kind] : ''].filter(Boolean).join(', ');
   }
   function variantTip(x) {
-    const what = x.kind === 'image_only_pdf' ? 'existing text removed' : x.meta?.mode === 'skip-text' ? 'pages without text recognised' : 'all pages recognised';
+    const what = x.kind === 'image_only_pdf' ? tx('historygraph_existing_text_removed') : x.meta?.mode === 'skip-text' ? tx('historygraph_pages_without_text_recognised') : tx('historygraph_all_pages_recognised');
     return [variantInfo(x), what, x.meta?.langs].filter(Boolean).join(', ');
   }
 
@@ -78,20 +79,20 @@
     {/each}
   </svg>
 
-  <ol class="rows" style:padding-left="{width + 6}px" aria-label="History: versions and their variants, oldest first">
+  <ol class="rows" style:padding-left="{width + 6}px" aria-label={tx('historygraph_history_versions_and_their_variants_oldest')}>
     {#each graph.rows as r (r.id)}
       <li class={r.kind} class:shown={isShown(r)}>
         <button class="pick" aria-pressed={isShown(r)} onclick={() => select(r)}
-          aria-label="Show {nodeName(r).replace(/^Version/, 'version')}"></button>
+          aria-label={r.kind === 'version' ? tx('historygraph_show_version', { version: r.version }) : tx('historygraph_show_variant', { variant: VARIANT_LABEL[r.variant] ?? r.variant, version: r.version })}></button>
         {#if r.kind === 'version'}
           {@const v = r.data}
           <div class="title">
-            <strong>Version {v.version}</strong>
+            <strong>{tx('historygraph_version_x', { version: v.version })}</strong>
             {#if relation(v)}<span class="rel">{relation(v)}</span>{/if}
             <span class="acts">
-              {#if v.version !== doc.version && canWrite}<button class="small ghost" onclick={() => onrestore?.(v.version)}>Restore</button>{/if}
-              {#if v.version !== doc.version && doc.caps?.includes('purge')}<button class="small ghost" onclick={() => onpurge?.(v.version)} title="Delete this version for good" aria-label="Delete version {v.version} for good"><Icon name="trash" size={14} /></button>{/if}
-              {#if canDownload(doc)}<a class="btn small ghost" href={`${contentURL}?version=${v.version}`} download title="Download version {v.version}" aria-label="Download version {v.version}"><Icon name="download" size={14} /></a>{/if}
+              {#if v.version !== doc.version && canWrite}<button class="small ghost" onclick={() => onrestore?.(v.version)}>{tx('historygraph_restore')}</button>{/if}
+              {#if v.version !== doc.version && doc.caps?.includes('purge')}<button class="small ghost" onclick={() => onpurge?.(v.version)} title={tx('historygraph_delete_this_version_for_good')} aria-label={tx('historygraph_delete_version', { version: v.version })}><Icon name="trash" size={14} /></button>{/if}
+              {#if canDownload(doc)}<a class="btn small ghost" href={`${contentURL}?version=${v.version}`} download title={tx('historygraph_download_version', { version: v.version })} aria-label={tx('historygraph_download_version', { version: v.version })}><Icon name="download" size={14} /></a>{/if}
             </span>
           </div>
           <span class="meta" title={versionTip(v)}>{versionInfo(v)}</span>
@@ -99,10 +100,10 @@
           {@const vx = r.data}
           <div class="title">
             <span class="vname">{VARIANT_LABEL[r.variant] ?? r.variant}</span>
-            {#if vx.search_text && r.version === doc.version}<span class="pill search">used for search</span>{/if}
+            {#if vx.search_text && r.version === doc.version}<span class="pill search">{tx('historygraph_used_for_search')}</span>{/if}
             <span class="acts">
               {#if canDownload(doc)}<a class="btn small ghost" href={`${contentURL}?${variantQuery(r)}`} download
-                title="Download this variant" aria-label="Download {VARIANT_LABEL[r.variant]} of version {r.version}"><Icon name="download" size={14} /></a>{/if}
+                title={tx('historygraph_download_this_variant')} aria-label={tx('historygraph_download_variant', { variant: VARIANT_LABEL[r.variant], version: r.version })}><Icon name="download" size={14} /></a>{/if}
             </span>
           </div>
           <span class="meta" title={variantTip(vx)}>{variantInfo(vx)}</span>

@@ -86,6 +86,7 @@ type MUser struct {
 	PDFViewer   string    `json:"pdf_viewer"`
 	CreatedAt   time.Time `json:"created_at"`
 	Status      string    `json:"status"`
+	Locale      string    `json:"locale"`
 }
 
 // MTeam is a team with members (server backups only).

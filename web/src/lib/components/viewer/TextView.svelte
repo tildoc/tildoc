@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // Plain text in a reading column; code-like types use a monospace face.
   import { tick } from 'svelte';
   import { terms as parseTerms, findAll, segments } from '../../viewer/find.js';
@@ -45,13 +46,13 @@
 
 <div class="stage {mode}">
   {#if error}
-    <p class="state">This file can't be displayed ({error}).</p>
+    <p class="state">{tx('textview_this_file_can_t_be_displayed', { error })}</p>
   {:else if text === null}
-    <p class="state">Opening document…</p>
+    <p class="state">{tx('common_opening_document')}</p>
   {:else}
     <article class="sheet-text" class:code={codeLike} bind:this={body}>
       {#each segs as s}{#if s.hit}<mark data-hit={s.index} class:current={s.index === current}>{s.text}</mark>{:else}{s.text}{/if}{/each}
-      {#if size > LIMIT}<p class="cut">Showing the first 2 MB of {Math.round(size / 1048576)} MB. Download the file to read all of it.</p>{/if}
+      {#if size > LIMIT}<p class="cut">{tx('textview_showing_the_first_2_mb_of', { size: Math.round(size / 1048576) })}</p>{/if}
     </article>
   {/if}
 </div>

@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // Read-only tag chips; onpick makes them clickable (e.g. filter by tag).
   let { tags = [], onpick, small = false } = $props();
 </script>
@@ -7,7 +8,7 @@
   <span class="chips" class:small>
     {#each tags as t (t.id)}
       {#if onpick}
-        <button class="chip" onclick={(e) => { e.stopPropagation(); onpick(t); }} title="Show documents tagged {t.name}">
+        <button class="chip" onclick={(e) => { e.stopPropagation(); onpick(t); }} title={tx('tagchips_show_tagged', { tag: t.name })}>
           <span class="dot" style:background={t.color || null}></span>{t.name}
         </button>
       {:else}

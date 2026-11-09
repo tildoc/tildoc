@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   import { get, post, del, api } from '#lib/api.js';
   import { session, toast, errorToast, bumpTree } from '#lib/state.svelte.js';
   import { size, date } from '#lib/format.js';
@@ -20,7 +21,7 @@
   async function restore(it) {
     try {
       const d = await post(`/trash/${it.document_id}/restore`);
-      toast(`Restored to ${d.links.map((l) => l.path).join(', ')}`, 'success');
+      toast(tx('trash_restored_to_x', { path_join: d.links.map((l) => l.path).join(', ') }), 'success');
       bumpTree();
       load();
     } catch (e) {
@@ -40,7 +41,7 @@
     confirm = null;
     try {
       const r = await api('DELETE', `/trash?space=${spaceId}`);
-      toast(`Deleted ${r.purged} document${r.purged === 1 ? '' : 's'} for good`, 'success');
+      toast(tx('trash_deleted_for_good', { count: r.purged }), 'success');
       load();
     } catch (e) {
       errorToast(e);
@@ -51,14 +52,14 @@
 
 <div class="page">
   <header>
-    <h1>Trash</h1>
-    <p>A document lands here when its last place is deleted. It stays until the date shown, then it is deleted for good. Restoring recreates missing folders.</p>
+    <h1>{tx('layout_trash')}</h1>
+    <p>{tx('trash_a_document_lands_here_when_its')}</p>
   </header>
   {#if spacesWithTrash.some((s) => session.spaces.find((x) => x.id === s)?.perm >= 3)}
     <div class="row" style="margin-bottom:12px">
       {#each spacesWithTrash as s}
         {#if session.spaces.find((x) => x.id === s)?.perm >= 3}
-          <button onclick={() => (confirm = { kind: 'empty', space: s })}><Icon name="trash" size={16} /> Empty trash of {spaceName(s)}</button>
+          <button onclick={() => (confirm = { kind: 'empty', space: s })}><Icon name="trash" size={16} /> {tx('trash_empty_trash_of_x', { space: spaceName(s) })}</button>
         {/if}
       {/each}
     </div>
@@ -66,16 +67,16 @@
   {#if items.length}
     <div class="table-wrap">
       <table class="plain">
-        <thead><tr><th>Name</th><th>Space</th><th>Deleted from</th><th>Size</th><th>Deleted</th><th>Deleted for good on</th><th></th></tr></thead>
+        <thead><tr><th>{tx('common_name')}</th><th>{tx('common_space')}</th><th>{tx('trash_deleted_from')}</th><th>{tx('common_size')}</th><th>{tx('trash_deleted')}</th><th>{tx('trash_deleted_for_good_on')}</th><th></th></tr></thead>
         <tbody>
           {#each items as it (it.document_id)}
             <tr>
               <td>{it.name}</td><td>{spaceName(it.space_id)}</td><td class="muted">{it.path}</td><td>{size(it.size)}</td>
               <td>{date(it.deleted_at)}</td><td>{date(it.purge_at)}</td>
               <td class="actions">
-                <button class="small" onclick={() => restore(it)}>Restore</button>
+                <button class="small" onclick={() => restore(it)}>{tx('historygraph_restore')}</button>
                 {#if session.spaces.find((x) => x.id === it.space_id)?.perm >= 3}
-                  <button class="small ghost" onclick={() => (confirm = { kind: 'purge', it })}>Delete for good</button>
+                  <button class="small ghost" onclick={() => (confirm = { kind: 'purge', it })}>{tx('trash_delete_for_good')}</button>
                 {/if}
               </td>
             </tr>
@@ -84,14 +85,14 @@
       </table>
     </div>
   {:else}
-    <div class="empty-state"><strong>The trash is empty</strong>Deleted documents appear here until they are removed for good.</div>
+    <div class="empty-state"><strong>{tx('trash_the_trash_is_empty')}</strong>{tx('trash_deleted_documents_appear_here_until_they')}</div>
   {/if}
 </div>
 
 {#if confirm?.kind === 'purge'}
-  <Confirm title="Delete for good" danger confirm="Delete for good" message={`Delete “${confirm.it.name}” and all its versions for good? This can't be undone.`}
+  <Confirm title={tx('trash_delete_for_good')} danger confirm={tx('trash_delete_for_good')} message={tx('trash_delete_x_and_all_its_versions', { name: confirm.it.name })}
     onconfirm={() => purge(confirm.it)} onclose={() => (confirm = null)} />
 {:else if confirm?.kind === 'empty'}
-  <Confirm title="Empty trash" danger confirm="Empty trash" message={`Delete every document in the trash of ${spaceName(confirm.space)} for good? This can't be undone.`}
+  <Confirm title={tx('trash_empty_trash')} danger confirm={tx('trash_empty_trash')} message={tx('trash_delete_every_document_in_the_trash', { space: spaceName(confirm.space) })}
     onconfirm={() => empty(confirm.space)} onclose={() => (confirm = null)} />
 {/if}

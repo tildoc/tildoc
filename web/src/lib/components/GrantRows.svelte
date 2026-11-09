@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // One permission matrix: who (user or team) has which role and which
   // individual permissions, on a space, a file or the instance.
   import Icon from './Icon.svelte';
@@ -83,17 +84,17 @@
       <li>
         <div class="line">
           <Icon name={g.team_id ? 'users' : 'key'} size={16} />
-          <span class="who">{g.team_id ? `Team ${g.team_name}` : g.display_name || g.username}{#if g.username && !g.team_id}<small class="muted"> @{g.username}</small>{/if}</span>
+          <span class="who">{g.team_id ? tx('common_team_x', { name: g.team_name }) : g.display_name || g.username}{#if g.username && !g.team_id}<small class="muted"> @{g.username}</small>{/if}</span>
           {#if canEdit}
-            <select value={g.role} aria-label="Role of {g.username || g.team_name}" onchange={(e) => save(g, e.currentTarget.value, g.permissions)}>
-              <option value="">Individual only</option>
+            <select value={g.role} aria-label={tx('common_role_of', { name: g.username || g.team_name })} onchange={(e) => save(g, e.currentTarget.value, g.permissions)}>
+              <option value="">{tx('grantrows_individual_only')}</option>
               {#each usable as r (r.id)}<option value={r.slug}>{r.name}</option>{/each}
               {#if g.role && !usable.some((r) => r.slug === g.role)}<option value={g.role}>{g.role_name}</option>{/if}
             </select>
-            <button class="small ghost" aria-expanded={open === g.id} onclick={() => (open = open === g.id ? null : g.id)}>Permissions{g.permissions.length ? ` +${g.permissions.length}` : ''}</button>
-            <button class="small ghost" onclick={() => remove(g)}>Remove</button>
+            <button class="small ghost" aria-expanded={open === g.id} onclick={() => (open = open === g.id ? null : g.id)}>{g.permissions.length ? tx('grantrows_permissions_more', { number: g.permissions.length }) : tx('grantrows_permissions')}</button>
+            <button class="small ghost" onclick={() => remove(g)}>{tx('common_remove')}</button>
           {:else}
-            <span class="pill">{g.role_name || 'Individual'}{g.permissions.length ? ` +${g.permissions.length}` : ''}</span>
+            <span class="pill">{g.role_name || tx('grantrows_individual')}{g.permissions.length ? ` +${g.permissions.length}` : ''}</span>
           {/if}
         </div>
         {#if open === g.id}
@@ -110,26 +111,26 @@
     {/each}
   </ul>
 {:else}
-  <p class="muted">Nobody yet.</p>
+  <p class="muted">{tx('grantrows_nobody_yet')}</p>
 {/if}
 
 {#if canEdit}
   <form class="add" onsubmit={add}>
-    <div class="seg" role="radiogroup" aria-label="Share with">
-      <button type="button" role="radio" aria-checked={who === 'user'} class:active={who === 'user'} onclick={() => (who = 'user')}>A person</button>
-      <button type="button" role="radio" aria-checked={who === 'team'} class:active={who === 'team'} onclick={() => (who = 'team')}>A team</button>
+    <div class="seg" role="radiogroup" aria-label={tx('grantrows_share_with')}>
+      <button type="button" role="radio" aria-checked={who === 'user'} class:active={who === 'user'} onclick={() => (who = 'user')}>{tx('grantrows_a_person')}</button>
+      <button type="button" role="radio" aria-checked={who === 'team'} class:active={who === 'team'} onclick={() => (who = 'team')}>{tx('grantrows_a_team')}</button>
     </div>
     {#if who === 'user'}
-      <input list="grant-users" bind:value={user} placeholder="Username" aria-label="User to add" required />
+      <input list="grant-users" bind:value={user} placeholder={tx('common_username')} aria-label={tx('grantrows_user_to_add')} required />
       <datalist id="grant-users">{#each users as u (u.id)}<option value={u.username}>{u.display_name}</option>{/each}</datalist>
     {:else}
-      <select bind:value={team} aria-label="Team" required>
-        <option value="" disabled>Choose a team</option>
+      <select bind:value={team} aria-label={tx('grantrows_team')} required>
+        <option value="" disabled>{tx('grantrows_choose_a_team')}</option>
         {#each teams as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
       </select>
     {/if}
-    <select bind:value={role} aria-label="Role">{#each usable as r (r.id)}<option value={r.slug}>{r.name}</option>{/each}</select>
-    <button class="primary">Add</button>
+    <select bind:value={role} aria-label={tx('common_role')}>{#each usable as r (r.id)}<option value={r.slug}>{r.name}</option>{/each}</select>
+    <button class="primary">{tx('grantrows_add')}</button>
   </form>
 {/if}
 

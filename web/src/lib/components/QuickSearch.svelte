@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // Ctrl+K palette: type, pick a document, open it in the viewer.
   import { openView } from '../nav.js';
   import { goto } from '$app/navigation';
@@ -74,11 +75,11 @@
 </script>
 
 <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && onclose()}>
-  <div class="palette" role="dialog" aria-modal="true" aria-label="Search documents">
+  <div class="palette" role="dialog" aria-modal="true" aria-label={tx('quicksearch_search_documents')}>
     <div class="field">
       <Icon name="search" />
-      <input bind:this={input} bind:value={q} oninput={changed} onkeydown={key} placeholder="Search names and contents"
-        aria-label="Search names and contents" role="combobox" aria-expanded={hits.length > 0} aria-controls="qs-list" aria-activedescendant={hits.length ? `qs-${sel}` : undefined} />
+      <input bind:this={input} bind:value={q} oninput={changed} onkeydown={key} placeholder={tx('quicksearch_search_names_and_contents')}
+        aria-label={tx('quicksearch_search_names_and_contents')} role="combobox" aria-expanded={hits.length > 0} aria-controls="qs-list" aria-activedescendant={hits.length ? `qs-${sel}` : undefined} />
       <kbd>Esc</kbd>
     </div>
     {#if q.trim()}
@@ -88,7 +89,7 @@
             <button class:sel={sel === i} onmousemove={() => (sel = i)} onclick={() => open(h)}>
               <span class="ic {iconFor({ kind: 'file', mime: h.mime })}"><Icon name={iconFor({ kind: 'file', mime: h.mime })} /></span>
               <span class="txt">
-                <span class="nm">{h.name}{#if h.page}<span class="pg">page {h.page}</span>{/if}</span>
+                <span class="nm">{h.name}{#if h.page}<span class="pg">{tx('quicksearch_page_x', { page: h.page })}</span>{/if}</span>
                 {#if h.snippet}<span class="snip">{@html snippet(h.snippet)}</span>{:else}<span class="path">{slug(h.space_id)}{h.path}</span>{/if}
               </span>
             </button>
@@ -96,12 +97,12 @@
         {/each}
         <li id="qs-{hits.length}" role="option" aria-selected={sel === hits.length}>
           <button class="all" class:sel={sel === hits.length} onmousemove={() => (sel = hits.length)} onclick={all}>
-            {total > hits.length ? `Show all ${total} results` : hits.length ? 'Show results with filters' : 'No documents match. Search with filters'}
+            {total > hits.length ? tx('quicksearch_show_all_x_results', { total }) : hits.length ? tx('quicksearch_show_results_with_filters') : tx('quicksearch_no_documents_match_search_with_filters')}
           </button>
         </li>
       </ul>
     {:else}
-      <p class="tip">Finds words inside documents, including scanned pages after OCR. Use quotes for an exact phrase and a minus sign to exclude a word.</p>
+      <p class="tip">{tx('quicksearch_finds_words_inside_documents_including_scanned')}</p>
     {/if}
   </div>
 </div>

@@ -1,3 +1,5 @@
+import { tx, labels } from './i18n/index.js';
+
 // Layout of a document's history graph (versions + derived variants), in
 // the style of `git log --graph`, oldest at the top:
 // - lane 0 is the main line of versions;
@@ -9,7 +11,7 @@
 //   restores one) joins back into lane 0 from that node.
 // Pure function: no DOM, unit-testable (node --test).
 
-export const VARIANT_LABEL = { image_only_pdf: 'Image only', searchable_pdf: 'tildoc OCR' };
+export const VARIANT_LABEL = labels({ image_only_pdf: 'variant_image_only', searchable_pdf: 'variant_searchable' });
 
 // layoutHistory(versions) -> { rows, edges, lanes }
 //   versions: API document.versions (any order)
@@ -105,7 +107,7 @@ export function nodeSelection(doc, r) {
   return { viewVersion: r.version === doc.version ? 0 : r.version, viewVariant: nodeVariant(r) };
 }
 export function nodeName(r) {
-  return r.kind === 'version' ? `Version ${r.version}` : `${VARIANT_LABEL[r.variant] ?? r.variant} of version ${r.version}`;
+  return r.kind === 'version' ? tx('history_version', { version: r.version }) : tx('history_variant_of_version', { variant: VARIANT_LABEL[r.variant] ?? r.variant, version: r.version });
 }
 
 // path returns the SVG path of an edge. x(lane) and y(row) give centres.

@@ -6,7 +6,11 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 for pid in $(ss -ltnp 2>/dev/null | grep -E ':8080 ' | grep -oE 'pid=[0-9]+' | cut -d= -f2); do kill "$pid"; done
 sleep 1
+# a small translation, so that the test can switch the language; never left in the tree
+cp test/ui/fixtures/de-de.json web/src/lib/i18n/locales/de-de.json
+trap 'rm -f "$ROOT/web/src/lib/i18n/locales/de-de.json"' EXIT
 (cd web && npm run build >/dev/null)
+rm -f web/src/lib/i18n/locales/de-de.json
 scripts/dev-db.sh
 docker exec tildoc-dev-pg psql -U postgres -c "DROP DATABASE IF EXISTS tildoc WITH (FORCE)" -c "CREATE DATABASE tildoc" >/dev/null
 rm -rf .data/store

@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // Image on the viewer stage: fit to the window or zoomed (Ctrl+wheel, buttons).
   let { url, alt = '', zoom = $bindable('page'), scale = $bindable(1), mode = 'full', transitionName = '' } = $props();
   let box = $state();
@@ -39,7 +40,7 @@
 
 <div class="stage {mode}" bind:this={box} use:setup>
   {#if failed}
-    <p class="state">This image can't be displayed. Download it to open it in another program.</p>
+    <p class="state">{tx('imageview_this_image_can_t_be_displayed')}</p>
   {:else}
     <div class="frame" style:min-width="100%" style:min-height="100%">
       <img src={url} {alt} draggable="false"

@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   import { SOURCE_URL } from '#lib/format.js';
   import { goto } from '$app/navigation';
   import { get, post } from '#lib/api.js';
@@ -7,7 +8,7 @@
   let providers = $state([]);
   const q = new URLSearchParams(location.search);
   const pending = q.has('pending');
-  const failure = { expired: 'That sign-in expired. Try again.', cancelled: 'The sign-in was cancelled.', provider: 'The sign-in could not be completed. Try again.', disabled: 'This account cannot sign in.' }[q.get('error')] ?? '';
+  const failure = { expired: tx('login_that_sign_in_expired_try_again'), cancelled: tx('login_the_sign_in_was_cancelled'), provider: tx('login_the_sign_in_could_not_be'), disabled: tx('login_this_account_cannot_sign_in') }[q.get('error')] ?? '';
   $effect(() => { get('/auth/providers', { noRedirect: true }).then((p) => (providers = p)).catch(() => {}); });
   async function submit(e) {
     e.preventDefault();
@@ -32,16 +33,16 @@
 
 <div class="center">
   <form class="auth" onsubmit={submit}>
-    <p class="brand"><img src="/icon-64.png" alt="" width="26" height="26" /><a href={SOURCE_URL} target="_blank" rel="noopener noreferrer" title="Source code on GitHub">tildoc</a></p>
-    <h1>Sign in</h1>
-    {#if pending}<p class="note">Your account is waiting for approval by an administrator. Sign in again once it is approved.</p>{/if}
+    <p class="brand"><img src="/icon-64.png" alt="" width="26" height="26" /><a href={SOURCE_URL} target="_blank" rel="noopener noreferrer" title={tx('common_source_code_on_github')}>tildoc</a></p>
+    <h1>{tx('login_sign_in')}</h1>
+    {#if pending}<p class="note">{tx('login_your_account_is_waiting_for_approval')}</p>{/if}
     {#if failure}<p class="note">{failure}</p>{/if}
-    <label>Username<input autocomplete="username" bind:value={username} required /></label>
-    <label>Password<input type="password" autocomplete="current-password" bind:value={password} required /></label>
+    <label>{tx('common_username')}<input autocomplete="username" bind:value={username} required /></label>
+    <label>{tx('common_password')}<input type="password" autocomplete="current-password" bind:value={password} required /></label>
     {#if error}<p class="err" role="alert">{error}</p>{/if}
-    <button class="primary" disabled={busy}>Sign in</button>
+    <button class="primary" disabled={busy}>{tx('login_sign_in')}</button>
     {#each providers as p (p.id)}
-      <a class="btn provider" href={`/api/auth/${p.id}/start`} data-sveltekit-reload>Sign in with {p.name}</a>
+      <a class="btn provider" href={`/api/auth/${p.id}/start`} data-sveltekit-reload>{tx('login_sign_in_with_x', { provider: p.name })}</a>
     {/each}
   </form>
 </div>

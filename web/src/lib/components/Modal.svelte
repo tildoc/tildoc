@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   import Icon from './Icon.svelte';
   let { title, onclose, children, footer, wide = false } = $props();
   function key(e) {
@@ -11,7 +12,7 @@
   <div class="modal" class:wide role="dialog" aria-modal="true" aria-label={title}>
     <header>
       <h2>{title}</h2>
-      <button class="icon" onclick={() => onclose?.()} aria-label="Close"><Icon name="close" size={18} /></button>
+      <button class="icon" onclick={() => onclose?.()} aria-label={tx('importdialog_close')}><Icon name="close" size={18} /></button>
     </header>
     <div class="body">{@render children()}</div>
     {#if footer}<footer>{@render footer()}</footer>{/if}

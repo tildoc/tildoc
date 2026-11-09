@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // Pick a collection to add documents to (or create one on the fly).
   import Modal from './Modal.svelte';
   import Icon from './Icon.svelte';
@@ -13,7 +14,7 @@
 {#if creating}
   <CollectionForm onsaved={(c) => onpick(c)} onclose={() => (creating = false)} />
 {:else}
-  <Modal title={count === 1 ? 'Add to collection' : `Add ${count} documents to collection`} {onclose}>
+  <Modal title={tx('collectionpicker_add_to_collection', { count })} {onclose}>
     {#if editable.length}
       <ul class="list">
         {#each editable as c (c.id)}
@@ -21,17 +22,17 @@
             <button onclick={() => onpick(c)}>
               <Icon name="collection" size={16} />
               <span class="nm">{c.name}</span>
-              <span class="muted small">{c.team_name ? `Team ${c.team_name}` : 'Personal'}, {c.count} {c.count === 1 ? 'document' : 'documents'}</span>
+              <span class="muted small">{c.team_name ? tx('common_team_x', { name: c.team_name }) : tx('collectionpicker_personal')}, {c.count} {c.count === 1 ? 'document' : 'documents'}</span>
             </button>
           </li>
         {/each}
       </ul>
     {:else}
-      <p class="muted">You have no collection you can add to yet.</p>
+      <p class="muted">{tx('collectionpicker_you_have_no_collection_you_can')}</p>
     {/if}
     <div class="row end">
-      <button onclick={onclose}>Cancel</button>
-      <button class="primary" onclick={() => (creating = true)}><Icon name="plus" size={16} /> New collection</button>
+      <button onclick={onclose}>{tx('common_cancel')}</button>
+      <button class="primary" onclick={() => (creating = true)}><Icon name="plus" size={16} /> {tx('common_new_collection')}</button>
     </div>
   </Modal>
 {/if}

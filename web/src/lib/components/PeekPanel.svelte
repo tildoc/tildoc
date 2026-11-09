@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // Side preview of the selected file: the whole document scrolls here, details
   // below. Resizable; "Open" morphs it into the full viewer.
   import { untrack, onMount } from 'svelte';
@@ -86,28 +87,28 @@
   const variant = $derived(doc ? shownVariant(doc, viewVersion, viewVariant) : 'original');
 </script>
 
-<aside class="peek" style:--w="{width}px" aria-label="Preview of {file.name}">
+<aside class="peek" style:--w="{width}px" aria-label={tx('peekpanel_preview_of', { name: file.name })}>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-  <div class="handle" role="separator" aria-orientation="vertical" aria-label="Resize preview" tabindex="0"
+  <div class="handle" role="separator" aria-orientation="vertical" aria-label={tx('peekpanel_resize_preview')} tabindex="0"
     aria-valuenow={width} aria-valuemin={320} aria-valuemax={1600} onpointerdown={resize} onkeydown={resizeKey}></div>
   <header>
     <h2 title={file.name}>{file.name}</h2>
-    <button class="icon" onclick={onclose} aria-label="Close preview" title="Close preview (Space)"><Icon name="close" /></button>
+    <button class="icon" onclick={onclose} aria-label={tx('peekpanel_close_preview')} title={tx('peekpanel_close_preview_space')}><Icon name="close" /></button>
   </header>
 
   <div class="preview">
     {#if doc}
       <DocView file={{ ...file, mime: doc.mime, size: doc.size }} {doc} {variant} version={viewVersion} mode="peek" {query}
         transitionName={opening ? 'doc-page' : ''} bind:page bind:numPages bind:zoom />
-      {#if numPages > 1}<span class="pageno">Page {page} of {numPages}</span>{/if}
+      {#if numPages > 1}<span class="pageno">{tx('peekpanel_page_x_of_x', { page, numPages })}</span>{/if}
     {/if}
   </div>
 
   <div class="bar">
-    <button class="primary" onclick={open}><Icon name="open" size={16} /> Open</button>
-    {#if !viewVersion && canEditPdfInOffice(doc, file.name, session.office, session.spaces)}<button onclick={() => onopen?.({ office: true })}><Icon name="edit" size={16} /> Edit in Office</button>{/if}
-{#if canDownload(doc)}    <a class="btn" href={`/api/files/${file.link_id}/content`} download><Icon name="download" size={16} /> Download</a>{/if}
-    {#if viewVersion || viewVariant}<span class="pill">Viewing version {viewVersion || doc?.version}{variant !== 'original' ? `, ${VARIANT_NAME[variant]}` : ''}</span>{/if}
+    <button class="primary" onclick={open}><Icon name="open" size={16} /> {tx('common_open')}</button>
+    {#if !viewVersion && canEditPdfInOffice(doc, file.name, session.office, session.spaces)}<button onclick={() => onopen?.({ office: true })}><Icon name="edit" size={16} /> {tx('peekpanel_edit_in_office')}</button>{/if}
+{#if canDownload(doc)}    <a class="btn" href={`/api/files/${file.link_id}/content`} download><Icon name="download" size={16} /> {tx('common_download')}</a>{/if}
+    {#if viewVersion || viewVariant}<span class="pill">{variant !== 'original' ? tx('peekpanel_viewing_version_variant', { version: viewVersion || doc?.version, variant: VARIANT_NAME[variant] }) : tx('peekpanel_viewing_version', { version: viewVersion || doc?.version })}</span>{/if}
   </div>
 
   <div class="info">

@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // Import a tildoc bundle as a new space, or a bundle/ZIP into a folder.
   // Every file goes through the normal upload path (stored once).
   import { goto } from '$app/navigation';
@@ -64,47 +65,46 @@
   }
 </script>
 
-<Modal title={folder ? `Import into ${folder.name || 'this folder'}` : 'Import a space'} {onclose}>
+<Modal title={folder ? tx('importdialog_import_into_x', { folder: folder.name || tx('importdialog_this_folder') }) : tx('importdialog_import_a_space')} {onclose}>
   {#if phase === 'choose'}
     <form onsubmit={start}>
       <p class="muted">
-        {folder ? 'A tildoc export (.tildoc) or a ZIP file. Folders are kept;' : 'A tildoc space export (.tildoc) from this or another server. It becomes a new space with its folders, versions, tags and collections;'}
-        files that are already stored here are not stored again.
+        {folder ? tx('importdialog_hint_folder') : tx('importdialog_hint_space')}
       </p>
-      <label>File<input type="file" accept={folder ? '.tildoc,.zip' : '.tildoc'} onchange={pick} required /></label>
+      <label>{tx('admin_file')}<input type="file" accept={folder ? '.tildoc,.zip' : '.tildoc'} onchange={pick} required /></label>
       {#if !folder}
-        <label>Name of the new space<input bind:value={name} required /></label>
-        <label>Short name<input bind:value={slug} placeholder="made from the name" /><span class="hint">Optional. Lowercase letters, digits and dashes.</span></label>
-        <label>Belongs to
+        <label>{tx('importdialog_name_of_the_new_space')}<input bind:value={name} required /></label>
+        <label>{tx('importdialog_short_name')}<input bind:value={slug} placeholder={tx('importdialog_made_from_the_name')} /><span class="hint">{tx('importdialog_optional_lowercase_letters_digits_and_dashes')}</span></label>
+        <label>{tx('common_belongs_to')}
           <select bind:value={team}>
-            <option value="">Just me</option>
-            {#each teams as t (t.id)}<option value={t.id}>Team {t.name}</option>{/each}
+            <option value="">{tx('common_just_me')}</option>
+            {#each teams as t (t.id)}<option value={t.id}>{tx('common_team_x', { name: t.name })}</option>{/each}
           </select>
         </label>
       {/if}
       <div class="row end">
-        <button type="button" onclick={onclose}>Cancel</button>
-        <button class="primary" disabled={!file}>Import</button>
+        <button type="button" onclick={onclose}>{tx('common_cancel')}</button>
+        <button class="primary" disabled={!file}>{tx('f_import')}</button>
       </div>
     </form>
   {:else if phase === 'upload' || phase === 'apply'}
-    <p>{phase === 'upload' ? 'Uploading' : 'Importing'} {file.name}…</p>
+    <p>{phase === 'upload' ? tx('importdialog_uploading') : tx('importdialog_importing')} {file.name}…</p>
     <div class="bar" role="progressbar" aria-valuenow={Math.round(progress * 100)} aria-valuemin="0" aria-valuemax="100">
       <span style:width="{Math.round(progress * 100)}%"></span>
     </div>
-    <p class="muted small">{phase === 'apply' ? 'You can close this window; the import continues on the server.' : ''}</p>
+    <p class="muted small">{phase === 'apply' ? tx('importdialog_you_can_close_this_window_the') : ''}</p>
   {:else if phase === 'done'}
-    <p><strong>Imported.</strong></p>
+    <p><strong>{tx('importdialog_imported')}</strong></p>
     {#if isZip}
-      <p class="muted">{result.files} files, {result.deduplicated} of them already stored, {result.folders} folders.</p>
+      <p class="muted">{tx('importdialog_x_files_x_of_them_already', { files: result.files, deduplicated: result.deduplicated, folders: result.folders })}</p>
     {:else}
-      <p class="muted">{result.documents} new documents, {result.merged} joined documents that were already here, {result.places} places, {result.collections} collections. {result.blobs_existing} files were already stored and not stored again.</p>
+      <p class="muted">{tx('importdialog_x_new_documents_x_joined_documents', { documents: result.documents, merged: result.merged, places: result.places, collections: result.collections, blobs_existing: result.blobs_existing })}</p>
     {/if}
-    <div class="row end"><button onclick={onclose}>Close</button><button class="primary" onclick={openResult}>Open</button></div>
+    <div class="row end"><button onclick={onclose}>{tx('importdialog_close')}</button><button class="primary" onclick={openResult}>{tx('common_open')}</button></div>
   {:else}
-    <p class="err"><strong>The import failed.</strong> {transfer?.error}</p>
-    <p class="muted small">{isZip ? 'Files imported before the problem stay where they are.' : 'Nothing was changed.'}</p>
-    <div class="row end"><button onclick={() => (phase = 'choose')}>Try another file</button><button onclick={onclose}>Close</button></div>
+    <p class="err"><strong>{tx('importdialog_the_import_failed')}</strong> {transfer?.error}</p>
+    <p class="muted small">{isZip ? tx('importdialog_files_imported_before_the_problem_stay') : tx('importdialog_nothing_was_changed')}</p>
+    <div class="row end"><button onclick={() => (phase = 'choose')}>{tx('importdialog_try_another_file')}</button><button onclick={onclose}>{tx('importdialog_close')}</button></div>
   {/if}
 </Modal>
 

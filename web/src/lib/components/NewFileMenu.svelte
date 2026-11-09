@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // "New file": a text file, or any format the office server can create.
   import Icon from './Icon.svelte';
   import { session } from '../state.svelte.js';
@@ -27,10 +28,10 @@
 <svelte:window onclick={outside} onkeydown={key} />
 
 <div class="wrap" bind:this={root}>
-  <button class="ghost" aria-haspopup="menu" aria-expanded={open} onclick={() => (open = !open)}><Icon name="plus" size={16} /> New file</button>
+  <button class="ghost" aria-haspopup="menu" aria-expanded={open} onclick={() => (open = !open)}><Icon name="plus" size={16} /> {tx('newfilemenu_new_file')}</button>
   {#if open}
     <div class="menu" role="menu">
-      <button role="menuitem" onclick={() => pick({ ext: '', label: 'text file' })}>Text file</button>
+      <button role="menuitem" onclick={() => pick({ ext: '', label: tx('newfilemenu_text_file') })}>{tx('newfilemenu_text_file_2')}</button>
       {#each types as t (t.ext)}
         <button role="menuitem" onclick={() => pick({ ext: t.ext, label: t.label })}>{t.label} <small>.{t.ext}</small></button>
       {/each}

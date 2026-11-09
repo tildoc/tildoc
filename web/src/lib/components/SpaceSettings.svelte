@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // Settings of one space: all off by default.
   import { untrack } from 'svelte';
   import Modal from './Modal.svelte';
@@ -8,16 +9,16 @@
   let { space, onclose } = $props();
   let st = $state(untrack(() => ({ ...space.settings })));
   const groups = [
-    ['Sharing', [
-      ['allow_login_links', 'Sign-in links', 'Links to the space or a file that work for people signed in to tildoc.'],
-      ['allow_public_links', 'Public links', 'Links that work for anyone who has them, without an account. The server must also allow them.'],
-      ['allow_drop_links', 'Drop links', 'Links where anyone can upload into this space without seeing what is in it. The server must also allow them.'],
-      ['allow_file_shares', 'File shares', 'Sharing single files with people and teams.'],
-      ['allow_drop_in', 'Drop-In tokens', 'Keys that scripts and devices use to send files into this space, and nothing else.']
+    [tx('admin_sharing'), [
+      ['allow_login_links', tx('spacesettings_sign_in_links'), 'Links to the space or a file that work for people signed in to tildoc.'],
+      ['allow_public_links', tx('spacesettings_public_links'), tx('spacesettings_links_that_work_for_anyone_who')],
+      ['allow_drop_links', tx('spacesettings_drop_links'), tx('spacesettings_links_where_anyone_can_upload_into')],
+      ['allow_file_shares', tx('spacesettings_file_shares'), tx('spacesettings_sharing_single_files_with_people_and')],
+      ['allow_drop_in', tx('spacesettings_drop_in_tokens'), tx('spacesettings_keys_that_scripts_and_devices_use')]
     ]],
-    ['Protection', [
-      ['write_protected', 'Write protection', 'Nobody, the owner included, can upload, edit, move or delete anything here, by any channel, until this is switched off.'],
-      ['no_ocr', 'No tildoc OCR', 'tildoc adds no OCR version and no image-only variant to files here. Originals are never changed, and text already in a file stays searchable.']
+    [tx('spacesettings_protection'), [
+      ['write_protected', tx('spacesettings_write_protection'), tx('spacesettings_nobody_the_owner_included_can_upload')],
+      ['no_ocr', tx('spacesettings_no_tildoc_ocr'), tx('spacesettings_tildoc_adds_no_ocr_version_and')]
     ]]
   ];
   async function save(e) {
@@ -25,7 +26,7 @@
     try {
       await patch(`/spaces/${space.id}/settings`, st);
       await refreshSpaces();
-      toast('Saved the settings of the space', 'success');
+      toast(tx('spacesettings_saved_the_settings_of_the_space'), 'success');
       onclose();
     } catch (err) {
       errorToast(err);
@@ -33,7 +34,7 @@
   }
 </script>
 
-<Modal title={`Settings of ${space.name}`} {onclose}>
+<Modal title={tx('spacesettings_settings_of_x', { space: space.name })} {onclose}>
   <form onsubmit={save}>
     {#each groups as [title, items] (title)}
       <h3>{title}</h3>
@@ -41,7 +42,7 @@
         <label class="inline opt"><input type="checkbox" bind:checked={st[key]} aria-label={label} /><span><strong>{label}</strong><small>{help}</small></span></label>
       {/each}
     {/each}
-    <div class="row end"><button type="button" onclick={onclose}>Cancel</button><button class="primary">Save</button></div>
+    <div class="row end"><button type="button" onclick={onclose}>{tx('common_cancel')}</button><button class="primary">{tx('collectionform_save')}</button></div>
   </form>
 </Modal>
 

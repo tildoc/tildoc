@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // Tags of one document as a token field: the tags are chips inside the
   // text box, typing adds (Enter or comma; new names create a tag in the
   // server-wide list), × or Backspace in the empty box removes.
@@ -62,17 +63,17 @@
   {#each doc.tags as t (t.id)}
     <span class="chip">
       <span class="dot" style:background={t.color || null}></span>{t.name}
-      {#if canWrite}<button type="button" class="x" onclick={() => remove(t)} aria-label="Remove tag {t.name}"><Icon name="close" size={12} /></button>{/if}
+      {#if canWrite}<button type="button" class="x" onclick={() => remove(t)} aria-label={tx('tageditor_remove_tag', { tag: t.name })}><Icon name="close" size={12} /></button>{/if}
     </span>
   {/each}
   {#if canWrite}
     <form onsubmit={add}>
-      <input bind:this={input} bind:value list={listId} onkeydown={keydown} placeholder={doc.tags.length ? '' : 'Add a tag, e.g. Steuer 2025'}
-        aria-label="Add tag" disabled={busy} />
+      <input bind:this={input} bind:value list={listId} onkeydown={keydown} placeholder={doc.tags.length ? '' : tx('tageditor_add_a_tag_e_g_steuer')}
+        aria-label={tx('tageditor_add_tag')} disabled={busy} />
       <datalist id={listId}>{#each suggestions as t (t.id)}<option value={t.name}></option>{/each}</datalist>
     </form>
   {:else if !doc.tags.length}
-    <span class="muted small">No tags</span>
+    <span class="muted small">{tx('tageditor_no_tags')}</span>
   {/if}
 </div>
 

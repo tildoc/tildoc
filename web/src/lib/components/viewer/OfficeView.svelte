@@ -1,4 +1,5 @@
 <script>
+  import { tx } from '#lib/i18n/index.js';
   // An office document in Collabora Online: the token goes to its origin by
   // form POST into the iframe (never in this page's URL). Collabora saves on
   // its own, so closing the viewer loses nothing.
@@ -31,13 +32,13 @@
 
 <div class="wrap">
   {#if error}
-    <div class="msg"><strong>This document can't be opened in Office</strong><span>{error}</span></div>
+    <div class="msg"><strong>{tx('officeview_this_document_can_t_be_opened')}</strong><span>{error}</span></div>
   {:else}
     <p class="note" class:warn={newer}>
       {#if newer}
-        Version {doc.version} arrived from elsewhere. When this session ends, its text becomes the current version and version {doc.version} stays in the history.
+        {tx('officeview_version_x_arrived_from_elsewhere_when', { version: doc.version })}
       {:else}
-        Changes are saved automatically and become a new version when you close the document.
+        {tx('officeview_changes_are_saved_automatically_and_become')}
       {/if}
     </p>
     <form bind:this={form} method="post" {action} {target} hidden>
