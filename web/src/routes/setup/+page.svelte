@@ -21,7 +21,7 @@
 
 <div class="center">
   <form class="auth" onsubmit={submit}>
-    <p class="brand"><img src="/favicon.svg" alt="" width="26" height="26" />tildoc</p>
+    <p class="brand"><img src="/icon-64.png" alt="" width="26" height="26" />tildoc</p>
     <h1>Create the administrator</h1>
     <p class="muted">This works only while no account exists. The administrator manages people and processing; their documents stay private like everyone else’s.</p>
     <label>Username<input bind:value={username} required /></label>

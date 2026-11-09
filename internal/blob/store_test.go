@@ -51,7 +51,7 @@ func TestStageCommitOpen(t *testing.T) {
 		t.Fatal("content mismatch")
 	}
 	buf := make([]byte, 5)
-	if _, err := f.ReadAt(buf, 6); err != nil || string(buf) != "docto" {
+	if _, err := f.ReadAt(buf, 6); err != nil || string(buf) != "tildo" {
 		t.Fatalf("ReadAt: %q %v", buf, err)
 	}
 	n := 0

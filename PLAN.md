@@ -934,6 +934,20 @@ the review before saving is always shown. Decision 37.
 
 ---
 
+### Phase 18 — Name, licence, icon
+
+Goal: the project is called **tildoc** (Go module `github.com/tildoc/tildoc`),
+licensed AGPL-3.0-only, with its own icon.
+
+- [x] 18.1 Rename everywhere: module path and imports, `cmd/tildoc`, `TILDOC_*`
+  env vars, Docker images/user/compose project, DB names, `pg_notify` channel,
+  cookie, localStorage keys, bundle format `tildoc-bundle` (`.tildoc`), OCR
+  kind `pdf-tildoc-ocr`, WebDAV/S3 metadata names, nginx files.
+- [x] 18.2 `LICENSE` (AGPL-3.0-only), `license` in `web/package.json`, README
+  section; AGENTS.md: new dependencies need a permissive licence.
+- [x] 18.3 Icon: master `docs/assets/tildoc.png`; `web/static/icon-{32,64,180}.png`
+  (cropped, generated with ffmpeg) as favicon, apple-touch icon and brand mark.
+
 ## Open Topics
 
 Collected 2026-11-08; each becomes a phase or step when picked up.

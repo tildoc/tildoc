@@ -1,3 +1,5 @@
+<img src="docs/assets/tildoc.png" alt="" width="128" align="right" />
+
 # tildoc
 
 Self-hosted, multi-user document management. Every file type is accepted and
@@ -369,3 +371,8 @@ web/               SvelteKit UI (static SPA)   deploy/         compose, nginx te
   downloadable in the UI. Keep `TILDOC_MASTER_KEY` separately; without it
   restored access keys cannot be used. The byte-exact alternative remains
   `pg_dump` + the `data` volume + the master key.
+
+## License
+
+AGPL-3.0-only, see [LICENSE](LICENSE). Bundled runtime dependencies:
+pdf.js (Apache-2.0), CodeMirror 6 (MIT).

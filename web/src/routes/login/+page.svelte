@@ -20,7 +20,7 @@
 
 <div class="center">
   <form class="auth" onsubmit={submit}>
-    <p class="brand"><img src="/favicon.svg" alt="" width="26" height="26" />tildoc</p>
+    <p class="brand"><img src="/icon-64.png" alt="" width="26" height="26" />tildoc</p>
     <h1>Sign in</h1>
     <label>Username<input autocomplete="username" bind:value={username} required /></label>
     <label>Password<input type="password" autocomplete="current-password" bind:value={password} required /></label>

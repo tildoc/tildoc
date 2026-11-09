@@ -94,7 +94,7 @@
     </header>
 
     <nav class="rail" aria-label="Spaces and settings" onclick={(e) => e.target.closest('a,button.lbl') && (ui.sidebarOpen = false)} role="presentation">
-      <a class="brand" href="/"><img src="/favicon.svg" alt="" width="22" height="22" />tildoc</a>
+      <a class="brand" href="/"><img src="/icon-64.png" alt="" width="22" height="22" />tildoc</a>
       <button class="searchbtn" onclick={() => (ui.palette = true)}>
         <Icon name="search" size={16} /><span>Search</span><kbd>Ctrl K</kbd>
       </button>

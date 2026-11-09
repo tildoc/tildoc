@@ -83,6 +83,8 @@ When the user requests a programming task, **do not start coding immediately.**
 
 
 
+- **Licence:** AGPL-3.0-only (`LICENSE`). New dependencies need a compatible
+  permissive licence (BSD, MIT, Apache-2.0, ISC).
 - **Priorities: Security first, a clean Data Model second.** The schema is the
   foundation everything else builds on; keep it normalized, explicit and
   consistent (constraints in the database, not only in Go; no redundant or

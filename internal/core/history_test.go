@@ -39,8 +39,8 @@ func TestHistoryVersionsAndVariants(t *testing.T) {
 
 	ck(f.svc.AddDocumentVersion(f.ctx, f.alice, doc, strings.NewReader("%PDF v2 from WebDAV"), "webdav"))
 	ck(f.svc.AddDocumentVersion(f.ctx, f.alice, doc, strings.NewReader("%PDF tildoc ocr of v1"), "web")) // v3: the OCR PDF again
-	ck(f.svc.RestoreVersion(f.ctx, f.alice, doc, 2))                                                      // v4
-	d := ck(f.svc.AddDocumentVersion(f.ctx, f.alice, doc, strings.NewReader("%PDF scan v1"), "web"))      // v5: v1 again
+	ck(f.svc.RestoreVersion(f.ctx, f.alice, doc, 2))                                                     // v4
+	d := ck(f.svc.AddDocumentVersion(f.ctx, f.alice, doc, strings.NewReader("%PDF scan v1"), "web"))     // v5: v1 again
 
 	if d.Version != 5 || len(d.Versions) != 5 || d.Versions[0].Version != 5 {
 		t.Fatalf("versions (newest first): %+v", d.Versions)
