@@ -121,6 +121,9 @@ done
 echo "$D" | grep -q '"foreign_ocr":true' || fail "foreign OCR not detected: $D"
 echo "$D" | grep -q '"kind":"image_only_pdf"' || fail "no image-only variant"
 echo "$D" | grep -q '"kind":"searchable_pdf"' || fail "no tildoc OCR variant"
+TV=$(sed -n 's/^ARG TESSERACT_VERSION=//p' "$ROOT/Dockerfile")
+"${DC[@]}" exec -T worker tesseract --version 2>&1 | grep -q "tesseract $TV" || fail "worker does not run tesseract $TV"
+echo "$D" | grep -q "tesseract $TV" || fail "OCR variant not made with tesseract $TV"
 curl -skf "$B/api/search?q=Bravo" -H "Authorization: Bearer $TOKEN" | grep -q '"total":[1-9]' || fail "existing OCR text not searchable"
 
 step "exports through nginx, server backup in the worker container"

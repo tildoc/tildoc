@@ -192,7 +192,7 @@ All settings are `TILDOC_*` environment variables (template: `deploy/.env.exampl
 | `TILDOC_TRUSTED_PROXIES` | – | CIDRs whose `X-Forwarded-For` is trusted (rate limiting) |
 | `TILDOC_TRASH_RETENTION` | `30d` | trash purge delay |
 | `TILDOC_MAX_UPLOAD_BYTES` | 50 GiB | per-file limit |
-| `TILDOC_OCR_ENABLED` / `_OCR_LANGS` | `true` / `deu+eng` | OCR via ocrmypdf/tesseract (worker image ships deu+eng) |
+| `TILDOC_OCR_ENABLED` / `_OCR_LANGS` | `true` / `deu+eng` | OCR via ocrmypdf/tesseract (worker image ships deu+eng; Tesseract is built from the pinned source release in the `Dockerfile`, `ARG TESSERACT_VERSION`) |
 | `TILDOC_WORKER_CONCURRENCY` | `2` | parallel processing jobs |
 | `TILDOC_COOKIE_SECURE` | `true` | set `false` only for plain-HTTP development |
 | `TILDOC_BACKUP_DIR` | `<data dir>/backups` | where server backups are written (compose: `/backups` volume) |
