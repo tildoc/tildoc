@@ -107,3 +107,40 @@ func TestHistoryMergeKeepsRestores(t *testing.T) {
 		t.Fatalf("restore after merge: %+v", v3)
 	}
 }
+
+// Identical content in several spaces is one blob but one document per
+// space; "places" show the other spaces' places too, only where readable.
+func TestSameContentPlaces(t *testing.T) {
+	f := newFixture(t)
+	team := ck(f.svc.CreateTeam(f.ctx, f.alice, "T"))
+	ts := ck(f.svc.CreateSpace(f.ctx, f.alice, "shared", "", team.ID))
+	bob := ck(f.svc.UserByName(f.ctx, "bob"))
+	noErr(t, f.svc.SetMember(f.ctx, f.alice, team.ID, bob.ID, "viewer"))
+
+	mine := f.put(t, f.alice, f.home.ID, "/Privat/rechnung.pdf", "%PDF same invoice")
+	shared := f.put(t, f.alice, ts.ID, "/Rechnungen/rechnung.pdf", "%PDF same invoice")
+	f.put(t, f.alice, f.home.ID, "/other.pdf", "%PDF something else")
+	if mine.File.DocumentID == shared.File.DocumentID || mine.File.SHA256 != shared.File.SHA256 {
+		t.Fatal("expected two documents with one content")
+	}
+
+	d := ck(f.svc.GetDocument(f.ctx, f.alice, mine.File.DocumentID))
+	if len(d.SameContent) != 1 || d.SameContent[0].SpaceID != ts.ID || d.SameContent[0].Path != "/Rechnungen/rechnung.pdf" ||
+		d.SameContent[0].DocumentID != shared.File.DocumentID {
+		t.Fatalf("alice, personal document: %+v", d.SameContent)
+	}
+	d = ck(f.svc.GetDocument(f.ctx, f.alice, shared.File.DocumentID))
+	if len(d.SameContent) != 1 || d.SameContent[0].SpaceID != f.home.ID {
+		t.Fatalf("alice, team document: %+v", d.SameContent)
+	}
+	// bob reads the team space only: alice's personal place stays hidden
+	d = ck(f.svc.GetDocument(f.ctx, f.bob, shared.File.DocumentID))
+	if len(d.SameContent) != 0 {
+		t.Fatalf("bob must not see places in alice's personal space: %+v", d.SameContent)
+	}
+	// trashed places are not listed
+	noErr(t, f.svc.DeleteLink(f.ctx, f.alice, shared.File.LinkID))
+	if d = ck(f.svc.GetDocument(f.ctx, f.alice, mine.File.DocumentID)); len(d.SameContent) != 0 {
+		t.Fatalf("trashed place listed: %+v", d.SameContent)
+	}
+}

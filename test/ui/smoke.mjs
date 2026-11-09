@@ -63,6 +63,12 @@ async function step(name, fn) {
     process.exit(1);
   }
 }
+// the History tab in the viewer's properties drawer (opened with "i")
+async function viewerHistory() {
+  if (!(await page.locator('.viewer aside.drawer').isVisible())) await page.keyboard.press('i');
+  await page.locator('.viewer aside.drawer').getByRole('tab', { name: /^History/ }).click();
+  return page.locator('.viewer aside.drawer .hist');
+}
 const row = (name) => page.locator('tbody tr', { hasText: name }).first();
 const toast = (text) => page.locator('.toast', { hasText: text }).first().waitFor();
 
@@ -146,8 +152,15 @@ await step('tag a document', async () => {
   await row('Handbuch.pdf').locator('td').nth(2).click();
   await page.locator('aside.peek').getByRole('tab', { name: 'Details' }).click();
   const input = page.locator('aside.peek').getByLabel('Add tag');
-  await input.fill('Steuer 2025');
+  await input.pressSequentially('Steuer 2025');
   await input.press('Enter');
+  // the tag is a chip inside the text box
+  await page.locator('aside.peek .tageditor.field .chip', { hasText: 'Steuer 2025' }).waitFor();
+  // comma adds, Backspace in the empty box removes the last tag
+  await input.pressSequentially('Zettel,');
+  await page.locator('aside.peek .tageditor .chip', { hasText: 'Zettel' }).waitFor();
+  await input.press('Backspace');
+  await page.locator('aside.peek .tageditor .chip', { hasText: 'Zettel' }).waitFor({ state: 'detached' });
   await page.locator('aside.peek .tageditor .chip', { hasText: 'Steuer 2025' }).waitFor();
   await row('Handbuch.pdf').locator('.tags .chip', { hasText: 'Steuer 2025' }).waitFor();
 });
@@ -561,7 +574,10 @@ await step('history graph', async () => {
   // oldest first, the restore joins back from version 1 (dashed side lane)
   const titles = await hist.locator('li strong').allTextContents();
   if (titles.join(',') !== 'Version 1,Version 2,Version 3') throw new Error(`order ${titles}`);
-  await hist.getByText('Restored from version 1').waitFor();
+  await hist.getByText('restored from version 1').waitFor();
+  // metadata order: date | size | source
+  const metas = await hist.locator('li .meta').allTextContents();
+  if (!/^.+ \| 11 B \| Web upload$/.test(metas[0]) || !/^.+ \| 11 B \| Restore$/.test(metas[2])) throw new Error(`history metadata: ${metas}`);
   const box = await page.locator('aside.peek').boundingBox();
   if (box.x + box.width > 1440 + 1) throw new Error(`peek panel overflows the window (${box.x + box.width}px)`);
   if ((await hist.locator('path.edge.restore').count()) !== 1 || (await hist.locator('path.edge.main').count()) !== 2) throw new Error('edges');
@@ -577,14 +593,13 @@ await step('history graph', async () => {
   await page.locator('aside.peek').getByRole('button', { name: 'Open' }).click();
   await page.waitForURL(/\/view\/.*[?&]v=2/);
   await page.locator('.viewer', { hasText: 'second draft' }).waitFor();
-  // the viewer shows the same graph horizontally; its nodes switch the view
-  const strip = page.locator('.viewer .strip');
-  await strip.locator('.label', { hasText: 'Version 2' }).waitFor();
-  if ((await strip.locator('button.node').count()) !== 3 || (await strip.locator('path.edge.restore').count()) !== 1) throw new Error('strip nodes/edges');
-  await strip.getByRole('button', { name: 'Show version 3' }).click();
+  // in the viewer the history lives in the properties drawer; its nodes switch the view
+  if (await page.locator('.viewer .strip').count()) throw new Error('history strip still in the toolbar');
+  let vh = await viewerHistory();
+  await vh.locator('li.shown', { hasText: 'Version 2' }).waitFor();
+  await vh.getByRole('button', { name: 'Show version 3' }).click();
   await page.locator('.viewer', { hasText: 'first draft' }).waitFor();
-  await strip.locator('.label', { hasText: 'Version 3' }).waitFor();
-  await page.locator('.viewer .bar').screenshot({ path: join(OUT, 'viewer_history_strip.png') });
+  await vh.locator('li.shown', { hasText: 'Version 3' }).waitFor();
   // selecting the file again starts at its latest version, not at the one viewed before
   await page.goto(`${BASE}/f/${f.id}`);
   await row('contract.txt').click();
@@ -632,21 +647,36 @@ await step('history: open the selected variant', async () => {
   await page.locator('aside.peek').getByRole('button', { name: 'Open' }).click();
   await page.waitForURL(/variant=searchable/);
   await page.locator('.viewer .pg .textLayer span', { hasText: 'Erkannter' }).first().waitFor();
-  // in the viewer the strip replaces the OCR buttons: switch to the original and back
-  const strip = page.locator('.viewer .strip');
-  await strip.locator('.label', { hasText: 'tildoc OCR of version 1' }).waitFor();
-  // horizontal like git: the original on the main line, the variants side by
-  // side on one lower line (branch out once, then straight)
-  const tops = await strip.locator('button.node').evaluateAll((bs) => bs.map((b) => parseFloat(b.style.top)));
-  const lefts = await strip.locator('button.node').evaluateAll((bs) => bs.map((b) => parseFloat(b.style.left)));
-  if (tops.length !== 3 || !(tops[1] > tops[0]) || tops[2] !== tops[1] || !(lefts[0] < lefts[1] && lefts[1] < lefts[2])) throw new Error(`strip layout top ${tops} left ${lefts}`);
-  if (await page.locator('.viewer').getByRole('button', { name: /Existing OCR|With OCR text/ }).count()) throw new Error('old OCR buttons still shown');
-  await strip.getByRole('button', { name: 'Show version 1' }).click();
+  // switch variants in the viewer's properties (History): original and back
+  const vh = await viewerHistory();
+  await vh.locator('li.shown', { hasText: 'tildoc OCR' }).waitFor();
+  if ((await vh.locator('li').count()) !== 3) throw new Error('chain original -> image only -> OCR');
+  await vh.getByRole('button', { name: 'Show version 1' }).click();
   await page.locator('.viewer .pg .textLayer span', { hasText: 'Scan Original' }).first().waitFor();
-  await strip.locator('.label', { hasText: 'Version 1' }).waitFor();
-  await page.locator('.viewer .bar').screenshot({ path: join(OUT, 'viewer_history_strip_variant.png') });
-  await strip.getByRole('button', { name: 'Show tildoc OCR of version 1' }).click();
+  await vh.getByRole('button', { name: 'Show tildoc OCR of version 1' }).click();
   await page.locator('.viewer .pg .textLayer span', { hasText: 'Erkannter' }).first().waitFor();
+});
+
+await step('places across spaces, only readable ones', async () => {
+  // the same file in the personal space and in the team space: two
+  // documents, one content; Places shows both
+  const spaces = await api('GET', '/spaces');
+  const mine = spaces.find((x) => x.slug === 'admin') ?? spaces[0];
+  const team = spaces.find((x) => x.name === 'Belege');
+  const f = await api('POST', '/folders', { parent_id: mine.root_folder_id, name: 'Same' });
+  await api('PUT', `/folders/${f.id}/files?path=quittung.txt`, 'Quittung 42 identical');
+  await api('PUT', `/folders/${team.root_folder_id}/files?path=quittung-team.txt`, 'Quittung 42 identical');
+  await page.goto(`${BASE}/f/${f.id}`);
+  await row('quittung.txt').click();
+  await page.locator('aside.peek .tabs').getByRole('tab', { name: 'Places (2)' }).click();
+  await page.locator('aside.peek .list li', { hasText: `${team.slug}/quittung-team.txt` }).waitFor();
+  await page.locator('aside.peek .list li', { hasText: 'same content' }).waitFor();
+  // the place in the other space opens there
+  await page.locator('aside.peek .list li', { hasText: 'quittung-team.txt' }).getByRole('button').click();
+  await page.waitForURL(`**/f/${team.root_folder_id}?sel=*`);
+  await page.locator('tbody tr.sel', { hasText: 'quittung-team.txt' }).waitFor();
+  // no "Also show in…" any more
+  if (await page.getByRole('button', { name: /Also show in/ }).count()) throw new Error('"Also show in…" still offered');
 });
 
 await browser.close();

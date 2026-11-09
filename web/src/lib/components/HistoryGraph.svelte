@@ -31,23 +31,25 @@
     'pdf-digital': 'with a text layer', 'pdf-tildoc-ocr': 'tildoc OCR result' };
 
   function relation(v) {
-    if (v.restored_from) return `Restored from version ${v.restored_from}`;
+    if (v.restored_from) return `restored from version ${v.restored_from}`;
     const c = v.continued_from;
     if (!c) return '';
-    return c.variant ? `Continued from ${VARIANT_LABEL[c.variant] ?? c.variant} of version ${c.version}` : `Same content as version ${c.version}`;
+    return c.variant ? `continued from ${VARIANT_LABEL[c.variant] ?? c.variant} of version ${c.version}` : `same content as version ${c.version}`;
   }
 
-  // relation (restored / continued from) comes first in the row: it is what
-  // the lines of the graph show, and must not be the part cut off
-  function versionInfo(v) {
-    const parts = [date(v.created_at), size(v.size), `${v.created_by || 'system'} via ${v.source}`];
-    if (v.variants?.length && ORIGINAL[v.kind]) parts.push(ORIGINAL[v.kind]);
-    return parts.join(', ');
-  }
+  // Row metadata, always in this order: date | size | where it came from
+  // (upload channel of a version, program and version that made a variant).
+  // Further details go into the tooltip.
+  const SOURCE = { web: 'Web upload', api: 'API', webdav: 'WebDAV', sftp: 'SFTP', s3: 'S3', rename: 'Rename', copy: 'Copy', restore: 'Restore' };
+  const versionInfo = (v) => [date(v.created_at), size(v.size), SOURCE[v.source] ?? v.source].join(' | ');
+  const variantInfo = (x) => [date(x.created_at), size(x.size), x.engine || 'unknown program'].join(' | ');
 
-  function variantInfo(x) {
+  function versionTip(v) {
+    return [versionInfo(v), v.created_by ? `by ${v.created_by}` : '', v.variants?.length ? ORIGINAL[v.kind] : ''].filter(Boolean).join(', ');
+  }
+  function variantTip(x) {
     const what = x.kind === 'image_only_pdf' ? 'existing text removed' : x.meta?.mode === 'skip-text' ? 'pages without text recognised' : 'all pages recognised';
-    return [what, x.meta?.langs, x.engine, date(x.created_at)].filter(Boolean).join(', ');
+    return [variantInfo(x), what, x.meta?.langs].filter(Boolean).join(', ');
   }
 
   function variantQuery(r) {
@@ -84,12 +86,13 @@
           {@const v = r.data}
           <div class="title">
             <strong>Version {v.version}</strong>
+            {#if relation(v)}<span class="rel">{relation(v)}</span>{/if}
             <span class="acts">
               {#if v.version !== doc.version && canWrite}<button class="small ghost" onclick={() => onrestore?.(v.version)}>Restore</button>{/if}
               <a class="btn small ghost" href={`${contentURL}?version=${v.version}`} download title="Download version {v.version}" aria-label="Download version {v.version}"><Icon name="download" size={14} /></a>
             </span>
           </div>
-          <span class="meta" title={versionInfo(v)}>{#if relation(v)}<span class="rel">{relation(v)}</span>{', '}{/if}{versionInfo(v)}</span>
+          <span class="meta" title={versionTip(v)}>{versionInfo(v)}</span>
         {:else}
           {@const vx = r.data}
           <div class="title">
@@ -100,7 +103,7 @@
                 title="Download this variant" aria-label="Download {VARIANT_LABEL[r.variant]} of version {r.version}"><Icon name="download" size={14} /></a>
             </span>
           </div>
-          <span class="meta" title={variantInfo(vx)}>{variantInfo(vx)}</span>
+          <span class="meta" title={variantTip(vx)}>{variantInfo(vx)}</span>
         {/if}
       </li>
     {/each}
@@ -138,6 +141,6 @@
   .acts { margin-left: auto; display: inline-flex; gap: 2px; flex: none; }
   .acts .btn, .acts button { min-height: 24px; padding: 0 6px; }
   .meta { color: var(--ink-2); font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 4px; }
-  .rel { color: var(--ink); }
+  .rel { color: var(--ink-2); font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .pill.search { background: var(--highlight); color: #1d2a35; border-color: transparent; }
 </style>

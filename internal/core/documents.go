@@ -34,6 +34,11 @@ type Document struct {
 	HasSearchable bool            `json:"has_searchable"`
 	Versions      []VersionInfo   `json:"versions"`
 	Links         []LinkRef       `json:"links"`
+	// SameContent: places of other documents with identical current content
+	// (e.g. the same file uploaded to a personal and a team space; stored and
+	// processed once, but a separate document per space). Only places in
+	// spaces the caller can read.
+	SameContent []ContentPlace `json:"same_content"`
 	Tags          []TagRef        `json:"tags"`
 	Collections   []CollectionRef `json:"collections"` // the caller's collections containing it
 	Variants      []Variant       `json:"variants"`    // derived variants of the current content
@@ -113,6 +118,41 @@ type LinkRef struct {
 	OriginalPath string    `json:"original_path"`
 	ImportID     *string   `json:"import_id"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+// ContentPlace is a place of another document with the same content.
+type ContentPlace struct {
+	LinkRef
+	SpaceID    string `json:"space_id"`
+	DocumentID string `json:"document_id"`
+}
+
+// sameContentPlaces lists live places of other documents whose current
+// content equals sha, restricted to the spaces p can read.
+func (s *Service) sameContentPlaces(ctx context.Context, p *Principal, docID string, sha blob.SHA256) ([]ContentPlace, error) {
+	out := []ContentPlace{}
+	spaces, err := s.readableSpaceIDs(ctx, p)
+	if err != nil || len(spaces) == 0 {
+		return out, err
+	}
+	rows, err := s.DB.Query(ctx, `
+		SELECT e.id::text, e.parent_id::text, e.name, folder_path(e.parent_id) || '/' || e.name, e.original_path, e.import_id::text,
+		       e.created_at, e.space_id::text, e.document_id::text
+		FROM document_heads h JOIN entries e ON e.document_id = h.id AND e.kind = 'link' AND e.deleted_at IS NULL
+		WHERE h.sha256 = $1 AND h.id <> $2 AND h.deleted_at IS NULL AND h.space_id = ANY($3::uuid[])
+		ORDER BY e.created_at`, sha[:], docID, spaces)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var c ContentPlace
+		if err := rows.Scan(&c.ID, &c.FolderID, &c.Name, &c.Path, &c.OriginalPath, &c.ImportID, &c.CreatedAt, &c.SpaceID, &c.DocumentID); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 // GetDocument returns a document with versions and links (read permission).
@@ -221,6 +261,9 @@ func (s *Service) GetDocument(ctx context.Context, p *Principal, id string) (*Do
 		}
 	}
 	if err := s.loadVariants(ctx, d); err != nil {
+		return nil, err
+	}
+	if d.SameContent, err = s.sameContentPlaces(ctx, p, id, d.SHA256); err != nil {
 		return nil, err
 	}
 	return d, nil

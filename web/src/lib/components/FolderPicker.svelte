@@ -5,12 +5,12 @@
   import { get } from '../api.js';
   import { session } from '../state.svelte.js';
 
-  // mode: move | copy | link. sameSpace restricts the choice to spaceId.
-  let { title, confirm = 'Select', spaceId, sameSpace = false, exclude = [], onpick, onclose } = $props();
+  // Picks a target folder in a writable space (move, copy).
+  let { title, confirm = 'Select', spaceId, exclude = [], onpick, onclose } = $props();
   let space = $state(untrack(() => spaceId));
   let tree = $state([]);
   let selected = $state(null);
-  let spaces = $derived(session.spaces.filter((s) => s.perm >= 2 && (!sameSpace || s.id === spaceId)));
+  let spaces = $derived(session.spaces.filter((s) => s.perm >= 2));
 
   $effect(() => {
     const id = space;

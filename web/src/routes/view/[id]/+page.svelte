@@ -11,7 +11,6 @@
   import Icon from '#lib/components/Icon.svelte';
   import DocView from '#lib/components/viewer/DocView.svelte';
   import DocDetails from '#lib/components/DocDetails.svelte';
-  import HistoryStrip from '#lib/components/HistoryStrip.svelte';
   import { watchBusy, isBusy } from '#lib/poll.svelte.js';
   import { watchLive } from '#lib/events.svelte.js';
 
@@ -260,9 +259,6 @@
       </div>
 
       <div class="right">
-        {#if doc.versions.length > 1 || doc.versions.some((v) => v.variants?.length)}
-          <div class="hide-sm"><HistoryStrip {doc} bind:viewVersion bind:viewVariant /></div>
-        {/if}
         {#if caps.find}<button class="icon" class:on={findOpen} onclick={() => (findOpen ? closeFind() : openFind())} aria-label="Find in document" title="Find in document (Ctrl+F)"><Icon name="search" /></button>{/if}
         {#if siblings.length > 1}
           <button class="icon" onclick={() => openSibling(prevDoc)} disabled={!prevDoc} aria-label="Previous document" title={collectionName ? 'Previous document in collection ([)' : 'Previous document in folder ([)'}><Icon name="left" /></button>

@@ -88,10 +88,11 @@
     }
   }
 
+  const placeCount = $derived(doc.links.length + (doc.same_content?.length ?? 0));
   const tabs = $derived([
     ['details', 'Details'],
     ['history', doc.versions.length > 1 ? `History (${doc.versions.length})` : 'History'],
-    ['links', doc.links.length > 1 ? `Places (${doc.links.length})` : 'Places'],
+    ['links', placeCount > 1 ? `Places (${placeCount})` : 'Places'],
     ['text', 'Text']
   ]);
 </script>
@@ -147,7 +148,6 @@
     {:else if tab === 'history'}
       <HistoryGraph {doc} {canWrite} bind:viewVersion bind:viewVariant onrestore={restore} />
     {:else if tab === 'links'}
-      <p class="muted small">The same document appears in these places. “Upload new version” changes it everywhere. Overwriting the file in just one place, for example from Dolphin, splits that place off into its own document.</p>
       <ul class="list">
         {#each doc.links as l (l.id)}
           <li>
@@ -155,7 +155,14 @@
             {#if l.original_path !== l.path}<span class="muted small">imported as {l.original_path}</span>{/if}
           </li>
         {/each}
+        {#each doc.same_content ?? [] as l (l.id)}
+          <li>
+            <button class="link path" onclick={() => goto(`/f/${l.folder_id}?sel=${l.id}`)}>{spaceSlug(l.space_id)}{l.path}</button>
+            <span class="muted small">same content, own versions and tags in that space</span>
+          </li>
+        {/each}
       </ul>
+      <p class="muted small">Identical content is stored only once. In another space it is a separate document, so a new version there does not change this one.</p>
     {:else if tab === 'text'}
       {#if doc.has_text}
         <pre class="text">{text ?? 'Loading…'}</pre>

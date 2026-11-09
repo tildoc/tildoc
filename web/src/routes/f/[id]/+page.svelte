@@ -178,10 +178,6 @@
         }
         toast(`Copied ${selRows.length} item(s)`, 'success');
         bumpTree();
-      } else if (mode === 'link') {
-        await post('/links', { document_id: single.document_id, folder_id: target, name: single.name });
-        toast('Link created – the document now appears in both places', 'success');
-        load(true);
       }
     } catch (e) {
       errorToast(e);
@@ -266,7 +262,6 @@
           {#if canWrite && single}<button class="ghost" onclick={() => (dialog = { kind: 'rename' })}><Icon name="edit" size={16} /> Rename</button>{/if}
           {#if canWrite}<button class="ghost" onclick={() => (dialog = { kind: 'pick', mode: 'move' })}><Icon name="move" size={16} /> Move</button>{/if}
           <button class="ghost" onclick={() => (dialog = { kind: 'pick', mode: 'copy' })}><Icon name="copy" size={16} /> Copy</button>
-          {#if canWrite && single?.kind === 'file'}<button class="ghost" onclick={() => (dialog = { kind: 'pick', mode: 'link' })} title="Show the same document in another folder too"><Icon name="link" size={16} /> Also show in…</button>{/if}
           {#if canWrite && selRows.some((r) => r.kind === 'file' && r.original_path !== r.path)}
             <button class="ghost" onclick={restoreOriginal} title="Move back to where it was imported"><Icon name="restore" size={16} /> Move to original place</button>
           {/if}
@@ -319,9 +314,9 @@
     message={`Move ${selected.length} item(s) to the trash? Documents that also appear elsewhere (links) stay available there.`}
     onconfirm={remove} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'pick'}
-  <FolderPicker title={{ move: 'Move to…', copy: 'Copy to…', link: 'Add link in…' }[dialog.mode]}
-    confirm={{ move: 'Move here', copy: 'Copy here', link: 'Link here' }[dialog.mode]}
-    spaceId={data.space.id} sameSpace={dialog.mode === 'link'} exclude={selRows.filter((r) => r.kind === 'folder').map((r) => r.id)}
+  <FolderPicker title={{ move: 'Move to…', copy: 'Copy to…' }[dialog.mode]}
+    confirm={{ move: 'Move here', copy: 'Copy here' }[dialog.mode]}
+    spaceId={data.space.id} exclude={selRows.filter((r) => r.kind === 'folder').map((r) => r.id)}
     onpick={(t) => pickTarget(t, dialog.mode)} onclose={() => (dialog = null)} />
 {/if}
 

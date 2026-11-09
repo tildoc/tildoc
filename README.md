@@ -61,10 +61,19 @@ flowchart LR
   `/api/events` (tildoc sends `X-Accel-Buffering: no`) and should allow
   idle reads of at least 30 s (heartbeat every 25 s).
 
+### Places
+
+*Places* in the document details lists where the document appears, plus
+where identical content lives in other spaces you can read (e.g. the same
+invoice in your personal and a team space). Such content is stored and
+processed once, but it is a separate document per space with its own
+versions and tags.
+
 ### Tags and collections
 
 **Tags** are one list for the whole server. Anyone can create a tag while
-tagging a document; administrators rename, merge and delete tags. A tag sits
+tagging a document (the tags are chips inside the tag box: Enter or comma
+adds, Backspace in the empty box removes the last); administrators rename, merge and delete tags. A tag sits
 on the document, so every place it appears shows it. Search filters by tag,
 S3 clients can use object tagging (`aws s3api put-object-tagging`, the tag key
 is the name), WebDAV exposes `tildoc:tags`.
@@ -127,8 +136,7 @@ continues from a variant (e.g. the OCR PDF uploaded as a new version) or
 restores an older version (dashed). Clicking a node shows it (version and
 variant) in the preview or viewer, and only that node is marked; *Open* opens
 exactly the selected node. Every node can be downloaded, older versions
-restored. The viewer's toolbar shows the same graph horizontally (time
-from left to right); clicking a node switches the document shown. Selecting
+restored. Selecting
 or opening a file always starts at its latest node: the newest version and,
 if it has variants, the newest of them (e.g. tildoc's OCR).
 
