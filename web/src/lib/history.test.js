@@ -14,15 +14,15 @@ test('plain versions stay on one line', () => {
   assert.equal(lanes, 1);
 });
 
-test('variants branch diagonally, each step into the next lane', () => {
+test('variants branch off once, then continue on their lane (like a git branch)', () => {
   const { rows, edges } = layoutHistory([
     { version: 1, sha256: sha(1), variants: [
       { kind: 'searchable_pdf', sha256: sha(12), input: sha(11) },
       { kind: 'image_only_pdf', sha256: sha(11), input: sha(1) }
     ] }
   ]);
-  assert.deepEqual(lanesOf(rows), { v1: [0, 0], 'v1-image_only_pdf': [1, 1], 'v1-searchable_pdf': [2, 2] });
-  assert.deepEqual(edge(edges, 'branch'), ['0,0>1,1', '1,1>2,2']);
+  assert.deepEqual(lanesOf(rows), { v1: [0, 0], 'v1-image_only_pdf': [1, 1], 'v1-searchable_pdf': [2, 1] });
+  assert.deepEqual(edge(edges, 'branch'), ['0,0>1,1', '1,1>1,2']); // diagonal once, then straight
 });
 
 test('continuation from a variant and a restore join back into the main line', () => {
@@ -35,11 +35,21 @@ test('continuation from a variant and a restore join back into the main line', (
     { version: 3, sha256: sha(12), continued_from: { version: 1, variant: 'searchable_pdf' } },
     { version: 4, sha256: sha(2), restored_from: 2 }
   ]);
-  assert.deepEqual(lanesOf(rows), { v1: [0, 0], 'v1-image_only_pdf': [1, 1], 'v1-searchable_pdf': [2, 2], v2: [3, 0], v3: [4, 0], v4: [5, 0] });
-  assert.deepEqual(edge(edges, 'merge'), ['2,2>0,4']);
-  // the restore uses lane 1, free again after the image-only variant
+  assert.deepEqual(lanesOf(rows), { v1: [0, 0], 'v1-image_only_pdf': [1, 1], 'v1-searchable_pdf': [2, 1], v2: [3, 0], v3: [4, 0], v4: [5, 0] });
+  assert.deepEqual(edge(edges, 'merge'), ['1,2>0,4']);
+  // the restore uses lane 1 again once the variant branch has joined back
   assert.deepEqual(edge(edges, 'restore'), ['0,3>0,5/1']);
-  assert.equal(lanes, 3);
+  assert.equal(lanes, 2);
+});
+
+test('two variants of the same node get two lanes', () => {
+  const { rows } = layoutHistory([
+    { version: 1, sha256: sha(1), variants: [
+      { kind: 'image_only_pdf', sha256: sha(11), input: sha(1) },
+      { kind: 'searchable_pdf', sha256: sha(12), input: sha(1) }
+    ] }
+  ]);
+  assert.deepEqual(lanesOf(rows), { v1: [0, 0], 'v1-image_only_pdf': [1, 1], 'v1-searchable_pdf': [2, 2] });
 });
 
 test('a lane held by a later continuation is not reused meanwhile', () => {

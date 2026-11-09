@@ -1,8 +1,10 @@
 // Layout of a document's history graph (versions + derived variants), in
 // the style of `git log --graph`, oldest at the top:
 // - lane 0 is the main line of versions;
-// - every derived variant branches off diagonally from the node it was made
-//   from into its own lane (original -> image only -> tildoc OCR);
+// - derived variants branch off a version diagonally once and then continue
+//   on that lane, like commits on a git branch (original, then image only ->
+//   tildoc OCR side by side on one lower lane); only a second variant of
+//   the same node opens another lane;
 // - a version that continues from a variant (or from an older version, or
 //   restores one) joins back into lane 0 from that node.
 // Pure function: no DOM, unit-testable (node --test).
@@ -60,7 +62,10 @@ export function layoutHistory(versions) {
     if (r.kind !== 'variant') continue;
     let end = r.row;
     for (const j of joins) if (j.from === r) end = Math.max(end, j.to.row - 1);
-    intervals.push({ owner: r, start: r.row, end, after: () => r.parent.lane });
+    // a variant of a variant continues on its parent's lane when that is free
+    // its line runs from just below the parent (where the diagonal lands)
+    // down to its own row
+    intervals.push({ owner: r, start: r.parent.row + 1, end, after: () => r.parent.lane, follow: r.parent.kind === 'variant' ? r.parent : null });
   }
   for (const j of joins) {
     if (j.from.kind === 'version') intervals.push({ owner: j, start: j.from.row + 1, end: j.to.row - 1, after: () => 0 });
@@ -70,7 +75,8 @@ export function layoutHistory(versions) {
   for (const r of rows) if (r.kind === 'version') r.lane = 0;
   for (const iv of intervals) {
     let lane = iv.after() + 1;
-    while (lane < busyUntil.length && busyUntil[lane] >= iv.start) lane++;
+    if (iv.follow && busyUntil[iv.follow.lane] < iv.start) lane = iv.follow.lane;
+    else while (lane < busyUntil.length && busyUntil[lane] >= iv.start) lane++;
     busyUntil[lane] = iv.end;
     iv.owner.lane = lane;
   }

@@ -33,6 +33,7 @@ writeFileSync(join(FIX, 'Quartalsbericht.pdf'), pdf('Quartalsbericht Umsatz Hamb
 writeFileSync(join(FIX, 'Handbuch.pdf'), pdf('Handbuch Einleitung', 'Kapitel zwei Grundlagen', 'Kapitel drei Wartung', 'Anhang Zebra Tabelle', 'Index und Register'));
 writeFileSync(join(FIX, 'scan.pdf'), pdf('Scan Original Seite'));
 writeFileSync(join(FIX, 'scan-ocr.pdf'), pdf('Erkannter OCR Text'));
+writeFileSync(join(FIX, 'scan-image.pdf'), pdf('Nur Bild Seite'));
 writeFileSync(join(FIX, 'notes.txt'), 'Protokoll der Besprechung: Zuständigkeiten und Termine\n');
 writeFileSync(join(FIX, 'notes-copy.txt'), 'Protokoll der Besprechung: Zuständigkeiten und Termine\n');
 
@@ -593,8 +594,12 @@ await step('history: open the selected variant', async () => {
   const { readFileSync } = await import('node:fs');
   const scan = await api('PUT', `/folders/${f.id}/files?path=scan.pdf`, readFileSync(join(FIX, 'scan.pdf')).toString('latin1'));
   const ocr = await api('PUT', `/folders/${f.id}/files?path=scan-ocr.pdf`, readFileSync(join(FIX, 'scan-ocr.pdf')).toString('latin1'));
-  const sql = `INSERT INTO blob_derivatives(source_sha256, kind, derived_sha256, input_sha256, engine, meta)
-    VALUES (decode('${scan.file.sha256}', 'hex'), 'searchable_pdf', decode('${ocr.file.sha256}', 'hex'), decode('${scan.file.sha256}', 'hex'), 'test', '{}')`;
+  const img = await api('PUT', `/folders/${f.id}/files?path=scan-image.pdf`, readFileSync(join(FIX, 'scan-image.pdf')).toString('latin1'));
+  // the chain the worker builds for scans with foreign OCR: original -> image only -> tildoc OCR
+  const hex = (x) => `decode('${x.file.sha256}', 'hex')`;
+  const sql = `INSERT INTO blob_derivatives(source_sha256, kind, derived_sha256, input_sha256, engine, meta, created_at) VALUES
+    (${hex(scan)}, 'image_only_pdf', ${hex(img)}, ${hex(scan)}, 'test', '{}', now()),
+    (${hex(scan)}, 'searchable_pdf', ${hex(ocr)}, ${hex(img)}, 'test', '{}', now() + interval '1 second')`;
   execFileSync('docker', ['exec', 'tildoc-dev-pg', 'psql', '-q', '-U', 'postgres', '-d', 'tildoc', '-c', sql]);
   await page.goto(`${BASE}/f/${f.id}`);
   await row('scan.pdf').click();
@@ -622,6 +627,11 @@ await step('history: open the selected variant', async () => {
   // in the viewer the strip replaces the OCR buttons: switch to the original and back
   const strip = page.locator('.viewer .strip');
   await strip.locator('.label', { hasText: 'tildoc OCR of version 1' }).waitFor();
+  // horizontal like git: the original on the main line, the variants side by
+  // side on one lower line (branch out once, then straight)
+  const tops = await strip.locator('button.node').evaluateAll((bs) => bs.map((b) => parseFloat(b.style.top)));
+  const lefts = await strip.locator('button.node').evaluateAll((bs) => bs.map((b) => parseFloat(b.style.left)));
+  if (tops.length !== 3 || !(tops[1] > tops[0]) || tops[2] !== tops[1] || !(lefts[0] < lefts[1] && lefts[1] < lefts[2])) throw new Error(`strip layout top ${tops} left ${lefts}`);
   if (await page.locator('.viewer').getByRole('button', { name: /Existing OCR|With OCR text/ }).count()) throw new Error('old OCR buttons still shown');
   await strip.getByRole('button', { name: 'Show version 1' }).click();
   await page.locator('.viewer .pg .textLayer span', { hasText: 'Scan Original' }).first().waitFor();
