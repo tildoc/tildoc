@@ -6,12 +6,12 @@
   import DocView from './viewer/DocView.svelte';
   import DocDetails from './DocDetails.svelte';
   import { cachedData, revalidate } from '../api.js';
-  import { errorToast, stored, store, prefs } from '../state.svelte.js';
+  import { errorToast, stored, store, prefs, session } from '../state.svelte.js';
   import { shownVariant, VARIANT_NAME } from '../format.js';
   import { watchBusy, isBusy } from '../poll.svelte.js';
   import { watchLive } from '../events.svelte.js';
   import { warmup } from '../viewer/pdfjs.js';
-  import { canDownload } from '../perms.js';
+  import { canDownload, canEditPdfInOffice } from '../perms.js';
 
   let { file, onclose, onopen, onchanged, query = '' } = $props();
   let doc = $state(null);
@@ -105,6 +105,7 @@
 
   <div class="bar">
     <button class="primary" onclick={open}><Icon name="open" size={16} /> Open</button>
+    {#if !viewVersion && canEditPdfInOffice(doc, file.name, session.office, session.spaces)}<button onclick={() => onopen?.({ office: true })}><Icon name="edit" size={16} /> Edit in Office</button>{/if}
 {#if canDownload(doc)}    <a class="btn" href={`/api/files/${file.link_id}/content`} download><Icon name="download" size={16} /> Download</a>{/if}
     {#if viewVersion || viewVariant}<span class="pill">Viewing version {viewVersion || doc?.version}{variant !== 'original' ? `, ${VARIANT_NAME[variant]}` : ''}</span>{/if}
   </div>

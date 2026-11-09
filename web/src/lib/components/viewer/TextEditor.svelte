@@ -287,7 +287,7 @@
 
 <style>
   .editor { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--stage); }
-  .host { flex: 1; min-height: 0; margin: 12px auto 16px; width: min(1100px, calc(100% - 32px)); box-shadow: var(--paper-shadow); border-radius: 2px; overflow: hidden; }
+  .host { flex: 1; min-height: 0; width: 100%; overflow: hidden; }
   .host.loading { visibility: hidden; }
   .bar, .note { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 16px; background: var(--stage-2); color: var(--stage-ink); font-size: var(--t-sm); }
   .note { color: var(--stage-ink); }
@@ -297,5 +297,5 @@
   .bar .warn { color: var(--highlight); }
   .diff { height: min(60vh, 560px); border: 1px solid var(--line); border-radius: var(--r-control); overflow: hidden; margin: 8px 0 14px; }
   p.warn { background: var(--warn-soft); color: var(--warn); padding: 8px 12px; border-radius: var(--r-control); margin: 0 0 6px; }
-  @media (max-width: 760px) { .keys { display: none; } .host { width: 100%; margin: 0; } }
+  @media (max-width: 760px) { .keys { display: none; } }
 </style>

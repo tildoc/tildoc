@@ -1,3 +1,5 @@
+import { extOf } from './format.js';
+
 // Names for the permission catalogue (internal/core/permissions.go).
 export const PERM_LABEL = {
   view: 'View', download: 'Download', export: 'Export', write: 'Edit', move: 'Move out', delete: 'Delete', purge: 'Delete for good',
@@ -38,6 +40,10 @@ export const PERM_HELP = {
   'settings.manage': 'Change server settings, see statistics and start processing again.',
   'audit.view': 'See who changed permissions, shares, keys and accounts.'
 };
+// a PDF can go to the office server if the user may change it there
+export const canEditPdfInOffice = (doc, name, office, spaces) =>
+  (doc?.mime ?? '').startsWith('application/pdf') && doc?.size > 0 && (office?.editable ?? []).includes(extOf(name))
+  && spaces?.find((s) => s.id === doc.space_id)?.perm >= 2;
 export const permLabel = (p) => PERM_LABEL[p] ?? p;
 export const permHelp = (p) => PERM_HELP[p] ?? '';
 export const canShareAny = (caps) => (caps ?? []).some((c) => c.startsWith('share.'));

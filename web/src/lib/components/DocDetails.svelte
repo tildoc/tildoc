@@ -132,7 +132,7 @@
         <dt>Text</dt>
         <dd>
           <span class="pill status {doc.status}">{statusLabel[doc.status] ?? doc.status}</span>
-          {#if doc.text_method}<span class="muted">{doc.text_method === 'ocr' ? 'recognised by OCR' : 'from the text layer'}</span>{/if}
+          {#if doc.text_method}<span class="muted">{doc.text_method === 'ocr' ? 'recognised by OCR' : doc.kind === 'pdf-digital' ? 'embedded directly in the file, no OCR needed' : 'from the text layer'}</span>{/if}
         </dd>
         {#if doc.process_error}<dt>Problem</dt><dd class="err">{doc.process_error}</dd>{/if}
         <dt>Version</dt><dd>{doc.version}</dd>

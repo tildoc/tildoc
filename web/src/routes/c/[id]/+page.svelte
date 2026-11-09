@@ -75,6 +75,7 @@
     if (opts.page > 1) q.set('page', opts.page);
     if (opts.version) q.set('v', opts.version);
     if (opts.variant) q.set('variant', opts.variant);
+    if (opts.office) q.set('office', '1');
     openView(`/view/${row.link_id}?${q}`);
   }
 

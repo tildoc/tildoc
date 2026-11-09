@@ -7,11 +7,11 @@
   import { get, cachedData, revalidate } from '#lib/api.js';
   import { errorToast, session, stored, store } from '#lib/state.svelte.js';
   import { COLUMNS, loadView } from '#lib/columns.js';
-  import { shownVariant, hasVariant, opensInOffice, extOf } from '#lib/format.js';
+  import { shownVariant, hasVariant, opensInOffice } from '#lib/format.js';
   import Icon from '#lib/components/Icon.svelte';
   import DocView from '#lib/components/viewer/DocView.svelte';
   import ShareDialog from '#lib/components/ShareDialog.svelte';
-  import { canDownload, canShareAny } from '#lib/perms.js';
+  import { canDownload, canShareAny, canEditPdfInOffice } from '#lib/perms.js';
   import DocDetails from '#lib/components/DocDetails.svelte';
   import { watchBusy, isBusy } from '#lib/poll.svelte.js';
   import { watchLive } from '#lib/events.svelte.js';
@@ -38,17 +38,15 @@
   let officeEdit = $state(false); // this PDF is open in the office server
   let sharing = $state(false);
   let canShareFile = $derived(!!doc && canShareAny(doc.caps?.filter((c) => c.startsWith('share.file.'))));
-  let isPdf = $derived((doc?.mime ?? '').startsWith('application/pdf') && doc?.size > 0);
-  let canOfficeEdit = $derived(isPdf && !viewVersion && session.office.editable.includes(extOf(file?.name))
-    && session.spaces.find((s) => s.id === doc?.space_id)?.perm >= 2);
-  let editsInPlace = $derived(!!doc && !viewVersion && ((doc.mime ?? '').startsWith('text/') || officeEdit || opensInOffice(file?.name, doc.mime, doc.size, session.office)));
+  let canOfficeEdit = $derived(!viewVersion && canEditPdfInOffice(doc, file?.name, session.office, session.spaces));
+  let editsInPlace = $derived(!!doc && !viewVersion && ((doc.mime ?? '').startsWith('text/') || (officeEdit && canOfficeEdit) || opensInOffice(file?.name, doc.mime, doc.size, session.office)));
   let initialPage = $state(1);
   let view = $state();
   let pageInput = $state('1');
 
   $effect(() => {
     linkId;
-    officeEdit = false; // the next document opens in its default view
+    officeEdit = route.url.searchParams.get('office') === '1'; // else: its default view
   });
 
   afterNavigate(({ from }) => {
@@ -316,7 +314,7 @@
     {:else if doc && file}
       <!-- a new version re-creates the view (PDF pages reload), but never an editor -->
       {#key editsInPlace ? file.document_id : `${file.document_id}:${doc.version}`}
-        <DocView bind:this={view} file={{ ...file, mime: doc.mime, size: doc.size }} {doc} {variant} version={viewVersion} mode="full" edit officeEdit={officeEdit && !viewVersion} onsaved={() => reloadDoc(true)}
+        <DocView bind:this={view} file={{ ...file, mime: doc.mime, size: doc.size }} {doc} {variant} version={viewVersion} mode="full" edit officeEdit={officeEdit && canOfficeEdit} onsaved={() => reloadDoc(true)}
           {query} {thumbs} {initialPage} transitionName="doc-page"
           bind:page bind:numPages bind:zoom bind:scale bind:matchCount bind:current bind:searching />
       {/key}

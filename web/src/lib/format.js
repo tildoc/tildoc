@@ -113,9 +113,9 @@ export function opensInOffice(name, mime, size, office) {
 
 // newFileTypes: the "New file" menu, the main formats first, then templates.
 const NEW_FILE_LABEL = {
-  docx: 'Word document', xlsx: 'Excel spreadsheet', pptx: 'PowerPoint presentation', pdf: 'PDF document',
+  docx: 'Text document', xlsx: 'Spreadsheet', pptx: 'Presentation', pdf: 'PDF document',
   odt: 'OpenDocument text', ods: 'OpenDocument spreadsheet', odp: 'OpenDocument presentation', odg: 'OpenDocument drawing',
-  dotx: 'Word template', xltx: 'Excel template', potx: 'PowerPoint template',
+  dotx: 'Text document template', xltx: 'Spreadsheet template', potx: 'Presentation template',
   ott: 'OpenDocument text template', ots: 'OpenDocument spreadsheet template', otp: 'OpenDocument presentation template'
 };
 const NEW_FILE_ORDER = Object.keys(NEW_FILE_LABEL);

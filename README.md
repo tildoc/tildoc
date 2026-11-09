@@ -95,8 +95,8 @@ last version until the session ends, and are not blocked: the last save wins.
 While a session runs, the file shows "In Office".
 
 "New file" in a folder creates a text file with any ending, or any format the
-office server can create (with ONLYOFFICE: Word, Excel, PowerPoint, PDF and
-their templates). PDFs open in the PDF viewer; "Edit in Office" opens them in
+office server can create (with ONLYOFFICE: text documents, spreadsheets,
+presentations, PDFs and their templates). PDFs open in the PDF viewer; "Edit in Office" opens them in
 the office server.
 
 ### Permissions and sharing
@@ -455,8 +455,6 @@ web/               SvelteKit UI (static SPA)   deploy/         compose, nginx te
   `pg_dump` + the `data` volume + the master key.
 
 ## License
-
-Copyright (C) 2026 Matthias Robert Wiora
 
 tildoc is dual-licensed:
 

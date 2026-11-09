@@ -406,6 +406,12 @@ await step('teams and team space', async () => {
   await page.locator('nav.rail', { hasText: 'Belege' }).waitFor();
 });
 
+await step('embedded text is named as such', async () => {
+  await page.goto(BASE + '/');
+  await row('Handbuch.pdf').locator('td').nth(2).click();
+  await page.locator('aside.peek').getByText('embedded directly in the file').waitFor();
+});
+
 await step('admin', async () => {
   await page.getByRole('link', { name: 'Administration' }).click();
   await page.locator('.facts').waitFor();
@@ -828,8 +834,8 @@ await step('new file: text with any ending, office formats, PDF edit', async () 
   // an office format, opened from its template
   await page.goto(`${BASE}/f/${f.id}`);
   await menu();
-  if ((await page.getByRole('menuitem').allTextContents()).join().indexOf('Word document') < 0) throw new Error('no office formats');
-  await page.getByRole('menuitem', { name: 'Word document' }).click();
+  if ((await page.getByRole('menuitem').allTextContents()).join().indexOf('Text document') < 0) throw new Error('no office formats');
+  await page.getByRole('menuitem', { name: /^Text document \.docx/ }).click();
   await page.getByLabel('Name').fill('brief');
   await page.getByRole('button', { name: 'Create' }).click();
   await page.frameLocator('iframe.office').getByRole('heading', { name: 'brief.docx' }).waitFor();
@@ -842,6 +848,14 @@ await step('new file: text with any ending, office formats, PDF edit', async () 
   await page.frameLocator('iframe.office').getByRole('heading', { name: /\.pdf$/ }).waitFor(); // same content as an earlier upload: named after its first place
   await page.getByRole('button', { name: 'Back to PDF viewer' }).click();
   await page.locator('.pg').first().waitFor();
+  // ...also straight from the preview
+  await page.goto(`${BASE}/f/${f.id}`);
+  await row('edit-me.pdf').click();
+  await page.locator('aside.peek').getByRole('button', { name: 'Edit in Office' }).click();
+  await page.waitForURL(/office=1/);
+  await page.frameLocator('iframe.office').getByRole('heading', { name: /\.pdf$/ }).waitFor();
+  await page.getByRole('button', { name: 'Back to PDF viewer' }).waitFor();
+  await page.goto(`${BASE}/f/${f.id}`);
   // office files explain the missing preview
   await api('PUT', `/folders/${f.id}/files?path=tabelle.odt`, 'PK\x03\x04 sheet');
   await page.goto(`${BASE}/f/${f.id}`);
