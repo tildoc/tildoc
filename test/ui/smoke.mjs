@@ -199,6 +199,13 @@ await step('viewer inside a collection', async () => {
 await step('version next to the program name', async () => {
   const v = (await page.locator('nav.rail .brand .ver').textContent()).trim();
   if (!/-g[0-9a-f]+|^[0-9a-f]{7,}/.test(v)) throw new Error(`version shows "${v}"`);
+  // the name links to the source code (AGPL section 13), on the login page too
+  const src = 'a[href="https://github.com/tildoc/tildoc"]';
+  await page.locator(`nav.rail .brand ${src}`, { hasText: 'tildoc' }).waitFor();
+  const anon = await (await browser.newContext()).newPage();
+  await anon.goto(BASE + '/login');
+  await anon.locator(`.brand ${src}`, { hasText: 'tildoc' }).waitFor();
+  await anon.context().close();
 });
 
 await step('search by tag', async () => {

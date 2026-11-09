@@ -1,3 +1,6 @@
+// where the source code is offered (AGPL section 13): shown on the program name
+export const SOURCE_URL = 'https://github.com/tildoc/tildoc';
+
 export function size(n) {
   if (n == null) return '';
   if (n < 1024) return `${n} B`;

@@ -1116,6 +1116,17 @@ program name. Only for logged-in users (`/api/me`), not on `/api/info`.
 - [x] 22.2 `version` in `GET /api/me`, shown in the sidebar and mobile bar
 - [x] 22.3 Tests (API, UI smoke, compose); first tag `v0.1.0`
 
+### Phase 23 — Dual licence, fresh history
+
+**Goal:** dual licensing (GNU AGPL-3.0-only and commercial, holder Matthias
+Robert Wiora), a CLA, the source link on the program name, and a git history
+with neither the former names nor the former licence.
+
+- [x] 23.1 `LICENSE` (AGPL-3.0), README, `package.json`, AGENTS.md, `CLA.md`
+- [x] 23.2 The name "tildoc" links to github.com/tildoc/tildoc (login, setup, app)
+- [x] 23.3 Dependencies checked: Go modules MIT or BSD, web MIT and Apache-2.0
+- [x] 23.4 History rewritten: names, `LICENSE` in every commit, licence mentions
+
 ## Open Topics
 
 Collected 2026-11-08; each becomes a phase or step when picked up.

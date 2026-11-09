@@ -401,6 +401,23 @@ web/               SvelteKit UI (static SPA)   deploy/         compose, nginx te
 
 ## License
 
-AGPL-3.0-only, see [LICENSE](LICENSE). Bundled runtime dependencies:
-pdf.js (Apache-2.0), CodeMirror 6 (MIT). Collabora Online CODE (MPL-2.0) and
-ONLYOFFICE Docs (AGPL-3.0) are optional, separate containers and not part of tildoc.
+Copyright (C) 2026 Matthias Robert Wiora
+
+tildoc is dual-licensed:
+
+- **Open source:** [GNU AGPL-3.0-only](LICENSE). You may use, modify and
+  sell services with tildoc, including commercially, as long as you comply
+  with the AGPL. In particular, if you modify tildoc and let users interact
+  with it over a network, you must offer them the corresponding source code.
+- **Commercial:** if you want to use tildoc without the AGPL obligations,
+  for example in a proprietary product or a closed-source hosted service,
+  a commercial license is available. Contact: tildoc@0x7e.eu
+
+Bundled runtime dependencies: pdf.js (Apache-2.0), CodeMirror 6 (MIT).
+Collabora Online CODE (MPL-2.0) and ONLYOFFICE Docs (AGPL-3.0) are optional,
+separate containers and not part of tildoc.
+
+## Contributing
+
+Contributions need a signed [Contributor License Agreement](CLA.md), because
+of the dual licensing.

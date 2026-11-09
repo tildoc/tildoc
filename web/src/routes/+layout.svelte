@@ -1,4 +1,5 @@
 <script>
+  import { SOURCE_URL } from '#lib/format.js';
   import '../app.css';
   import { onMount } from 'svelte';
   import { goto, onNavigate } from '$app/navigation';
@@ -89,12 +90,12 @@
   <div class="shell" class:open={ui.sidebarOpen}>
     <header class="mobilebar">
       <button class="icon" onclick={() => (ui.sidebarOpen = !ui.sidebarOpen)} aria-label="Menu" aria-expanded={ui.sidebarOpen}><Icon name="menu" /></button>
-      <a class="brand" href="/">tildoc<span class="ver" title="Version {session.user?.version}">{session.user?.version}</span></a>
+      <div class="brand"><a href={SOURCE_URL} target="_blank" rel="noopener noreferrer" title="Source code on GitHub">tildoc</a><span class="ver" title="Version {session.user?.version}">{session.user?.version}</span></div>
       <button class="icon" onclick={() => (ui.palette = true)} aria-label="Search"><Icon name="search" /></button>
     </header>
 
     <nav class="rail" aria-label="Spaces and settings" onclick={(e) => e.target.closest('a,button.lbl') && (ui.sidebarOpen = false)} role="presentation">
-      <a class="brand" href="/"><img src="/icon-64.png" alt="" width="22" height="22" />tildoc<span class="ver" title="Version {session.user?.version}">{session.user?.version}</span></a>
+      <div class="brand"><a href="/" class="home" aria-label="Home"><img src="/icon-64.png" alt="" width="22" height="22" /></a><a href={SOURCE_URL} target="_blank" rel="noopener noreferrer" title="Source code on GitHub">tildoc</a><span class="ver" title="Version {session.user?.version}">{session.user?.version}</span></div>
       <button class="searchbtn" onclick={() => (ui.palette = true)}>
         <Icon name="search" size={16} /><span>Search</span><kbd>Ctrl K</kbd>
       </button>
@@ -169,7 +170,8 @@
   .mobilebar { display: none; }
   .rail { display: flex; flex-direction: column; min-height: 0; background: var(--surface); border-right: 1px solid var(--line); padding: 14px 10px 10px; }
   .brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: var(--t-md); color: var(--ink); padding: 2px 8px 12px; letter-spacing: -0.01em; }
-  .brand:hover { text-decoration: none; }
+  .brand a { color: inherit; }
+  .brand .home { display: flex; }
   .ver { font-size: 0.72rem; font-weight: 300; color: var(--ink-2); letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .searchbtn { justify-content: flex-start; width: 100%; color: var(--ink-2); background: var(--paper); margin-bottom: 14px; }
   :global(:root[data-theme='dark']) .searchbtn { background: var(--board); }

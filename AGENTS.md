@@ -83,8 +83,11 @@ When the user requests a programming task, **do not start coding immediately.**
 
 
 
-- **Licence:** AGPL-3.0-only (`LICENSE`). New dependencies need a compatible
-  permissive licence (BSD, MIT, Apache-2.0, ISC).
+- **Licence:** dual, GNU AGPL-3.0-only (`LICENSE`) and commercial, held by
+  Matthias Robert Wiora; contributions need `CLA.md`. Everything linked or
+  bundled must stay permissive (BSD, MIT, Apache-2.0, ISC; fonts OFL), or the
+  commercial licence breaks: no GPL/AGPL libraries. Separate containers and
+  programs are fine.
 - **Priorities: Security first, a clean Data Model second.** The schema is the
   foundation everything else builds on; keep it normalized, explicit and
   consistent (constraints in the database, not only in Go; no redundant or
