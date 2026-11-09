@@ -164,7 +164,8 @@ curl -skf -X PUT "$B/api/documents/$TD/text?client=$C1" "${AUTH[@]}" -H 'Content
   | grep -q '"source":"editor"' || fail "save from the editor"
 
 step "office: own origin, WOPI not published, frame policy"
-"${DC[@]}" --profile office config -q || fail "compose profile office is invalid"
+"${DC[@]}" --profile collabora config -q || fail "compose profile collabora is invalid"
+"${DC[@]}" --profile onlyoffice config -q || fail "compose profile onlyoffice is invalid"
 curl -sk "$B/wopi/files/x?access_token=x" | grep -qi '<!doctype html' || fail "/wopi is published through nginx"
 curl -skI "$B/" | grep -qi "content-security-policy: frame-src 'self'" || fail "no frame policy on the UI"
 CODE=$(curl -sk -o /dev/null -w '%{http_code}' --resolve "office.localhost:$HTTPS:127.0.0.1" "https://office.localhost:$HTTPS/")

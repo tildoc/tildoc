@@ -1050,20 +1050,23 @@ is promoted after the lock expires; several users edit together (Collabora's
 co-editing); Collabora runs on its own subdomain; tests use a stub Collabora
 only. Decision 38.
 
-### Phase 20 — ONLYOFFICE as a selectable office server (planned)
+### Phase 20 — Choice of office server: Collabora or ONLYOFFICE
 
-**Goal:** the deployment chooses between Collabora and ONLYOFFICE, for example
-by uncommenting one of two sections in `deploy/docker-compose.yml`. Not started.
+**Goal:** the deployment chooses Collabora or ONLYOFFICE; both go through the
+one WOPI interface of Phase 19 (decision 39). The choice is a compose profile
+plus the upstream in `deploy/.env` (`docs/office-servers.md`); no code depends
+on it.
 
-**To clarify when it starts:**
-- Connect through ONLYOFFICE's WOPI mode (keeps `internal/wopi` and the session
-  model) or its own Docs API with JWT and callback URLs (more features, a
-  second adapter).
-- The exit save is marked by a Collabora-specific header
-  (`X-COOL-WOPI-IsExitSave`). Without it a session ends on `UNLOCK` or lock
-  expiry, which `core/office.go` already handles.
-- ONLYOFFICE is AGPL-3.0: acceptable as a separate, optional container, as
-  for CODE?
+ONLYOFFICE differences that tildoc handles: exit save header prefix `X-LOOL-`;
+`PutFile` by default only when everyone left. Limits of WOPI there: `.doc`,
+`.xls`, `.ppt` open read-only (conversion needs `PutRelativeFile`, which tildoc
+turns off); the Docs API remains a later option for its extra features.
+
+- [x] 20.1 WOPI: accept the `X-LOOL-` exit-save header; `SupportsGetLock`
+- [x] 20.2 Compose profiles `collabora` / `onlyoffice`, `TILDOC_OFFICE_UPSTREAM`, nginx proxy for both, ONLYOFFICE proof key kept in a volume
+- [x] 20.3 Tests: discovery parsing against the real documents of both servers (`internal/wopi/testdata`), exit save with `X-LOOL-`, both compose profiles valid
+- [x] 20.4 Test guide `docs/office-servers.md`
+- [ ] 20.5 Manual test of a real editing session with each server (owner)
 
 ## Open Topics
 
@@ -1147,6 +1150,7 @@ Collected 2026-11-08; each becomes a phase or step when picked up.
 | 36 | History | one graph of versions and variants, oldest first; restores stored (`restored_from`), continuations derived from content hashes |
 | 37 | Text editor | CodeMirror 6 (lazy); one UI editor per document via a 15 s lease (SSE); other channels not blocked, last save wins; review with diff before every save |
 | 38 | Office documents | Collabora Online via WOPI on its own origin; only the end of an editing session creates a version, saves during it go to a working copy |
+| 39 | Office servers | Collabora or ONLYOFFICE, chosen per deployment; one interface (WOPI), ONLYOFFICE's Docs API not used |
 
 ## Open Questions
 

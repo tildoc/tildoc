@@ -134,6 +134,7 @@ func (s *Server) wopiFileInfo(w http.ResponseWriter, r *http.Request) error {
 		"UserCanWrite":            f.CanWrite,
 		"LastModifiedTime":        wopiTime(f.Modified),
 		"SupportsLocks":           true,
+		"SupportsGetLock":         true,
 		"SupportsUpdate":          true,
 		"SupportsRename":          false,
 		"UserCanRename":           false,
@@ -157,7 +158,8 @@ func (s *Server) wopiPutFile(w http.ResponseWriter, r *http.Request) error {
 	if r.Header.Get("X-WOPI-Override") != "PUT" {
 		return &core.Error{Kind: core.ErrInvalid, Msg: "unsupported operation"}
 	}
-	exit := strings.EqualFold(r.Header.Get("X-COOL-WOPI-IsExitSave"), "true")
+	// Collabora sends X-COOL-, ONLYOFFICE the older X-LOOL- prefix
+	exit := strings.EqualFold(r.Header.Get("X-COOL-WOPI-IsExitSave"), "true") || strings.EqualFold(r.Header.Get("X-LOOL-WOPI-IsExitSave"), "true")
 	saved, err := s.Svc.SaveOffice(r.Context(), principal(r), r.PathValue("id"), r.Header.Get("X-WOPI-Lock"), r.Body, exit)
 	if err != nil {
 		return err

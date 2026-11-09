@@ -19,7 +19,7 @@ x-tildoc-env: &tildoc-env
   TILDOC_LOG_LEVEL: ${TILDOC_LOG_LEVEL:-info}
   TILDOC_BACKUP_DIR: /backups
   TILDOC_OFFICE_URL: ${TILDOC_OFFICE_URL:-}
-  TILDOC_OFFICE_INTERNAL_URL: http://collabora:9980
+  TILDOC_OFFICE_INTERNAL_URL: http://${TILDOC_OFFICE_UPSTREAM:-collabora:9980}
   TILDOC_WOPI_URL: http://server:8080
 
 services:
@@ -77,6 +77,7 @@ services:
       TILDOC_UPSTREAM: server
       TILDOC_OFFICE_SERVER_NAME: ${TILDOC_OFFICE_SERVER_NAME:-office.localhost}
       TILDOC_OFFICE_URL: ${TILDOC_OFFICE_URL:-}
+      TILDOC_OFFICE_UPSTREAM: ${TILDOC_OFFICE_UPSTREAM:-collabora:9980}
     volumes:
       - certs:/etc/nginx/certs
     ports:
@@ -85,11 +86,12 @@ services:
     depends_on:
       server: { condition: service_healthy }
 
-  # Office documents (optional): --profile office, or COMPOSE_PROFILES=office.
-  # Reached by browsers through nginx on its own subdomain; it talks to
-  # tildoc directly (server:8080), /wopi is not published.
+  # Office documents (optional): choose one server with COMPOSE_PROFILES and
+  # TILDOC_OFFICE_UPSTREAM in deploy/.env, see docs/office-servers.md.
+  # Browsers reach it through nginx on its own subdomain; it talks to tildoc
+  # directly (server:8080), /wopi is not published.
   office-init:
-    profiles: [office]
+    profiles: [collabora]
     image: tildoc-nginx
     user: root
     entrypoint: ["/bin/sh", "-c", "[ -s /key/proof_key ] || openssl genrsa -traditional -out /key/proof_key 2048 && chown 1001 /key/proof_key && chmod 400 /key/proof_key"]
@@ -99,7 +101,7 @@ services:
       nginx: { condition: service_started }
 
   collabora:
-    profiles: [office]
+    profiles: [collabora]
     image: collabora/code:26.04.6.1.1
     restart: unless-stopped
     environment:
@@ -115,9 +117,24 @@ services:
     depends_on:
       office-init: { condition: service_completed_successfully }
 
+  onlyoffice:
+    profiles: [onlyoffice]
+    image: onlyoffice/documentserver:10.0.0.1
+    restart: unless-stopped
+    stop_grace_period: 60s
+    environment:
+      WOPI_ENABLED: "true"
+      IP_FILTER_RULES: allow server
+      ALLOW_PRIVATE_IP_ADDRESS: "true" # tildoc is on the private compose network
+    volumes:
+      - onlyoffice-data:/var/www/onlyoffice/Data # holds the proof key
+      - onlyoffice-lib:/var/lib/onlyoffice
+
 volumes:
   pgdata:
   data:
   backups:
   certs:
   office-key:
+  onlyoffice-data:
+  onlyoffice-lib:

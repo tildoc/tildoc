@@ -125,6 +125,8 @@ type Session struct {
 	Lock    string
 	// NoProof leaves out the signature, BadProof signs another URL.
 	NoProof, BadProof bool
+	// HeaderPrefix replaces X-COOL-WOPI- (ONLYOFFICE: X-LOOL-WOPI-).
+	HeaderPrefix string
 }
 
 // Do sends one WOPI request; path is appended to WOPISrc.
@@ -197,8 +199,12 @@ func (c *Session) Call(op string, extra map[string]string) (int, string, error) 
 
 // Put saves the file as Collabora does: exit marks the save on close.
 func (c *Session) Put(data []byte, exit bool) (int, string, error) {
+	prefix := c.HeaderPrefix
+	if prefix == "" {
+		prefix = "X-COOL-WOPI-"
+	}
 	h := map[string]string{"X-WOPI-Override": "PUT", "X-WOPI-Lock": c.Lock,
-		"X-COOL-WOPI-IsAutosave": strconv.FormatBool(!exit), "X-COOL-WOPI-IsExitSave": strconv.FormatBool(exit)}
+		prefix + "IsAutosave": strconv.FormatBool(!exit), prefix + "IsExitSave": strconv.FormatBool(exit)}
 	resp, _, err := c.Do(http.MethodPost, "/contents", h, data)
 	if err != nil {
 		return 0, "", err

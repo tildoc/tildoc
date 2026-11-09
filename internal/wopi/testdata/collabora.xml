@@ -1,0 +1,206 @@
+<wopi-discovery>
+    <net-zone name="external-https">
+        <app favIconUrl="https://office.example.test/browser/febe91b271/images/x-office-document.svg" name="writer">
+            <action default="true" ext="odt" name="edit" urlsrc="https://office.example.test/browser/febe91b271/cool.html?"/>
+            <action ext="odt" name="view" urlsrc="https://office.example.test/browser/febe91b271/cool.html?"/>
+            <action default="true" ext="doc" name="edit" urlsrc="https://office.example.test/browser/febe91b271/cool.html?"/>
+            <action ext="doc" name="view" urlsrc="https://office.example.test/browser/febe91b271/cool.html?"/>
+            <action default="true" ext="docx" name="edit" urlsrc="https://office.example.test/browser/febe91b271/cool.html?"/>
+            <action ext="docx" name="view" urlsrc="https://office.example.test/browser/febe91b271/cool.html?"/>
+        </app>
+        <app name="writer-global">
+        </app>
+        <app name="writer-web">
+        </app>
+        <app favIconUrl="https://office.example.test/browser/febe91b271/images/x-office-spreadsheet.svg" name="calc">
+        </app>
+        <app favIconUrl="https://office.example.test/browser/febe91b271/images/x-office-presentation.svg" name="impress">
+        </app>
+        <app name="draw">
+        </app>
+        <app name="image/svg+xml">
+        </app>
+        <app name="application/vnd.ms-powerpoint">
+        </app>
+        <app name="application/vnd.ms-excel">
+        </app>
+        <app name="application/vnd.sun.xml.writer">
+        </app>
+        <app name="application/vnd.oasis.opendocument.text">
+        </app>
+        <app name="application/vnd.oasis.opendocument.text-flat-xml">
+        </app>
+        <app name="application/vnd.sun.xml.calc">
+        </app>
+        <app name="application/vnd.oasis.opendocument.spreadsheet">
+        </app>
+        <app name="application/vnd.oasis.opendocument.spreadsheet-flat-xml">
+        </app>
+        <app name="application/vnd.sun.xml.impress">
+        </app>
+        <app name="application/vnd.oasis.opendocument.presentation">
+        </app>
+        <app name="application/vnd.oasis.opendocument.presentation-flat-xml">
+        </app>
+        <app name="application/vnd.sun.xml.draw">
+        </app>
+        <app name="application/vnd.oasis.opendocument.graphics">
+        </app>
+        <app name="application/vnd.oasis.opendocument.graphics-flat-xml">
+        </app>
+        <app name="application/vnd.oasis.opendocument.chart">
+        </app>
+        <app name="application/vnd.sun.xml.writer.global">
+        </app>
+        <app name="application/vnd.oasis.opendocument.text-master">
+        </app>
+        <app name="application/vnd.sun.xml.writer.template">
+        </app>
+        <app name="application/vnd.oasis.opendocument.text-template">
+        </app>
+        <app name="application/vnd.oasis.opendocument.text-master-template">
+        </app>
+        <app name="application/vnd.sun.xml.calc.template">
+        </app>
+        <app name="application/vnd.oasis.opendocument.spreadsheet-template">
+        </app>
+        <app name="application/vnd.sun.xml.impress.template">
+        </app>
+        <app name="application/vnd.oasis.opendocument.presentation-template">
+        </app>
+        <app name="application/vnd.sun.xml.draw.template">
+        </app>
+        <app name="application/vnd.oasis.opendocument.graphics-template">
+        </app>
+        <app name="application/msword">
+        </app>
+        <app name="application/msword">
+        </app>
+        <app name="application/vnd.ms-excel">
+        </app>
+        <app name="application/vnd.ms-powerpoint">
+        </app>
+        <app name="application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+        </app>
+        <app name="application/vnd.ms-word.document.macroEnabled.12">
+        </app>
+        <app name="application/vnd.openxmlformats-officedocument.wordprocessingml.template">
+        </app>
+        <app name="application/vnd.ms-word.template.macroEnabled.12">
+        </app>
+        <app name="application/vnd.openxmlformats-officedocument.spreadsheetml.template">
+        </app>
+        <app name="application/vnd.ms-excel.template.macroEnabled.12">
+        </app>
+        <app name="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+        </app>
+        <app name="application/vnd.ms-excel.sheet.binary.macroEnabled.12">
+        </app>
+        <app name="application/vnd.ms-excel.sheet.macroEnabled.12">
+        </app>
+        <app name="application/vnd.openxmlformats-officedocument.presentationml.presentation">
+        </app>
+        <app name="application/vnd.ms-powerpoint.presentation.macroEnabled.12">
+        </app>
+        <app name="application/vnd.openxmlformats-officedocument.presentationml.template">
+        </app>
+        <app name="application/vnd.ms-powerpoint.template.macroEnabled.12">
+        </app>
+        <app name="application/vnd.wordperfect">
+        </app>
+        <app name="application/x-aportisdoc">
+        </app>
+        <app name="application/x-hwp">
+        </app>
+        <app name="application/vnd.ms-works">
+        </app>
+        <app name="application/vnd.ms-office">
+        </app>
+        <app name="application/x-mswrite">
+        </app>
+        <app name="application/x-dif-document">
+        </app>
+        <app name="text/spreadsheet">
+        </app>
+        <app name="text/csv">
+        </app>
+        <app name="application/x-dbase">
+        </app>
+        <app name="application/vnd.lotus-1-2-3">
+        </app>
+        <app name="image/cgm">
+        </app>
+        <app name="image/vnd.dxf">
+        </app>
+        <app name="image/x-emf">
+        </app>
+        <app name="image/x-wmf">
+        </app>
+        <app name="application/coreldraw">
+        </app>
+        <app name="application/vnd.visio2013">
+        </app>
+        <app name="application/vnd.visio">
+        </app>
+        <app name="application/vnd.ms-visio.drawing">
+        </app>
+        <app name="application/x-mspublisher">
+        </app>
+        <app name="application/x-sony-bbeb">
+        </app>
+        <app name="application/x-gnumeric">
+        </app>
+        <app name="application/macwriteii">
+        </app>
+        <app name="application/x-iwork-numbers-sffnumbers">
+        </app>
+        <app name="application/vnd.oasis.opendocument.text-web">
+        </app>
+        <app name="application/x-pagemaker">
+        </app>
+        <app name="text/rtf">
+        </app>
+        <app name="text/markdown">
+        </app>
+        <app name="text/plain">
+        </app>
+        <app name="application/x-fictionbook+xml">
+        </app>
+        <app name="application/clarisworks">
+        </app>
+        <app name="image/x-wpg">
+        </app>
+        <app name="application/x-iwork-pages-sffpages">
+        </app>
+        <app name="application/vnd.openxmlformats-officedocument.presentationml.slideshow">
+        </app>
+        <app name="application/x-iwork-keynote-sffkey">
+        </app>
+        <app name="application/x-abiword">
+        </app>
+        <app name="image/x-freehand">
+        </app>
+        <app name="application/vnd.sun.xml.chart">
+        </app>
+        <app name="application/x-t602">
+        </app>
+        <app name="image/bmp">
+        </app>
+        <app name="image/png">
+        </app>
+        <app name="image/gif">
+        </app>
+        <app name="image/tiff">
+        </app>
+        <app name="image/jpg">
+        </app>
+        <app name="image/jpeg">
+        </app>
+        <app name="application/pdf">
+        </app>
+        <app name="Settings">
+        </app>
+        <app name="Capabilities">
+        </app>
+    </net-zone>
+</wopi-discovery>

@@ -185,6 +185,17 @@ func TestOfficeSessionEnd(t *testing.T) {
 		t.Fatalf("%+v", d)
 	}
 
+	// ONLYOFFICE marks the exit save with the older header prefix
+	id = upDocx(t, alice, sp, "oo.docx")
+	s = e.open(alice, id, "l")
+	s.HeaderPrefix = "X-LOOL-WOPI-"
+	s.Call("LOCK", nil)
+	s.Put(wopitest.Doc("autosave"), false)
+	sessionOnly(t, alice, id, 1, "ONLYOFFICE autosave")
+	st, _, err = s.Put(wopitest.Doc("closing"), true)
+	wantStatus(t, st, err, 200, "ONLYOFFICE exit save")
+	sessionOnly(t, alice, id, 2, "ONLYOFFICE exit save")
+
 	// nothing changed: no version
 	id = upDocx(t, alice, sp, "b.docx")
 	s = e.open(alice, id, "l")
