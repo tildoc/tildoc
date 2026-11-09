@@ -137,15 +137,15 @@
       <div class="toolbar" role="toolbar" aria-label={tx('c_collection_actions')}>
         {#if single}
           <button class="ghost" onclick={() => open(single)}><Icon name="open" size={16} /> {tx('common_open')}</button>
-          {#if session.spaces.find((x) => x.id === single.space_id)?.caps.includes('download')}<a class="btn ghost" href={`/api/files/${single.link_id}/content`} download><Icon name="download" size={16} /> {tx('common_download')}</a>{/if}
+          {#if session.spaces.find((x) => x.id === single.space_id)?.caps.includes('download')}<a class="btn ghost" href={`/api/v1/files/${single.link_id}/content`} download><Icon name="download" size={16} /> {tx('common_download')}</a>{/if}
           <button class="ghost" onclick={() => goto(`/f/${single.folder_id}?sel=${single.link_id}`)}><Icon name="folder" size={16} /> {tx('c_show_in_folder')}</button>
         {/if}
         {#if c.can_edit && removable.length}
           <button class="ghost" onclick={removeItems}><Icon name="close" size={16} /> {tx('c_remove_from_collection')}</button>
         {/if}
         <span class="spacer"></span>
-        <a class="btn ghost" href={`/api/collections/${id}/export?format=zip`} download title={tx('c_the_documents_you_can_see_as')}><Icon name="download" size={16} /> {tx('c_zip')}</a>
-        <a class="btn ghost" href={`/api/collections/${id}/export?format=bundle`} download title={tx('c_for_importing_into_a_tildoc_server')}><Icon name="download" size={16} /> {tx('c_export')}</a>
+        <a class="btn ghost" href={`/api/v1/collections/${id}/export?format=zip`} download title={tx('c_the_documents_you_can_see_as')}><Icon name="download" size={16} /> {tx('c_zip')}</a>
+        <a class="btn ghost" href={`/api/v1/collections/${id}/export?format=bundle`} download title={tx('c_for_importing_into_a_tildoc_server')}><Icon name="download" size={16} /> {tx('c_export')}</a>
         {#if c.can_manage}
           <button class="ghost" onclick={() => (dialog = { kind: 'edit' })}><Icon name="edit" size={16} /> {tx('c_edit')}</button>
           <button class="ghost" onclick={() => (dialog = { kind: 'delete' })}><Icon name="trash" size={16} /> {tx('c_delete_collection')}</button>

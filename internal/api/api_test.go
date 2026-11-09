@@ -128,28 +128,28 @@ func TestAPIFlow(t *testing.T) {
 	admin := newClient(t, ts.URL)
 
 	var st map[string]bool
-	admin.ok("GET", "/api/setup", nil, &st)
+	admin.ok("GET", "/api/v1/setup", nil, &st)
 	if !st["needs_setup"] {
 		t.Fatal("expected needs_setup")
 	}
-	admin.ok("POST", "/api/setup", map[string]string{"username": "admin", "password": "supersecret"}, nil)
-	expect(t, admin.do("POST", "/api/setup", map[string]string{"username": "x", "password": "supersecret"}, nil), 403, "second setup")
-	admin.ok("POST", "/api/users", map[string]any{"username": "alice", "password": "alicepass"}, nil)
+	admin.ok("POST", "/api/v1/setup", map[string]string{"username": "admin", "password": "supersecret"}, nil)
+	expect(t, admin.do("POST", "/api/v1/setup", map[string]string{"username": "x", "password": "supersecret"}, nil), 403, "second setup")
+	admin.ok("POST", "/api/v1/users", map[string]any{"username": "alice", "password": "alicepass"}, nil)
 
 	anon := newClient(t, ts.URL)
-	expect(t, anon.do("GET", "/api/me", nil, nil), 401, "anonymous")
-	expect(t, anon.do("POST", "/api/auth/login", map[string]string{"username": "alice", "password": "nope"}, nil), 401, "bad login")
+	expect(t, anon.do("GET", "/api/v1/me", nil, nil), 401, "anonymous")
+	expect(t, anon.do("POST", "/api/v1/auth/login", map[string]string{"username": "alice", "password": "nope"}, nil), 401, "bad login")
 
 	alice := newClient(t, ts.URL)
-	alice.ok("POST", "/api/auth/login", map[string]string{"username": "alice", "password": "alicepass"}, nil)
+	alice.ok("POST", "/api/v1/auth/login", map[string]string{"username": "alice", "password": "alicepass"}, nil)
 
 	// CSRF header required for cookie authenticated writes
 	alice.csrf = false
-	expect(t, alice.do("POST", "/api/teams", map[string]string{"name": "T"}, nil), 403, "csrf")
+	expect(t, alice.do("POST", "/api/v1/teams", map[string]string{"name": "T"}, nil), 403, "csrf")
 	alice.csrf = true
 
 	var spaces []space
-	alice.ok("GET", "/api/spaces", nil, &spaces)
+	alice.ok("GET", "/api/v1/spaces", nil, &spaces)
 	if len(spaces) != 1 {
 		t.Fatalf("spaces %+v", spaces)
 	}
@@ -157,14 +157,14 @@ func TestAPIFlow(t *testing.T) {
 
 	// upload with relative paths (folder drop)
 	var imp struct{ ID string }
-	alice.ok("POST", "/api/imports", map[string]string{"space_id": spaces[0].ID, "client_root": "Scans"}, &imp)
+	alice.ok("POST", "/api/v1/imports", map[string]string{"space_id": spaces[0].ID, "client_root": "Scans"}, &imp)
 	var u1, u2, u3 upload
-	alice.ok("PUT", "/api/folders/"+root+"/files?path="+url.QueryEscape("Scans/2024/a.txt")+"&import="+imp.ID, "alpha bravo charlie", &u1)
-	alice.ok("PUT", "/api/folders/"+root+"/files?path="+url.QueryEscape("Scans/b.txt")+"&import="+imp.ID, "alpha bravo charlie", &u2)
+	alice.ok("PUT", "/api/v1/folders/"+root+"/files?path="+url.QueryEscape("Scans/2024/a.txt")+"&import="+imp.ID, "alpha bravo charlie", &u1)
+	alice.ok("PUT", "/api/v1/folders/"+root+"/files?path="+url.QueryEscape("Scans/b.txt")+"&import="+imp.ID, "alpha bravo charlie", &u2)
 	if !u1.NewLink || !u2.Deduplicated || u2.File.DocumentID != u1.File.DocumentID || u1.File.ImportID != imp.ID {
 		t.Fatalf("uploads: %+v %+v", u1, u2)
 	}
-	alice.ok("PUT", "/api/folders/"+root+"/files?path=Scans/b.txt", "changed", &u3)
+	alice.ok("PUT", "/api/v1/folders/"+root+"/files?path=Scans/b.txt", "changed", &u3)
 	if !u3.Forked || !u3.NewVersion {
 		t.Fatalf("fork via upload: %+v", u3)
 	}
@@ -175,20 +175,20 @@ func TestAPIFlow(t *testing.T) {
 		Files       []fileInfo
 		Breadcrumbs []struct{ Name string }
 	}
-	alice.ok("GET", "/api/folders/"+u1.File.FolderID, nil, &listing)
+	alice.ok("GET", "/api/v1/folders/"+u1.File.FolderID, nil, &listing)
 	if len(listing.Files) != 1 || len(listing.Breadcrumbs) != 3 {
 		t.Fatalf("listing: %+v", listing)
 	}
 
 	// download: attachment + sandbox CSP; inline text rendered as text/plain
-	resp, _ := alice.http.Get(ts.URL + "/api/files/" + u1.File.LinkID + "/content")
+	resp, _ := alice.http.Get(ts.URL + "/api/v1/files/" + u1.File.LinkID + "/content")
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if string(body) != "alpha bravo charlie" || !strings.HasPrefix(resp.Header.Get("Content-Disposition"), "attachment") ||
 		!strings.Contains(resp.Header.Get("Content-Security-Policy"), "sandbox") {
 		t.Fatalf("download: %q %v", body, resp.Header)
 	}
-	req, _ := http.NewRequest("GET", ts.URL+"/api/files/"+u1.File.LinkID+"/content", nil)
+	req, _ := http.NewRequest("GET", ts.URL+"/api/v1/files/"+u1.File.LinkID+"/content", nil)
 	req.Header.Set("Range", "bytes=6-10")
 	resp, _ = alice.http.Do(req)
 	body, _ = io.ReadAll(resp.Body)
@@ -202,19 +202,19 @@ func TestAPIFlow(t *testing.T) {
 		Links    []struct{ Path string }
 		Versions []struct{ Version int }
 	}
-	alice.ok("GET", "/api/documents/"+u1.File.DocumentID, nil, &doc)
+	alice.ok("GET", "/api/v1/documents/"+u1.File.DocumentID, nil, &doc)
 	if len(doc.Links) != 1 || doc.Links[0].Path != "/Scans/2024/a.txt" {
 		t.Fatalf("doc links: %+v", doc.Links)
 	}
 
 	// move + restore original structure (bulk by import)
 	var f fileInfo
-	alice.ok("PATCH", "/api/files/"+u1.File.LinkID, map[string]string{"folder_id": root, "name": "renamed.txt"}, &f)
+	alice.ok("PATCH", "/api/v1/files/"+u1.File.LinkID, map[string]string{"folder_id": root, "name": "renamed.txt"}, &f)
 	if f.Path != "/renamed.txt" {
 		t.Fatalf("move: %+v", f)
 	}
 	var restored []fileInfo
-	alice.ok("POST", "/api/bulk/restore-original", map[string]string{"import_id": imp.ID}, &restored)
+	alice.ok("POST", "/api/v1/bulk/restore-original", map[string]string{"import_id": imp.ID}, &restored)
 	found := false
 	for _, r := range restored {
 		if r.LinkID == u1.File.LinkID && r.Path == "/Scans/2024/a.txt" {
@@ -230,84 +230,84 @@ func TestAPIFlow(t *testing.T) {
 		Total int
 		Hits  []fileInfo
 	}
-	alice.ok("GET", "/api/search?q=a.txt", nil, &sr)
+	alice.ok("GET", "/api/v1/search?q=a.txt", nil, &sr)
 	if sr.Total < 1 {
 		t.Fatalf("search: %+v", sr)
 	}
 
 	// trash
-	expect(t, alice.do("DELETE", "/api/files/"+u1.File.LinkID, nil, nil), 204, "delete")
+	expect(t, alice.do("DELETE", "/api/v1/files/"+u1.File.LinkID, nil, nil), 204, "delete")
 	var trash []struct {
 		DocumentID string `json:"document_id"`
 	}
-	alice.ok("GET", "/api/trash", nil, &trash)
+	alice.ok("GET", "/api/v1/trash", nil, &trash)
 	if len(trash) != 1 {
 		t.Fatalf("trash: %+v", trash)
 	}
-	alice.ok("POST", "/api/trash/"+trash[0].DocumentID+"/restore", nil, nil)
+	alice.ok("POST", "/api/v1/trash/"+trash[0].DocumentID+"/restore", nil, nil)
 
 	// access keys: secret shown once
 	var key struct {
 		Key    struct{ ID string }
 		Secret string
 	}
-	alice.ok("POST", "/api/me/access-keys", map[string]any{"label": "laptop"}, &key)
+	alice.ok("POST", "/api/v1/me/access-keys", map[string]any{"label": "laptop"}, &key)
 	if len(key.Secret) != 40 {
 		t.Fatalf("secret: %+v", key)
 	}
 	var keys []map[string]any
-	alice.ok("GET", "/api/me/access-keys", nil, &keys)
+	alice.ok("GET", "/api/v1/me/access-keys", nil, &keys)
 	if len(keys) != 1 || keys[0]["secret"] != nil {
 		t.Fatalf("keys leak secret: %+v", keys)
 	}
 
 	// teams via API
 	var team struct{ ID string }
-	alice.ok("POST", "/api/teams", map[string]string{"name": "Finance"}, &team)
-	alice.ok("PUT", "/api/teams/"+team.ID+"/members/admin", map[string]string{"role": "member"}, nil)
+	alice.ok("POST", "/api/v1/teams", map[string]string{"name": "Finance"}, &team)
+	alice.ok("PUT", "/api/v1/teams/"+team.ID+"/members/admin", map[string]string{"role": "member"}, nil)
 	var ts2 space
-	alice.ok("POST", "/api/spaces", map[string]string{"slug": "finance", "name": "Finance", "team_id": team.ID}, &ts2)
-	alice.ok("POST", "/api/spaces/"+ts2.ID+"/grants", map[string]string{"team_id": team.ID, "role": "viewer"}, nil)
-	expect(t, admin.do("PUT", "/api/folders/"+ts2.RootFolderID+"/files?path=x.txt", "x", nil), 403, "viewer upload")
+	alice.ok("POST", "/api/v1/spaces", map[string]string{"slug": "finance", "name": "Finance", "team_id": team.ID}, &ts2)
+	alice.ok("POST", "/api/v1/spaces/"+ts2.ID+"/grants", map[string]string{"team_id": team.ID, "role": "viewer"}, nil)
+	expect(t, admin.do("PUT", "/api/v1/folders/"+ts2.RootFolderID+"/files?path=x.txt", "x", nil), 403, "viewer upload")
 
 	// admin endpoints
-	expect(t, alice.do("GET", "/api/admin/stats", nil, nil), 403, "non-admin stats")
+	expect(t, alice.do("GET", "/api/v1/admin/stats", nil, nil), 403, "non-admin stats")
 	var stats map[string]any
-	admin.ok("GET", "/api/admin/stats", nil, &stats)
+	admin.ok("GET", "/api/v1/admin/stats", nil, &stats)
 	if stats["documents"].(float64) < 2 {
 		t.Fatalf("stats: %+v", stats)
 	}
 
 	// unknown endpoint JSON 404
-	expect(t, alice.do("GET", "/api/nope", nil, nil), 404, "unknown")
+	expect(t, alice.do("GET", "/api/v1/nope", nil, nil), 404, "unknown")
 	// logout invalidates
-	alice.ok("POST", "/api/auth/logout", nil, nil)
-	expect(t, alice.do("GET", "/api/me", nil, nil), 401, "after logout")
+	alice.ok("POST", "/api/v1/auth/logout", nil, nil)
+	expect(t, alice.do("GET", "/api/v1/me", nil, nil), 401, "after logout")
 }
 
 func TestLoginRateLimit(t *testing.T) {
 	ts, _ := newServer(t)
 	c := newClient(t, ts.URL)
-	c.ok("POST", "/api/setup", map[string]string{"username": "admin", "password": "supersecret"}, nil)
+	c.ok("POST", "/api/v1/setup", map[string]string{"username": "admin", "password": "supersecret"}, nil)
 	anon := newClient(t, ts.URL)
 	for i := 0; i < 10; i++ {
-		anon.do("POST", "/api/auth/login", map[string]string{"username": "admin", "password": fmt.Sprint("wrong", i)}, nil)
+		anon.do("POST", "/api/v1/auth/login", map[string]string{"username": "admin", "password": fmt.Sprint("wrong", i)}, nil)
 	}
-	expect(t, anon.do("POST", "/api/auth/login", map[string]string{"username": "admin", "password": "supersecret"}, nil), 403, "rate limited")
+	expect(t, anon.do("POST", "/api/v1/auth/login", map[string]string{"username": "admin", "password": "supersecret"}, nil), 403, "rate limited")
 }
 
 func TestPrefsAndPDFSandbox(t *testing.T) {
 	ts, _ := newServer(t)
 	c := newClient(t, ts.URL)
-	c.ok("POST", "/api/setup", map[string]string{"username": "admin", "password": "supersecret"}, nil)
+	c.ok("POST", "/api/v1/setup", map[string]string{"username": "admin", "password": "supersecret"}, nil)
 	var spaces []space
-	c.ok("GET", "/api/spaces", nil, &spaces)
+	c.ok("GET", "/api/v1/spaces", nil, &spaces)
 	var up upload
-	c.ok("PUT", "/api/folders/"+spaces[0].RootFolderID+"/files?path=a.pdf", "%PDF-1.4\n%%EOF\n", &up)
+	c.ok("PUT", "/api/v1/folders/"+spaces[0].RootFolderID+"/files?path=a.pdf", "%PDF-1.4\n%%EOF\n", &up)
 
 	csp := func(q string) string {
 		t.Helper()
-		resp, err := c.http.Get(ts.URL + "/api/files/" + up.File.LinkID + "/content" + q)
+		resp, err := c.http.Get(ts.URL + "/api/v1/files/" + up.File.LinkID + "/content" + q)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -327,12 +327,12 @@ func TestPrefsAndPDFSandbox(t *testing.T) {
 			PDFViewer string `json:"pdf_viewer"`
 		}
 	}
-	c.ok("GET", "/api/me", nil, &me)
+	c.ok("GET", "/api/v1/me", nil, &me)
 	if me.Username != "admin" || me.Prefs.PDFViewer != "pdfjs" {
 		t.Fatalf("me %+v", me)
 	}
-	expect(t, c.do("PATCH", "/api/me", map[string]any{"prefs": map[string]string{"pdf_viewer": "acrobat"}}, nil), 400, "invalid viewer")
-	c.ok("PATCH", "/api/me", map[string]any{"prefs": map[string]string{"pdf_viewer": "native"}}, &me)
+	expect(t, c.do("PATCH", "/api/v1/me", map[string]any{"prefs": map[string]string{"pdf_viewer": "acrobat"}}, nil), 400, "invalid viewer")
+	c.ok("PATCH", "/api/v1/me", map[string]any{"prefs": map[string]string{"pdf_viewer": "native"}}, &me)
 	if me.Prefs.PDFViewer != "native" {
 		t.Fatalf("patched %+v", me)
 	}

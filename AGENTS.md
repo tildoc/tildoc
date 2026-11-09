@@ -164,7 +164,7 @@ When the user requests a programming task, **do not start coding immediately.**
 - **Version:** `internal/version.Version`, from `git describe` at link time;
   releases are git tags (`vX.Y.Z`). Never expose it without login.
 - **Live updates:** schema triggers `pg_notify('tildoc_events', …)` (see end
-  of `0001_init.sql`); `core.EventHub` filters per subscriber; `/api/events`
+  of `0001_init.sql`); `core.EventHub` filters per subscriber; `/api/v1/events`
   is SSE. New tables whose changes the UI shows get a trigger, never a new
   polling loop. UI views use `watchLive` (`events.svelte.js`) and keep
   `watchBusy` (`poll.svelte.js`) only as fallback.

@@ -45,12 +45,12 @@ func liveServerWith(t *testing.T, uiDir string, configure func(*config.Config)) 
 
 func aliceClient(t *testing.T, base string) (*client, space) {
 	admin := newClient(t, base)
-	admin.ok("POST", "/api/setup", map[string]string{"username": "admin", "password": "supersecret"}, nil)
-	admin.ok("POST", "/api/users", map[string]any{"username": "alice", "password": "alicepass"}, nil)
+	admin.ok("POST", "/api/v1/setup", map[string]string{"username": "admin", "password": "supersecret"}, nil)
+	admin.ok("POST", "/api/v1/users", map[string]any{"username": "alice", "password": "alicepass"}, nil)
 	alice := newClient(t, base)
-	alice.ok("POST", "/api/auth/login", map[string]string{"username": "alice", "password": "alicepass"}, nil)
+	alice.ok("POST", "/api/v1/auth/login", map[string]string{"username": "alice", "password": "alicepass"}, nil)
 	var spaces []space
-	alice.ok("GET", "/api/spaces", nil, &spaces)
+	alice.ok("GET", "/api/v1/spaces", nil, &spaces)
 	return alice, spaces[0]
 }
 
@@ -72,9 +72,9 @@ func TestJSONETagGzipAndInclude(t *testing.T) {
 	alice, sp := aliceClient(t, ts.URL)
 	var up upload
 	for i := range 40 {
-		alice.ok("PUT", "/api/folders/"+sp.RootFolderID+"/files?path="+url.QueryEscape(fmt.Sprintf("file-%02d.txt", i)), fmt.Sprintf("content %d", i), &up)
+		alice.ok("PUT", "/api/v1/folders/"+sp.RootFolderID+"/files?path="+url.QueryEscape(fmt.Sprintf("file-%02d.txt", i)), fmt.Sprintf("content %d", i), &up)
 	}
-	path := "/api/folders/" + sp.RootFolderID
+	path := "/api/v1/folders/" + sp.RootFolderID
 
 	// gzip when accepted (the header is set by hand, so Go does not decode)
 	resp := get(t, alice, path, map[string]string{"Accept-Encoding": "gzip"})
@@ -105,19 +105,19 @@ func TestJSONETagGzipAndInclude(t *testing.T) {
 		}
 	}
 	// changed: full response with a new ETag
-	alice.ok("PUT", "/api/folders/"+sp.RootFolderID+"/files?path=new.txt", "new", nil)
+	alice.ok("PUT", "/api/v1/folders/"+sp.RootFolderID+"/files?path=new.txt", "new", nil)
 	resp = get(t, alice, path, map[string]string{"If-None-Match": etag})
 	resp.Body.Close()
 	if resp.StatusCode != 200 || resp.Header.Get("ETag") == etag {
 		t.Fatalf("after change: %d %s", resp.StatusCode, resp.Header.Get("ETag"))
 	}
 	// small responses are not compressed; errors carry no ETag
-	resp = get(t, alice, "/api/me", map[string]string{"Accept-Encoding": "gzip"})
+	resp = get(t, alice, "/api/v1/me", map[string]string{"Accept-Encoding": "gzip"})
 	resp.Body.Close()
 	if resp.Header.Get("Content-Encoding") != "" || resp.Header.Get("ETag") == "" {
 		t.Fatalf("small: %v", resp.Header)
 	}
-	resp = get(t, alice, "/api/folders/00000000-0000-0000-0000-000000000000", nil)
+	resp = get(t, alice, "/api/v1/folders/00000000-0000-0000-0000-000000000000", nil)
 	resp.Body.Close()
 	if resp.StatusCode != 404 || resp.Header.Get("ETag") != "" {
 		t.Fatalf("404: %d %v", resp.StatusCode, resp.Header)
@@ -131,7 +131,7 @@ func TestJSONETagGzipAndInclude(t *testing.T) {
 			Version int
 		}
 	}
-	alice.ok("GET", "/api/files/"+up.File.LinkID+"?include=document", nil, &fd)
+	alice.ok("GET", "/api/v1/files/"+up.File.LinkID+"?include=document", nil, &fd)
 	if fd.LinkID != up.File.LinkID || fd.Document.ID != up.File.DocumentID || fd.Document.Version != 1 {
 		t.Fatalf("include=document: %+v", fd)
 	}
@@ -142,9 +142,9 @@ func TestEventStream(t *testing.T) {
 	alice, sp := aliceClient(t, ts.URL)
 
 	anon := newClient(t, ts.URL)
-	expect(t, anon.do("GET", "/api/events", nil, nil), 401, "anonymous stream")
+	expect(t, anon.do("GET", "/api/v1/events", nil, nil), 401, "anonymous stream")
 
-	resp := get(t, alice, "/api/events", nil)
+	resp := get(t, alice, "/api/v1/events", nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "text/event-stream" || resp.Header.Get("Content-Encoding") != "" {
 		t.Fatalf("stream: %d %v", resp.StatusCode, resp.Header)
@@ -177,7 +177,7 @@ func TestEventStream(t *testing.T) {
 	waitLine("ready", func(l string) bool { return l == "event: ready" })
 
 	var up upload
-	alice.ok("PUT", "/api/folders/"+sp.RootFolderID+"/files?path=live.txt", "live", &up)
+	alice.ok("PUT", "/api/v1/folders/"+sp.RootFolderID+"/files?path=live.txt", "live", &up)
 	l := waitLine("space event", func(l string) bool { return strings.HasPrefix(l, "data: [") && strings.Contains(l, up.File.DocumentID) })
 	var evs []struct {
 		Type      string

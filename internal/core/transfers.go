@@ -54,7 +54,7 @@ func (s *Service) CreateTransfer(ctx context.Context, p *Principal, kind string,
 		if err != nil {
 			return nil, err
 		}
-		if err := s.requireCap(ctx, s.DB, p, f.SpaceID, CapWrite); err != nil {
+		if err := s.requireCap(ctx, s.DB, p, f.SpaceID, CapAdd); err != nil {
 			return nil, err
 		}
 	}
@@ -225,7 +225,7 @@ func (s *Service) ImportZip(ctx context.Context, p *Principal, folderID, file st
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requireCap(ctx, s.DB, p, folder.SpaceID, CapWrite); err != nil {
+	if err := s.requireCap(ctx, s.DB, p, folder.SpaceID, CapAdd); err != nil {
 		return nil, err
 	}
 	zr, err := zip.OpenReader(file)

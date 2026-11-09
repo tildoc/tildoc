@@ -50,7 +50,7 @@
     : mime.startsWith('text/') || mime.includes('json') || file.size === 0 ? 'text'
     : 'other'
   );
-  const base = $derived(contentBase || `/api/documents/${file.document_id}/content`);
+  const base = $derived(contentBase || `/api/v1/documents/${file.document_id}/content`);
   const url = $derived.by(() => {
     const q = new URLSearchParams({ inline: '1', ...contentParams });
     if (variant && variant !== 'original') q.set('variant', variant);

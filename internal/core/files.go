@@ -385,7 +385,7 @@ func (s *Service) Mkdir(ctx context.Context, p *Principal, parentID, name string
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requirePerm(ctx, s.DB, p, parent.SpaceID, PermWrite); err != nil {
+	if err := s.requireCap(ctx, s.DB, p, parent.SpaceID, CapAdd); err != nil {
 		return nil, err
 	}
 	var id string
@@ -402,7 +402,7 @@ func (s *Service) Mkdir(ctx context.Context, p *Principal, parentID, name string
 
 // MkdirAll creates all missing folders of a path inside a space.
 func (s *Service) MkdirAll(ctx context.Context, p *Principal, spaceID string, segs []string) (*FolderInfo, error) {
-	if err := s.requirePerm(ctx, s.DB, p, spaceID, PermWrite); err != nil {
+	if err := s.requireCap(ctx, s.DB, p, spaceID, CapAdd); err != nil {
 		return nil, err
 	}
 	var id string
@@ -459,7 +459,7 @@ func (s *Service) MoveFolder(ctx context.Context, p *Principal, folderID, dstPar
 	if err := s.requireCap(ctx, s.DB, p, src.SpaceID, need); err != nil {
 		return nil, err
 	}
-	if err := s.requirePerm(ctx, s.DB, p, dst.SpaceID, PermWrite); err != nil {
+	if err := s.requireCap(ctx, s.DB, p, dst.SpaceID, CapAdd); err != nil {
 		return nil, err
 	}
 	resultID := folderID

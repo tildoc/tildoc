@@ -42,7 +42,7 @@
     {#if error}<p class="err" role="alert">{error}</p>{/if}
     <button class="primary" disabled={busy}>{tx('login_sign_in')}</button>
     {#each providers as p (p.id)}
-      <a class="btn provider" href={`/api/auth/${p.id}/start`} data-sveltekit-reload>{tx('login_sign_in_with_x', { provider: p.name })}</a>
+      <a class="btn provider" href={`/api/v1/auth/${p.id}/start`} data-sveltekit-reload>{tx('login_sign_in_with_x', { provider: p.name })}</a>
     {/each}
   </form>
 </div>

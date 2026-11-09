@@ -29,6 +29,9 @@ type PutOptions struct {
 	ClientRoot    string            // client side root for new imports (optional)
 	Meta          map[string]string // user metadata stored on the version
 	CreateParents bool
+	SHA256        string // the upload must hash to this (hex), or it is refused
+	IfMatch       string // only replace the file with this ETag; "*": it must exist
+	CreateOnly    bool   // only if nothing exists at the path
 }
 
 // PutResult describes what a write did.
@@ -47,7 +50,7 @@ func (s *Service) PutFile(ctx context.Context, p *Principal, spaceID string, seg
 	if len(segs) == 0 {
 		return nil, errf(ErrInvalid, "file name required")
 	}
-	if err := s.requirePerm(ctx, s.DB, p, spaceID, PermWrite); err != nil {
+	if err := s.requireAddOrWrite(ctx, s.DB, p, spaceID); err != nil {
 		return nil, err
 	}
 	st, err := s.Blobs.Stage(r, s.Cfg.MaxUploadBytes)
@@ -67,9 +70,13 @@ func (s *Service) PutStaged(ctx context.Context, p *Principal, spaceID string, s
 		s.Blobs.Discard(st)
 		return nil, errf(ErrInvalid, "file name required")
 	}
-	if err := s.requirePerm(ctx, s.DB, p, spaceID, PermWrite); err != nil {
+	if err := s.requireAddOrWrite(ctx, s.DB, p, spaceID); err != nil {
 		s.Blobs.Discard(st)
 		return nil, err
+	}
+	if opt.SHA256 != "" && !strings.EqualFold(opt.SHA256, st.SHA256.Hex()) {
+		s.Blobs.Discard(st)
+		return nil, errf(ErrChecksum, "the upload does not match its checksum")
 	}
 	if opt.Protocol == "" {
 		opt.Protocol = "api"
@@ -119,10 +126,16 @@ func (s *Service) PutStaged(ctx context.Context, p *Principal, spaceID string, s
 				return err
 			}
 		}
+		if err := s.checkPreconditions(ctx, tx, existing, opt); err != nil {
+			return err
+		}
 		if existing != "" {
 			linkID = existing
 			changed, forked, err := s.writeVersionTx(ctx, tx, p, existing, st.SHA256, opt.Protocol, opt.Meta)
 			res.NewVersion, res.Forked = changed, forked
+			return err
+		}
+		if err := s.requireCap(ctx, tx, p, spaceID, CapAdd); err != nil {
 			return err
 		}
 		// serialize concurrent ingests of the same content into the same space
@@ -155,6 +168,32 @@ func (s *Service) PutStaged(ctx context.Context, p *Principal, spaceID string, s
 	}
 	res.File, err = scanFile(s.DB.QueryRow(ctx, fileSelect+` WHERE l.id=$1`, linkID))
 	return res, err
+}
+
+// checkPreconditions applies If-Match and create-only to the file at the path.
+func (s *Service) checkPreconditions(ctx context.Context, tx pgx.Tx, linkID string, opt PutOptions) error {
+	if linkID == "" {
+		if opt.IfMatch != "" {
+			return errf(ErrPrecondition, "there is no file to replace")
+		}
+		return nil
+	}
+	if opt.CreateOnly {
+		return errf(ErrPrecondition, "a file already exists at this path")
+	}
+	if opt.IfMatch == "" || opt.IfMatch == "*" {
+		return nil
+	}
+	var md5 string
+	err := tx.QueryRow(ctx, `SELECT encode(b.md5, 'hex') FROM entries l JOIN document_heads d ON d.id = l.document_id
+		JOIN blobs b ON b.sha256 = d.sha256 WHERE l.id = $1`, linkID).Scan(&md5)
+	if err != nil {
+		return err
+	}
+	if strings.Trim(opt.IfMatch, `"`) != md5 {
+		return errf(ErrPrecondition, "the file has changed")
+	}
+	return nil
 }
 
 // registerBlobTx records blob metadata and schedules processing for new content.
@@ -233,6 +272,9 @@ func (s *Service) writeVersionTx(ctx context.Context, tx pgx.Tx, p *Principal, l
 	}
 	if string(cur) == string(sha[:]) {
 		return false, false, nil
+	}
+	if err := s.requireCap(ctx, tx, p, spaceID, CapWrite); err != nil {
+		return false, false, err
 	}
 	if meta == nil {
 		meta = map[string]string{}

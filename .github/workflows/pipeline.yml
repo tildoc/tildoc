@@ -1,0 +1,90 @@
+name: pipeline
+
+on:
+  pull_request:
+  release:
+    types:
+      - published
+  schedule:
+    - cron: "17 4 * * *" # daily
+
+permissions:
+  contents: read
+
+jobs:
+  openapi-pull-request:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go run ./cmd/tildoc openapi > openapi.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openapi
+          path: openapi.json
+
+  # separate job: only a release, never pull request code, gets write access
+  openapi-release:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go run ./cmd/tildoc openapi > openapi.json
+      - run: gh release upload "$TAG" openapi.json --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+
+  # one job: the three images share most of their layers
+  docker-images:
+    if: github.event_name == 'pull_request' || github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the version comes from git describe
+          persist-credentials: false
+      - run: |
+          for target in server worker nginx; do
+            docker build --target "$target" --tag "tildoc-$target:$GITHUB_SHA" .
+          done
+
+  vulncheck-source:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+  vulncheck-binary:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # like the Dockerfile, but with symbols: without them govulncheck can only
+      # report per module, including code tildoc never calls
+      - run: CGO_ENABLED=0 go build -trimpath -o tildoc-binary ./cmd/tildoc
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -mode=binary tildoc-binary

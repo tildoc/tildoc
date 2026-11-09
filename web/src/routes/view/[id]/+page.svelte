@@ -287,7 +287,7 @@
         {/if}
         <button class="icon" class:on={info} onclick={toggleInfo} aria-pressed={info} aria-label={tx('view_document_details')} title={tx('view_details_i')}><Icon name="panel" /></button>
         {#if canDownload(doc)}
-        <a class="btn icon" href={`/api/files/${linkId}/content`} download aria-label={tx('view_download_original')} title={tx('view_download_the_original_file')}><Icon name="download" /></a>
+        <a class="btn icon" href={`/api/v1/files/${linkId}/content`} download aria-label={tx('view_download_original')} title={tx('view_download_the_original_file')}><Icon name="download" /></a>
         {/if}
       </div>
     {/if}

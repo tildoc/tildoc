@@ -278,6 +278,12 @@ Planned, not done yet: Phase 14 (`age` encryption, D43, D44).
 
 ## Security-relevant refactorings
 
+
+### API keys could create wider credentials
+
+Before: `POST /me/access-keys` and `POST /me/ssh-keys` rejected access keys and SSH sessions, but not API keys. A key limited to one space and to viewing could create an access key or SSH key with its owner's full rights.
+After: both need a login session (`requireSession`), like creating API keys. `TestAPIKeyCannotMintCredentials` covers it.
+
 ### 2026-11-08: inline PDFs are sandboxed
 
 Before: `?inline=1` responses for PDFs were served without `Content-Security-Policy: sandbox`

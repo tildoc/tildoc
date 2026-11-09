@@ -349,7 +349,7 @@ func (s *Service) ImportBundle(ctx context.Context, p *Principal, r io.Reader, o
 		if err != nil {
 			return nil, err
 		}
-		if err := s.requireCap(ctx, s.DB, p, f.SpaceID, CapWrite); err != nil {
+		if err := s.requireCap(ctx, s.DB, p, f.SpaceID, CapAdd); err != nil {
 			return nil, err
 		}
 	}
@@ -692,6 +692,12 @@ func (s *Service) importDocumentTx(ctx context.Context, tx pgx.Tx, p *Principal,
 	for _, t := range d.Tags {
 		if _, err := tx.Exec(ctx, `INSERT INTO document_tags(document_id, tag_id, added_by) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,
 			id, tagMap[t], p.userRef()); err != nil {
+			return "", false, err
+		}
+	}
+	for _, e := range d.External {
+		if _, err := tx.Exec(ctx, `INSERT INTO external_refs(space_id, source, ref, document_id, created_at)
+			SELECT space_id, $2, $3, id, $4 FROM documents WHERE id=$1 ON CONFLICT DO NOTHING`, id, e.Source, e.Ref, e.CreatedAt); err != nil {
 			return "", false, err
 		}
 	}

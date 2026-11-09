@@ -13,9 +13,9 @@ import (
 const oauthCookie = "tildoc_oauth"
 
 func (s *Server) oauthRoutes(h func(string, http.Handler)) {
-	h("GET /api/auth/providers", s.public(s.authProviders))
-	h("GET /api/auth/google/start", s.public(s.googleStart))
-	h("GET /api/auth/google/callback", s.public(s.googleCallback))
+	h("GET /api/v1/auth/providers", s.public(s.authProviders))
+	h("GET /api/v1/auth/google/start", s.public(s.googleStart))
+	h("GET /api/v1/auth/google/callback", s.public(s.googleCallback))
 }
 
 // google returns the configured provider, discovering it on first use.
@@ -25,7 +25,7 @@ func (s *Server) google(ctx context.Context) (*oidc.Provider, error) {
 	if s.googleProvider != nil {
 		return s.googleProvider, nil
 	}
-	p, err := oidc.New(ctx, "google", "Google", s.Cfg.GoogleIssuer, s.Cfg.GoogleClientID, s.Cfg.GoogleClientSecret, s.Cfg.PublicURL+"/api/auth/google/callback")
+	p, err := oidc.New(ctx, "google", "Google", s.Cfg.GoogleIssuer, s.Cfg.GoogleClientID, s.Cfg.GoogleClientSecret, s.Cfg.PublicURL+"/api/v1/auth/google/callback")
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func (s *Server) googleStart(w http.ResponseWriter, r *http.Request) error {
 	if err := s.Svc.StartOAuthLogin(r.Context(), p.ID, state, nonce, verifier); err != nil {
 		return err
 	}
-	http.SetCookie(w, &http.Cookie{Name: oauthCookie, Value: state, Path: "/api/auth/google", MaxAge: 600, HttpOnly: true,
+	http.SetCookie(w, &http.Cookie{Name: oauthCookie, Value: state, Path: "/api/v1/auth/google", MaxAge: 600, HttpOnly: true,
 		Secure: s.Cfg.CookieSecure, SameSite: http.SameSiteLaxMode}) // must survive the redirect back from Google
 	http.Redirect(w, r, p.AuthURL(state, nonce, verifier), http.StatusFound)
 	return nil
@@ -81,7 +81,7 @@ func (s *Server) googleCallback(w http.ResponseWriter, r *http.Request) error {
 		http.NotFound(w, r)
 		return nil
 	}
-	http.SetCookie(w, &http.Cookie{Name: oauthCookie, Value: "", Path: "/api/auth/google", MaxAge: -1, HttpOnly: true, Secure: s.Cfg.CookieSecure, SameSite: http.SameSiteLaxMode})
+	http.SetCookie(w, &http.Cookie{Name: oauthCookie, Value: "", Path: "/api/v1/auth/google", MaxAge: -1, HttpOnly: true, Secure: s.Cfg.CookieSecure, SameSite: http.SameSiteLaxMode})
 	q := r.URL.Query()
 	c, err := r.Cookie(oauthCookie)
 	if err != nil || c.Value == "" || c.Value != q.Get("state") {

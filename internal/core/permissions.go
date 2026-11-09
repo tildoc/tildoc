@@ -34,12 +34,14 @@ const (
 	CapShareFilePeople
 	CapShareFileLogin
 	CapShareFilePublic
+	CapAdd // new documents and folders
+	CapTag // tags and external references: describing, not changing
 )
 
 var capNames = []struct {
 	c Cap
 	n string
-}{{CapView, "view"}, {CapDownload, "download"}, {CapExport, "export"}, {CapWrite, "write"}, {CapMove, "move"},
+}{{CapView, "view"}, {CapDownload, "download"}, {CapExport, "export"}, {CapWrite, "write"}, {CapAdd, "add"}, {CapTag, "tag"}, {CapMove, "move"},
 	{CapDelete, "delete"}, {CapPurge, "purge"}, {CapManage, "manage"}, {CapTransfer, "transfer"}, {CapDropIn, "drop_in"},
 	{CapShareSpacePeople, "share.space.people"}, {CapShareSpaceLogin, "share.space.login_link"},
 	{CapShareSpacePublic, "share.space.public_link"}, {CapShareSpaceDrop, "share.space.drop_link"},
@@ -49,7 +51,7 @@ const (
 	capRead  = CapView | CapDownload | CapExport
 	capShare = CapShareSpacePeople | CapShareSpaceLogin | CapShareSpacePublic | CapShareSpaceDrop |
 		CapShareFilePeople | CapShareFileLogin | CapShareFilePublic
-	capAll = capRead | CapWrite | CapMove | CapDelete | CapPurge | CapManage | CapTransfer | CapDropIn | capShare
+	capAll = capRead | CapWrite | CapAdd | CapTag | CapMove | CapDelete | CapPurge | CapManage | CapTransfer | CapDropIn | capShare
 	// capFile: what a grant on a single file can give
 	capFile = CapView | CapDownload | CapWrite
 )
@@ -132,6 +134,22 @@ func (p *Principal) Can(want InstCap) bool {
 	return p != nil && (p.Via == "system" || p.Inst&want == want)
 }
 
+// requireAddOrWrite lets an upload start: a new file needs add, a new version
+// of an existing one write, and which it is only shows under the folder lock.
+func (s *Service) requireAddOrWrite(ctx context.Context, q db.Querier, p *Principal, spaceID string) error {
+	got, err := s.spaceCaps(ctx, q, p, spaceID)
+	if err != nil {
+		return err
+	}
+	if !got.Has(CapView) {
+		return errf(ErrNotFound, "space not found")
+	}
+	if !got.Has(CapAdd) && !got.Has(CapWrite) {
+		return errf(ErrForbidden, "insufficient permission on space")
+	}
+	return nil
+}
+
 func requireInst(p *Principal, want InstCap) error {
 	if p == nil {
 		return ErrUnauthorized
@@ -182,7 +200,7 @@ func capsPerm(c Cap) Perm {
 	switch {
 	case !c.Has(CapView):
 		return PermNone
-	case !c.Has(CapWrite): // also for an owner of a write-protected space
+	case !c.Has(CapWrite): // also for an owner of a space that isn't open
 		return PermRead
 	case c.Has(CapManage):
 		return PermManage

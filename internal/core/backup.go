@@ -793,12 +793,6 @@ func (s *Service) applyRestore(ctx context.Context, tx pgx.Tx, br *bundleReader)
 			sp.ID, sp.Slug, sp.Name, sp.OwnerUserID, sp.OwnerTeamID, sp.CreatedAt); err != nil {
 			return err
 		}
-		if st := sp.Settings; st != nil {
-			if err := ex(`UPDATE spaces SET allow_login_links=$2, allow_public_links=$3, allow_drop_links=$4, allow_file_shares=$5, allow_drop_in=$6, write_protected=$7, no_ocr=$8 WHERE id=$1`,
-				sp.ID, st.AllowLoginLinks, st.AllowPublicLinks, st.AllowDropLinks, st.AllowFileShares, st.AllowDropIn, st.WriteProtected, st.NoOCR); err != nil {
-				return err
-			}
-		}
 	}
 	for _, im := range m.Imports {
 		if err := ex(`INSERT INTO imports(id, user_id, space_id, protocol, client_root, created_at, last_activity_at) VALUES($1,$2,$3,$4,$5,$6,$7)`,
@@ -884,6 +878,12 @@ func (s *Service) applyRestore(ctx context.Context, tx pgx.Tx, br *bundleReader)
 					return err
 				}
 			}
+			for _, e := range d.External {
+				if err := ex(`INSERT INTO external_refs(space_id, source, ref, document_id, created_at) VALUES($1,$2,$3,$4,$5)`,
+					sp.ID, e.Source, e.Ref, d.ID, e.CreatedAt); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	for _, f := range forks {
@@ -953,6 +953,15 @@ func (s *Service) applyRestore(ctx context.Context, tx pgx.Tx, br *bundleReader)
 		if err := ex(`INSERT INTO ssh_keys(id, user_id, fingerprint, public_key, label, created_at, last_used_at) VALUES($1,$2,$3,$4,$5,$6,$7)`,
 			k.ID, k.UserID, k.Fingerprint, k.PublicKey, k.Label, k.CreatedAt, k.LastUsedAt); err != nil {
 			return err
+		}
+	}
+	// last: the write policy of a space does not apply to restoring it
+	for _, sp := range m.Spaces {
+		if st := sp.Settings; st != nil {
+			if err := ex(`UPDATE spaces SET allow_login_links=$2, allow_public_links=$3, allow_drop_links=$4, allow_file_shares=$5, allow_drop_in=$6, write_policy=$7, no_ocr=$8 WHERE id=$1`,
+				sp.ID, st.AllowLoginLinks, st.AllowPublicLinks, st.AllowDropLinks, st.AllowFileShares, st.AllowDropIn, st.WritePolicy, st.NoOCR); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

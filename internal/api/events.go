@@ -12,7 +12,7 @@ const (
 	eventWriteWait   = 10 * time.Second
 )
 
-// events streams live changes as Server-Sent Events (GET /api/events).
+// events streams live changes as Server-Sent Events (GET /api/v1/events).
 // Events carry only ids; clients reload through the permission-checked API.
 func (s *Server) events(w http.ResponseWriter, r *http.Request) error {
 	p := principal(r)

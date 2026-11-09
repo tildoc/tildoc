@@ -82,7 +82,7 @@ func (i *fakeIssuer) signIn(t *testing.T, c *client, tamperState bool) string {
 	t.Helper()
 	noFollow := *c.http
 	noFollow.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := noFollow.Get(c.base + "/api/auth/google/start")
+	resp, err := noFollow.Get(c.base + "/api/v1/auth/google/start")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func (i *fakeIssuer) signIn(t *testing.T, c *client, tamperState bool) string {
 		t.Fatalf("redirect %q", resp.Header.Get("Location"))
 	}
 	q := u.Query()
-	if q.Get("code_challenge_method") != "S256" || q.Get("nonce") == "" || !strings.HasSuffix(q.Get("redirect_uri"), "/api/auth/google/callback") {
+	if q.Get("code_challenge_method") != "S256" || q.Get("nonce") == "" || !strings.HasSuffix(q.Get("redirect_uri"), "/api/v1/auth/google/callback") {
 		t.Fatalf("auth request %v", q)
 	}
 	i.challenge, i.nonce = q.Get("code_challenge"), q.Get("nonce")
@@ -100,7 +100,7 @@ func (i *fakeIssuer) signIn(t *testing.T, c *client, tamperState bool) string {
 	if tamperState {
 		state = "forged"
 	}
-	resp, err = noFollow.Get(c.base + "/api/auth/google/callback?code=abc&state=" + url.QueryEscape(state))
+	resp, err = noFollow.Get(c.base + "/api/v1/auth/google/callback?code=abc&state=" + url.QueryEscape(state))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,10 +116,10 @@ func TestGoogleLogin(t *testing.T) {
 	srv.Cfg.PublicURL = ts.URL
 	alice, _ := aliceClient(t, ts.URL) // also sets the server up
 	admin := newClient(t, ts.URL)
-	admin.ok("POST", "/api/auth/login", map[string]string{"username": "admin", "password": "supersecret"}, nil)
+	admin.ok("POST", "/api/v1/auth/login", map[string]string{"username": "admin", "password": "supersecret"}, nil)
 
 	var providers []struct{ ID, Name string }
-	newClient(t, ts.URL).ok("GET", "/api/auth/providers", nil, &providers)
+	newClient(t, ts.URL).ok("GET", "/api/v1/auth/providers", nil, &providers)
 	if len(providers) != 1 || providers[0].ID != "google" {
 		t.Fatalf("providers %+v", providers)
 	}
@@ -149,12 +149,12 @@ func TestGoogleLogin(t *testing.T) {
 	if !iss.verified {
 		t.Fatal("PKCE verifier does not match the challenge")
 	}
-	expect(t, b.do("GET", "/api/me", nil, nil), 401, "pending has no session")
+	expect(t, b.do("GET", "/api/v1/me", nil, nil), 401, "pending has no session")
 
 	var users []struct {
 		ID, Username, Status string
 	}
-	admin.ok("GET", "/api/users", nil, &users)
+	admin.ok("GET", "/api/v1/users", nil, &users)
 	id := ""
 	for _, u := range users {
 		if u.Status == "pending" {
@@ -164,15 +164,15 @@ func TestGoogleLogin(t *testing.T) {
 	if id == "" {
 		t.Fatalf("users %+v", users)
 	}
-	expect(t, alice.do("POST", "/api/users/"+id+"/approve", map[string]any{}, nil), 403, "not an admin")
-	admin.ok("POST", "/api/users/"+id+"/approve", map[string]any{}, nil)
+	expect(t, alice.do("POST", "/api/v1/users/"+id+"/approve", map[string]any{}, nil), 403, "not an admin")
+	admin.ok("POST", "/api/v1/users/"+id+"/approve", map[string]any{}, nil)
 
 	// approved: signed in
 	if got := iss.signIn(t, b, false); got != "/" {
 		t.Fatalf("after approval: %q", got)
 	}
 	var me struct{ Username string }
-	b.ok("GET", "/api/me", nil, &me)
+	b.ok("GET", "/api/v1/me", nil, &me)
 	if me.Username == "" {
 		t.Fatal("no session after approval")
 	}
@@ -181,11 +181,11 @@ func TestGoogleLogin(t *testing.T) {
 func TestGoogleOffWithoutCredentials(t *testing.T) {
 	ts, _ := liveServer(t, "")
 	var providers []map[string]string
-	newClient(t, ts.URL).ok("GET", "/api/auth/providers", nil, &providers)
+	newClient(t, ts.URL).ok("GET", "/api/v1/auth/providers", nil, &providers)
 	if len(providers) != 0 {
 		t.Fatalf("providers %+v", providers)
 	}
-	resp, err := http.Get(ts.URL + "/api/auth/google/start")
+	resp, err := http.Get(ts.URL + "/api/v1/auth/google/start")
 	if err != nil || resp.StatusCode != 404 {
 		t.Fatalf("%v %v", resp, err)
 	}
@@ -194,12 +194,12 @@ func TestGoogleOffWithoutCredentials(t *testing.T) {
 func TestDropInOverHTTP(t *testing.T) {
 	ts, _ := liveServer(t, "")
 	alice, sp := aliceClient(t, ts.URL)
-	alice.ok("PATCH", "/api/spaces/"+sp.ID+"/settings", map[string]any{"allow_drop_in": true}, nil)
+	alice.ok("PATCH", "/api/v1/spaces/"+sp.ID+"/settings", map[string]any{"allow_drop_in": true}, nil)
 	var r struct {
 		Token, URL string
 	}
-	alice.ok("POST", "/api/me/drop-in-keys", map[string]any{"label": "scan", "space_id": sp.ID}, &r)
-	if !strings.HasSuffix(r.URL, "/api/drop/") {
+	alice.ok("POST", "/api/v1/me/drop-in-keys", map[string]any{"label": "scan", "space_id": sp.ID}, &r)
+	if !strings.HasSuffix(r.URL, "/api/v1/drop/") {
 		t.Fatalf("url %q", r.URL)
 	}
 	put := func(path, token, body string) int {
@@ -214,17 +214,17 @@ func TestDropInOverHTTP(t *testing.T) {
 		resp.Body.Close()
 		return resp.StatusCode
 	}
-	expect(t, put("/api/drop/hello%20world.txt", r.Token, "from curl"), 204, "drop")
-	expect(t, put("/api/drop/x.txt", "", "x"), 401, "no token")
-	expect(t, put("/api/drop/x.txt", "tildoc_nonsense_x", "x"), 401, "bad token")
+	expect(t, put("/api/v1/drop/hello%20world.txt", r.Token, "from curl"), 204, "drop")
+	expect(t, put("/api/v1/drop/x.txt", "", "x"), 401, "no token")
+	expect(t, put("/api/v1/drop/x.txt", "tildoc_nonsense_x", "x"), 401, "bad token")
 	var list struct {
 		Files []struct{ Name string }
 	}
-	alice.ok("GET", "/api/folders/"+sp.RootFolderID, nil, &list)
+	alice.ok("GET", "/api/v1/folders/"+sp.RootFolderID, nil, &list)
 	if len(list.Files) != 1 || list.Files[0].Name != "hello world.txt" {
 		t.Fatalf("files %+v", list.Files)
 	}
-	req, _ := http.NewRequest("GET", ts.URL+"/api/spaces", nil)
+	req, _ := http.NewRequest("GET", ts.URL+"/api/v1/spaces", nil)
 	req.Header.Set("Authorization", "Bearer "+r.Token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

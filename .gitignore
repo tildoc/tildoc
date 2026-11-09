@@ -20,3 +20,6 @@ deploy/nginx/certs/
 .idea/
 .vscode/
 *.swp
+
+# REST API contract: generated (tildoc openapi), see .github/workflows/pipeline.yml
+/openapi.json

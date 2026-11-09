@@ -17,6 +17,8 @@ var (
 	ErrNotFolder    = errors.New("not a folder")
 	ErrTooLarge     = errors.New("too large")
 	ErrTooMany      = errors.New("too many requests")
+	ErrPrecondition = errors.New("precondition failed")
+	ErrChecksum     = errors.New("checksum mismatch")
 )
 
 // Error carries a kind plus a human readable message.
@@ -35,7 +37,7 @@ func errf(kind error, format string, args ...any) error {
 // KindOf returns the error kind of err, or nil if it has none.
 func KindOf(err error) error {
 	for _, k := range []error{ErrNotFound, ErrForbidden, ErrUnauthorized, ErrConflict, ErrInvalid,
-		ErrNotEmpty, ErrIsFolder, ErrNotFolder, ErrTooLarge, ErrTooMany} {
+		ErrNotEmpty, ErrIsFolder, ErrNotFolder, ErrTooLarge, ErrTooMany, ErrPrecondition, ErrChecksum} {
 		if errors.Is(err, k) {
 			return k
 		}

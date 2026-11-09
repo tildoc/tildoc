@@ -53,7 +53,7 @@ func (s *Service) CreateEmptyFile(ctx context.Context, p *Principal, folderID, n
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requirePerm(ctx, s.DB, p, folder.SpaceID, PermWrite); err != nil {
+	if err := s.requireCap(ctx, s.DB, p, folder.SpaceID, CapAdd); err != nil {
 		return nil, err
 	}
 	st, err := s.Blobs.Stage(bytes.NewReader(nil), 0)

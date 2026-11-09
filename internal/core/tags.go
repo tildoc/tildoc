@@ -226,7 +226,7 @@ func (s *Service) writableDocument(ctx context.Context, p *Principal, docID stri
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requirePerm(ctx, s.DB, p, d.SpaceID, PermWrite); err != nil {
+	if err := s.requireCap(ctx, s.DB, p, d.SpaceID, CapTag); err != nil {
 		return nil, err
 	}
 	return d, nil

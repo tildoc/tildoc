@@ -45,7 +45,7 @@ type Server struct {
 	Limiter *auth.Limiter
 	// Extra handlers mounted on the same listener (e.g. WebDAV at /dav/).
 	Mounts map[string]http.Handler
-	// Events feeds GET /api/events; run it with Events.Run.
+	// Events feeds GET /api/v1/events; run it with Events.Run.
 	Events *core.EventHub
 	// Office is the Collabora discovery client (nil: feature off).
 	Office         *wopi.Client
@@ -208,6 +208,10 @@ func StatusFor(err error) (int, string) {
 		return http.StatusBadRequest, "invalid"
 	case core.ErrTooLarge:
 		return http.StatusRequestEntityTooLarge, "too_large"
+	case core.ErrPrecondition:
+		return http.StatusPreconditionFailed, "precondition_failed"
+	case core.ErrChecksum:
+		return http.StatusUnprocessableEntity, "checksum_mismatch"
 	case core.ErrTooMany:
 		return http.StatusTooManyRequests, "too_many"
 	}

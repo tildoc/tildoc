@@ -33,20 +33,28 @@ type Space struct {
 
 // SpaceSettings are off by default: enabling one adds a way of sharing, stops
 // all writing, or stops tildoc's OCR and image-only step.
+// Write policies of a space (spaces.write_policy).
+const (
+	WriteOpen       = "open"
+	WriteAppendOnly = "append_only" // new documents only; what exists stays as it is
+	WriteReadOnly   = "read_only"   // the data is fixed; tags can still change
+	WriteFrozen     = "frozen"      // nothing changes, tags and settings included
+)
+
 type SpaceSettings struct {
-	AllowLoginLinks  bool `json:"allow_login_links"`
-	AllowPublicLinks bool `json:"allow_public_links"`
-	AllowDropLinks   bool `json:"allow_drop_links"`
-	AllowFileShares  bool `json:"allow_file_shares"`
-	AllowDropIn      bool `json:"allow_drop_in"`
-	WriteProtected   bool `json:"write_protected"`
-	NoOCR            bool `json:"no_ocr"`
+	AllowLoginLinks  bool   `json:"allow_login_links"`
+	AllowPublicLinks bool   `json:"allow_public_links"`
+	AllowDropLinks   bool   `json:"allow_drop_links"`
+	AllowFileShares  bool   `json:"allow_file_shares"`
+	AllowDropIn      bool   `json:"allow_drop_in"`
+	WritePolicy      string `json:"write_policy"` // see the Write* constants
+	NoOCR            bool   `json:"no_ocr"`
 }
 
 const spaceSelect = `
 	SELECT s.id::text, s.slug, s.name, s.owner_user_id::text, s.owner_team_id::text, coalesce(t.name,''),
 	       f.id::text, s.created_at, space_permissions(s.id, $1::uuid), space_permissions_held(s.id, $1::uuid),
-	       s.allow_login_links, s.allow_public_links, s.allow_drop_links, s.allow_file_shares, s.allow_drop_in, s.write_protected, s.no_ocr,
+	       s.allow_login_links, s.allow_public_links, s.allow_drop_links, s.allow_file_shares, s.allow_drop_in, s.write_policy, s.no_ocr,
 	       NOT (s.owner_user_id IS NOT DISTINCT FROM $1::uuid
 	            OR EXISTS (SELECT 1 FROM team_members m WHERE m.team_id = s.owner_team_id AND m.user_id = $1::uuid))
 	FROM spaces s
@@ -58,7 +66,7 @@ func scanSpace(row pgx.Row, p *Principal) (*Space, error) {
 	var names, held []string
 	st := &sp.Settings
 	err := row.Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.OwnerUserID, &sp.OwnerTeamID, &sp.TeamName, &sp.RootFolderID, &sp.CreatedAt, &names, &held,
-		&st.AllowLoginLinks, &st.AllowPublicLinks, &st.AllowDropLinks, &st.AllowFileShares, &st.AllowDropIn, &st.WriteProtected, &st.NoOCR, &sp.Shared)
+		&st.AllowLoginLinks, &st.AllowPublicLinks, &st.AllowDropLinks, &st.AllowFileShares, &st.AllowDropIn, &st.WritePolicy, &st.NoOCR, &sp.Shared)
 	if err != nil {
 		return nil, err
 	}
@@ -197,23 +205,38 @@ func (s *Service) UpdateSpaceSettings(ctx context.Context, p *Principal, spaceID
 	if err := requireSession(p); err != nil {
 		return nil, err
 	}
+	switch st.WritePolicy {
+	case "", WriteOpen, WriteAppendOnly, WriteReadOnly, WriteFrozen: // "": stays as it is
+	default:
+		return nil, errf(ErrInvalid, "write_policy must be open, append_only, read_only or frozen")
+	}
 	if err := s.requireCap(ctx, s.DB, p, spaceID, CapManage); err != nil {
 		return nil, err
 	}
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		var was SpaceSettings
 		var hadNoOCR bool
-		if err := tx.QueryRow(ctx, `SELECT no_ocr FROM spaces WHERE id=$1 FOR UPDATE`, spaceID).Scan(&hadNoOCR); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT allow_login_links, allow_public_links, allow_drop_links, allow_file_shares,
+			allow_drop_in, write_policy, no_ocr FROM spaces WHERE id=$1 FOR UPDATE`, spaceID).
+			Scan(&was.AllowLoginLinks, &was.AllowPublicLinks, &was.AllowDropLinks, &was.AllowFileShares, &was.AllowDropIn, &was.WritePolicy, &was.NoOCR); err != nil {
 			return err
 		}
+		if st.WritePolicy == "" {
+			st.WritePolicy = was.WritePolicy
+		}
+		if was.WritePolicy == WriteFrozen && st.WritePolicy == WriteFrozen && st != was {
+			return errf(ErrForbidden, "this space is frozen: unfreeze it to change its settings")
+		}
+		hadNoOCR = was.NoOCR || was.WritePolicy == WriteFrozen
 		if _, err := tx.Exec(ctx, `UPDATE spaces SET allow_login_links=$2, allow_public_links=$3, allow_drop_links=$4, allow_file_shares=$5, allow_drop_in=$6,
-			write_protected=$7, no_ocr=$8 WHERE id=$1`, spaceID, st.AllowLoginLinks, st.AllowPublicLinks, st.AllowDropLinks, st.AllowFileShares, st.AllowDropIn,
-			st.WriteProtected, st.NoOCR); err != nil {
+			write_policy=$7, no_ocr=$8 WHERE id=$1`, spaceID, st.AllowLoginLinks, st.AllowPublicLinks, st.AllowDropLinks, st.AllowFileShares, st.AllowDropIn,
+			st.WritePolicy, st.NoOCR); err != nil {
 			return err
 		}
 		if err := s.audit(ctx, tx, p, "space.settings", "space", spaceID, spaceID, map[string]any{"settings": st}); err != nil {
 			return err
 		}
-		if !hadNoOCR || st.NoOCR {
+		if !hadNoOCR || st.NoOCR || st.WritePolicy == WriteFrozen {
 			return nil
 		}
 		rows, err := tx.Query(ctx, `SELECT DISTINCT encode(v.sha256, 'hex') FROM document_versions v
@@ -244,7 +267,7 @@ func (s *Service) UpdateSpaceSettings(ctx context.Context, p *Principal, spaceID
 func (s *Service) OCRAllowed(ctx context.Context, sha blob.SHA256) (bool, error) {
 	var ok bool
 	err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM document_versions v JOIN documents d ON d.id = v.document_id
-		JOIN spaces s ON s.id = d.space_id WHERE v.sha256 = $1 AND NOT s.no_ocr)`, sha[:]).Scan(&ok)
+		JOIN spaces s ON s.id = d.space_id WHERE v.sha256 = $1 AND NOT s.no_ocr AND s.write_policy <> 'frozen')`, sha[:]).Scan(&ok)
 	return ok, err
 }
 

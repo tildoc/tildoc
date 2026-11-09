@@ -94,6 +94,7 @@
       : []
   );
   let canWrite = $derived(data?.space?.perm >= 2);
+  let canAdd = $derived(!!data?.space?.caps?.includes('add'));
   let canDelete = $derived(data?.space?.perm >= 3);
   let selRows = $derived(rows.filter((r) => selected.includes(r.key)));
   let single = $derived(selRows.length === 1 ? selRows[0] : null);
@@ -230,7 +231,7 @@
   async function dropFiles(e) {
     e.preventDefault();
     dragging = false;
-    if (!canWrite || !e.dataTransfer.files.length) return;
+    if (!canAdd || !e.dataTransfer.files.length) return;
     const items = await collectDrop(e.dataTransfer);
     uploadAll(data.space.id, folderId, items, () => load(true));
   }
@@ -247,7 +248,7 @@
     if (e.key === 'F2' && single && canWrite) dialog = { kind: 'rename' };
     if (e.key === 'Escape') selected = [];
     if (e.key === 'Backspace' && data?.folder.parent_id) goto(`/f/${data.folder.parent_id}`);
-    if (e.key.toLowerCase() === 'u' && !e.ctrlKey && !e.metaKey && canWrite) fileInput.click();
+    if (e.key.toLowerCase() === 'u' && !e.ctrlKey && !e.metaKey && canAdd) fileInput.click();
   }
 </script>
 
@@ -255,7 +256,7 @@
 
 <div class="browser" class:withpanel={panelFile}>
   <section class="main" aria-label={tx('f_folder_contents')}
-    ondragover={(e) => { if (e.dataTransfer.types.includes('Files') && canWrite) { e.preventDefault(); dragging = true; } }}
+    ondragover={(e) => { if (e.dataTransfer.types.includes('Files') && canAdd) { e.preventDefault(); dragging = true; } }}
     ondragleave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) dragging = false; }}
     ondrop={dropFiles}>
     {#if error}
@@ -269,12 +270,12 @@
         </nav>
         <div class="titlerow">
           <h1>{data.breadcrumbs.length === 1 ? data.space.name : data.folder.name}</h1>
-          {#if !canWrite}<span class="pill">{tx('f_read_only')}</span>{/if}
+          {#if !canAdd && !canWrite}<span class="pill">{tx('f_read_only')}</span>{/if}
         </div>
       </header>
 
       <div class="toolbar" role="toolbar" aria-label={tx('f_folder_actions')}>
-        {#if canWrite}
+        {#if canAdd}
           <button class="primary" onclick={() => fileInput.click()} title={tx('f_upload_files_u')}><Icon name="upload" size={16} /> {tx('f_upload')}</button>
           <button onclick={() => dirInput.click()}><Icon name="folder" size={16} /> {tx('f_upload_folder')}</button>
           <button class="ghost" onclick={() => (dialog = { kind: 'mkdir' })}><Icon name="plus" size={16} /> {tx('f_new_folder')}</button>
@@ -284,14 +285,14 @@
         {#if canShareAny(data.space.caps)}<button class="ghost" onclick={() => (dialog = { kind: 'share' })}><Icon name="link" size={16} /> {tx('common_share')}</button>{/if}
         {#if !selected.length}
           <span class="divider" aria-hidden="true"></span>
-          {#if data.space.caps?.includes('export')}<a class="btn ghost" href={`/api/folders/${folderId}/export`} download title={tx('f_this_folder_with_all_subfolders_as')}><Icon name="download" size={16} /> {tx('f_export_as_zip')}</a>{/if}
-          {#if canWrite}<button class="ghost" onclick={() => (dialog = { kind: 'import' })} title={tx('f_import_a_zip_or_a_tildoc')}><Icon name="upload" size={16} /> {tx('f_import')}</button>{/if}
+          {#if data.space.caps?.includes('export')}<a class="btn ghost" href={`/api/v1/folders/${folderId}/export`} download title={tx('f_this_folder_with_all_subfolders_as')}><Icon name="download" size={16} /> {tx('f_export_as_zip')}</a>{/if}
+          {#if canAdd}<button class="ghost" onclick={() => (dialog = { kind: 'import' })} title={tx('f_import_a_zip_or_a_tildoc')}><Icon name="upload" size={16} /> {tx('f_import')}</button>{/if}
         {/if}
         {#if selected.length}
           <span class="divider" aria-hidden="true"></span>
           {#if single?.kind === 'file'}
             <button class="ghost" onclick={() => open(single)}><Icon name="open" size={16} /> {tx('common_open')}</button>
-            {#if data.space.caps?.includes('download')}<a class="btn ghost" href={`/api/files/${single.link_id}/content`} download><Icon name="download" size={16} /> {tx('common_download')}</a>{/if}
+            {#if data.space.caps?.includes('download')}<a class="btn ghost" href={`/api/v1/files/${single.link_id}/content`} download><Icon name="download" size={16} /> {tx('common_download')}</a>{/if}
           {/if}
           {#if canWrite && single}<button class="ghost" onclick={() => (dialog = { kind: 'rename' })}><Icon name="edit" size={16} /> {tx('common_rename')}</button>{/if}
           {#if canWrite}<button class="ghost" onclick={() => (dialog = { kind: 'pick', mode: 'move' })}><Icon name="move" size={16} /> {tx('f_move')}</button>{/if}
@@ -312,7 +313,7 @@
         {#snippet empty()}
           <div class="empty-state">
             <strong>{tx('f_this_folder_is_empty')}</strong>
-            {#if canWrite}<Rich key="f_drop_files_here" vars={{ key: 'U' }} />{:else}{tx('f_nothing_has_been_added_here_yet')}{/if}
+            {#if canAdd}<Rich key="f_drop_files_here" vars={{ key: 'U' }} />{:else}{tx('f_nothing_has_been_added_here_yet')}{/if}
           </div>
         {/snippet}
       </FileTable>

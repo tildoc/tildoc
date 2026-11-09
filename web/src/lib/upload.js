@@ -109,7 +109,7 @@ export function uploadTransfer(file, params, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v));
-    xhr.open('POST', `/api/transfers?${q}`);
+    xhr.open('POST', `/api/v1/transfers?${q}`);
     xhr.setRequestHeader('X-Tildoc-CSRF', '1');
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);

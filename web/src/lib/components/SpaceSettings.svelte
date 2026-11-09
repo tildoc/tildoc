@@ -17,9 +17,14 @@
       ['allow_drop_in', tx('spacesettings_drop_in_tokens'), tx('spacesettings_keys_that_scripts_and_devices_use')]
     ]],
     [tx('spacesettings_protection'), [
-      ['write_protected', tx('spacesettings_write_protection'), tx('spacesettings_nobody_the_owner_included_can_upload')],
       ['no_ocr', tx('spacesettings_no_tildoc_ocr'), tx('spacesettings_tildoc_adds_no_ocr_version_and')]
     ]]
+  ];
+  const policies = [
+    ['open', tx('spacesettings_policy_open'), tx('spacesettings_policy_open_help')],
+    ['append_only', tx('spacesettings_policy_append_only'), tx('spacesettings_policy_append_only_help')],
+    ['read_only', tx('spacesettings_write_protection'), tx('spacesettings_policy_read_only_help')],
+    ['frozen', tx('spacesettings_policy_frozen'), tx('spacesettings_policy_frozen_help')]
   ];
   async function save(e) {
     e.preventDefault();
@@ -38,6 +43,11 @@
   <form onsubmit={save}>
     {#each groups as [title, items] (title)}
       <h3>{title}</h3>
+      {#if title === tx('spacesettings_protection')}
+        {#each policies as [value, label, help] (value)}
+          <label class="inline opt"><input type="radio" name="write_policy" {value} bind:group={st.write_policy} aria-label={label} /><span><strong>{label}</strong><small>{help}</small></span></label>
+        {/each}
+      {/if}
       {#each items as [key, label, help] (key)}
         <label class="inline opt"><input type="checkbox" bind:checked={st[key]} aria-label={label} /><span><strong>{label}</strong><small>{help}</small></span></label>
       {/each}

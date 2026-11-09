@@ -40,7 +40,7 @@
   let alive = true;
 
   const canWrite = () => (session.spaces.find((s) => s.id === doc.space_id)?.perm ?? 0) >= 2;
-  const contentURL = (v) => `/api/documents/${doc.id}/content?inline=1${v ? `&version=${v}` : ''}`;
+  const contentURL = (v) => `/api/v1/documents/${doc.id}/content?inline=1${v ? `&version=${v}` : ''}`;
 
   // fetch the current text; fatal decoding tells whether it is UTF-8
   async function fetchText() {
@@ -145,7 +145,7 @@
     clearTimeout(retryTimer);
     if (mode === 'editing') {
       // keepalive: also delivered while the tab closes
-      fetch(`/api/documents/${doc.id}/edit-lease?client=${clientId}`, {
+      fetch(`/api/v1/documents/${doc.id}/edit-lease?client=${clientId}`, {
         method: 'DELETE', keepalive: true, credentials: 'same-origin', headers: { 'X-Tildoc-CSRF': '1' }
       }).catch(() => {});
     }

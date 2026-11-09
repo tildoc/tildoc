@@ -24,7 +24,7 @@ export async function api(method, path, body, opts = {}) {
     payload = JSON.stringify(body);
     headers['Content-Type'] = 'application/json';
   }
-  const res = await fetch('/api' + path, { method, headers, body: payload, credentials: 'same-origin' });
+  const res = await fetch('/api/v1' + path, { method, headers, body: payload, credentials: 'same-origin' });
   if (res.status === 401 && !opts.noRedirect) {
     onUnauthorized();
     goto('/login');
@@ -62,7 +62,7 @@ export async function revalidate(path, opts = {}) {
   const hit = cache.get(path);
   const headers = { 'X-Tildoc-CSRF': '1' };
   if (hit?.etag) headers['If-None-Match'] = hit.etag;
-  const res = await fetch('/api' + path, { headers, credentials: 'same-origin', cache: 'no-store' });
+  const res = await fetch('/api/v1' + path, { headers, credentials: 'same-origin', cache: 'no-store' });
   if (res.status === 304 && hit) {
     cache.delete(path);
     cache.set(path, hit); // most recently used last
@@ -104,7 +104,7 @@ export function uploadFile(folderId, relPath, file, importId, onProgress) {
     const xhr = new XMLHttpRequest();
     const q = new URLSearchParams({ path: relPath });
     if (importId) q.set('import', importId);
-    xhr.open('PUT', `/api/folders/${folderId}/files?${q}`);
+    xhr.open('PUT', `/api/v1/folders/${folderId}/files?${q}`);
     xhr.setRequestHeader('X-Tildoc-CSRF', '1');
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);

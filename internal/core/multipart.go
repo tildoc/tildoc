@@ -32,7 +32,7 @@ type Part struct {
 
 // CreateUpload starts a multipart upload.
 func (s *Service) CreateUpload(ctx context.Context, p *Principal, spaceID, key string, meta map[string]string) (*Upload, error) {
-	if err := s.requirePerm(ctx, s.DB, p, spaceID, PermWrite); err != nil {
+	if err := s.requireAddOrWrite(ctx, s.DB, p, spaceID); err != nil {
 		return nil, err
 	}
 	u := &Upload{UserID: p.UserID, SpaceID: spaceID, Key: key, Meta: meta}
@@ -58,7 +58,7 @@ func (s *Service) GetUpload(ctx context.Context, p *Principal, id string) (*Uplo
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requirePerm(ctx, s.DB, p, u.SpaceID, PermWrite); err != nil {
+	if err := s.requireAddOrWrite(ctx, s.DB, p, u.SpaceID); err != nil {
 		return nil, err
 	}
 	return u, nil

@@ -47,6 +47,7 @@ commands:
   all                   serve + worker in one process
   migrate               apply database migrations
   health                check the local HTTP server (container healthcheck)
+  openapi               print the REST API contract (OpenAPI 3.1 JSON)
   user create -username NAME [-admin] [-display NAME]   (password from stdin)
   user passwd -username NAME                             (password from stdin)
   export -user NAME (-space ID|-folder ID|-collection ID) [-format zip|bundle] -o FILE
@@ -59,12 +60,28 @@ configuration: TILDOC_* environment variables, see deploy/.env.example`)
 	os.Exit(2)
 }
 
+// printOpenAPI writes the REST API contract to stdout; it needs no configuration.
+func printOpenAPI() int {
+	spec, err := api.OpenAPI()
+	if err == nil {
+		_, err = os.Stdout.Write(spec)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return 0
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
 	}
 	if os.Args[1] == "health" {
 		os.Exit(health())
+	}
+	if os.Args[1] == "openapi" {
+		os.Exit(printOpenAPI())
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -248,7 +265,7 @@ func health() int {
 		addr = "127.0.0.1" + addr
 	}
 	c := &http.Client{Timeout: 4 * time.Second}
-	resp, err := c.Get("http://" + addr + "/api/health")
+	resp, err := c.Get("http://" + addr + "/api/v1/health")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1

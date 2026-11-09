@@ -10,8 +10,8 @@ func TestEditLeaseAPI(t *testing.T) {
 	ts, _ := liveServer(t, "")
 	alice, sp := aliceClient(t, ts.URL)
 	var up upload
-	alice.ok("PUT", "/api/folders/"+sp.RootFolderID+"/files?path=todo.md", "- one\n", &up)
-	doc := "/api/documents/" + up.File.DocumentID
+	alice.ok("PUT", "/api/v1/folders/"+sp.RootFolderID+"/files?path=todo.md", "- one\n", &up)
+	doc := "/api/v1/documents/" + up.File.DocumentID
 	const a, b = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
 
 	var lease struct {
@@ -50,14 +50,14 @@ func TestVersionOnlyAfterLogin(t *testing.T) {
 	ts, _ := liveServer(t, "")
 	alice, _ := aliceClient(t, ts.URL)
 	var me struct{ Version string }
-	alice.ok("GET", "/api/me", nil, &me)
+	alice.ok("GET", "/api/v1/me", nil, &me)
 	if me.Version == "" {
 		t.Fatal("no version")
 	}
 	anon := newClient(t, ts.URL)
 	var info string
-	anon.ok("GET", "/api/info", nil, &info)
+	anon.ok("GET", "/api/v1/info", nil, &info)
 	if strings.Contains(info, "version") {
-		t.Fatalf("/api/info: %s", info)
+		t.Fatalf("/api/v1/info: %s", info)
 	}
 }

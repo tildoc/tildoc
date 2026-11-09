@@ -133,6 +133,9 @@ func (s *Service) moveLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, linkI
 		if !overwrite {
 			return "", errf(ErrConflict, "%q already exists", newName)
 		}
+		if err := s.requireCap(ctx, tx, p, dstSpace, CapWrite); err != nil {
+			return "", err
+		}
 		var otherDoc string
 		if err := tx.QueryRow(ctx, `SELECT document_id::text FROM entries WHERE id=$1`, other).Scan(&otherDoc); err != nil {
 			return "", err
@@ -344,7 +347,7 @@ func (s *Service) MoveLink(ctx context.Context, p *Principal, linkID, dstFolderI
 	if err := s.requireCap(ctx, s.DB, p, f.SpaceID, need); err != nil {
 		return nil, err
 	}
-	if err := s.requirePerm(ctx, s.DB, p, dst.SpaceID, PermWrite); err != nil {
+	if err := s.requireCap(ctx, s.DB, p, dst.SpaceID, CapAdd); err != nil {
 		return nil, err
 	}
 	var result string
@@ -393,6 +396,9 @@ func (s *Service) copyLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, linkI
 		if !overwrite {
 			return "", errf(ErrConflict, "%q already exists", newName)
 		}
+		if err := s.requireCap(ctx, tx, p, dstSpace, CapWrite); err != nil {
+			return "", err
+		}
 		_, _, err := s.writeVersionTx(ctx, tx, p, other, h, "copy", nil)
 		return other, err
 	}
@@ -435,7 +441,7 @@ func (s *Service) CopyLink(ctx context.Context, p *Principal, linkID, dstFolderI
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requirePerm(ctx, s.DB, p, dst.SpaceID, PermWrite); err != nil {
+	if err := s.requireCap(ctx, s.DB, p, dst.SpaceID, CapAdd); err != nil {
 		return nil, err
 	}
 	var result string
@@ -469,7 +475,7 @@ func (s *Service) CopyFolder(ctx context.Context, p *Principal, folderID, dstPar
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requirePerm(ctx, s.DB, p, dst.SpaceID, PermWrite); err != nil {
+	if err := s.requireCap(ctx, s.DB, p, dst.SpaceID, CapAdd); err != nil {
 		return nil, err
 	}
 	var newID string
@@ -552,7 +558,7 @@ func (s *Service) AddLink(ctx context.Context, p *Principal, docID, folderID, na
 	if dst.SpaceID != d.SpaceID {
 		return nil, errf(ErrInvalid, "links must stay within the document's space (use copy)")
 	}
-	if err := s.requirePerm(ctx, s.DB, p, d.SpaceID, PermWrite); err != nil {
+	if err := s.requireCap(ctx, s.DB, p, d.SpaceID, CapAdd); err != nil {
 		return nil, err
 	}
 	var id string

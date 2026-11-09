@@ -396,12 +396,12 @@ func TestDropInKey(t *testing.T) {
 	// a normal key can't be one, a normal key can't drop
 	_, _, err = f.svc.CreateAPIKey(f.ctx, f.alice, "x", []string{"drop_in"}, []string{f.home.ID}, nil)
 	wantKind(t, err, core.ErrInvalid)
-	_, normal := ck2(f.svc.CreateAPIKey(f.ctx, f.alice, "x", []string{"view", "write"}, nil, nil))
+	_, normal := ck2(f.svc.CreateAPIKey(f.ctx, f.alice, "x", []string{"view", "write", "add"}, nil, nil))
 	wantKind(t, f.svc.DropIn(f.ctx, ck(f.svc.APIKeyPrincipal(f.ctx, normal)), "b.txt", strings.NewReader("x")), core.ErrForbidden)
 	// write protection and the setting stop it at once
-	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{AllowDropIn: true, WriteProtected: true}))
+	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{AllowDropIn: true, WritePolicy: core.WriteReadOnly}))
 	wantKind(t, f.svc.DropIn(f.ctx, p, "c.txt", strings.NewReader("x")), core.ErrForbidden)
-	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{}))
+	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{WritePolicy: core.WriteOpen}))
 	wantKind(t, f.svc.DropIn(f.ctx, p, "c.txt", strings.NewReader("x")), core.ErrForbidden)
 	// a viewer can't create one
 	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{AllowDropIn: true}))
@@ -528,7 +528,7 @@ func TestSpaceSettings(t *testing.T) {
 	doc := f.put(t, f.alice, f.home.ID, "/a.txt", "text")
 
 	// everything off by default: no way of sharing by link or file
-	if st := spaceFor(t, f, f.alice, f.home.ID).Settings; st != (core.SpaceSettings{}) {
+	if st := spaceFor(t, f, f.alice, f.home.ID).Settings; st != (core.SpaceSettings{WritePolicy: core.WriteOpen}) {
 		t.Fatalf("defaults %+v", st)
 	}
 	_, _, err := f.svc.CreateShareLink(f.ctx, f.alice, core.NewShareLink{SpaceID: f.home.ID, Kind: "public", Preset: "view"})
@@ -559,7 +559,7 @@ func TestSpaceSettings(t *testing.T) {
 	wantKind(t, err, core.ErrNotFound)
 
 	// write protection: nobody writes, the owner neither, until it is switched off
-	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{WriteProtected: true}))
+	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{WritePolicy: core.WriteReadOnly}))
 	_, err = f.svc.PutFile(f.ctx, f.alice, f.home.ID, []string{"x.txt"}, strings.NewReader("x"), core.PutOptions{})
 	wantKind(t, err, core.ErrForbidden)
 	_, err = f.svc.AddDocumentVersion(f.ctx, f.alice, doc.File.DocumentID, strings.NewReader("y"), "web")
@@ -570,7 +570,7 @@ func TestSpaceSettings(t *testing.T) {
 	if sp.Role != "owner" || slices.Contains(sp.Caps, "write") || !slices.Contains(sp.Caps, "manage") {
 		t.Fatalf("write protected %+v", sp)
 	}
-	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{}))
+	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{WritePolicy: core.WriteOpen}))
 	f.put(t, f.alice, f.home.ID, "/x.txt", "x")
 
 	// OCR: content is processed once, so one space allowing it is enough

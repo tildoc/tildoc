@@ -200,10 +200,10 @@ func (s *Server) createDropInKey(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, 201, map[string]any{"key": k, "token": token, "url": s.Cfg.PublicURL + "/api/drop/"})
+	return writeJSON(w, 201, map[string]any{"key": k, "token": token, "url": s.Cfg.PublicURL + "/api/v1/drop/"})
 }
 
-// dropIn takes one file per request: curl -T file -H "Authorization: Bearer ..." .../api/drop/
+// dropIn takes one file per request: curl -T file -H "Authorization: Bearer ..." .../api/v1/drop/
 func (s *Server) dropIn(w http.ResponseWriter, r *http.Request) error {
 	if s.Cfg.MaxUploadBytes > 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, s.Cfg.MaxUploadBytes)
@@ -294,11 +294,11 @@ func (s *Server) revokeLink(w http.ResponseWriter, r *http.Request) error {
 func shareCookie(linkID string) string { return "tildoc_share_" + strings.ReplaceAll(linkID, "-", "") }
 
 func (s *Server) publicRoutes(h func(string, http.Handler)) {
-	h("POST /api/public/open", s.public(s.shareOpen))
-	h("GET /api/public/{link}", s.shared(s.shareInfo))
-	h("GET /api/public/{link}/folders/{id}", s.shared(s.shareFolder))
-	h("GET /api/public/{link}/content", s.shared(s.shareContent))
-	h("PUT /api/public/{link}/upload", s.shared(s.shareUpload))
+	h("POST /api/v1/public/open", s.public(s.shareOpen))
+	h("GET /api/v1/public/{link}", s.shared(s.shareInfo))
+	h("GET /api/v1/public/{link}/folders/{id}", s.shared(s.shareFolder))
+	h("GET /api/v1/public/{link}/content", s.shared(s.shareContent))
+	h("PUT /api/v1/public/{link}/upload", s.shared(s.shareUpload))
 }
 
 // user returns the signed-in user of a request, if any.
@@ -347,7 +347,7 @@ func (s *Server) shareOpen(w http.ResponseWriter, r *http.Request) error {
 		}
 		return err
 	}
-	http.SetCookie(w, &http.Cookie{Name: shareCookie(a.Link.ID), Value: sess, Path: "/api/public/" + a.Link.ID, MaxAge: int(core.ShareSessionTTL.Seconds()),
+	http.SetCookie(w, &http.Cookie{Name: shareCookie(a.Link.ID), Value: sess, Path: "/api/v1/public/" + a.Link.ID, MaxAge: int(core.ShareSessionTTL.Seconds()),
 		HttpOnly: true, Secure: s.Cfg.CookieSecure, SameSite: http.SameSiteStrictMode})
 	info, err := s.Svc.ShareInfo(r.Context(), a)
 	if err != nil {

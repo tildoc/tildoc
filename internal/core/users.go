@@ -370,8 +370,8 @@ type AccessKey struct {
 
 // CreateAccessKey creates a key for the caller; the secret is returned once.
 func (s *Service) CreateAccessKey(ctx context.Context, p *Principal, label, spaceID string, readOnly bool) (*AccessKey, string, error) {
-	if p == nil || p.Via == "accesskey" || p.Via == "ssh" {
-		return nil, "", errf(ErrForbidden, "access keys can only be created from a login session")
+	if err := requireSession(p); err != nil {
+		return nil, "", err
 	}
 	var space *string
 	if spaceID != "" {

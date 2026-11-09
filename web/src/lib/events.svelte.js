@@ -1,4 +1,4 @@
-// Live updates from GET /api/events (Server-Sent Events). Events only name
+// Live updates from GET /api/v1/events (Server-Sent Events). Events only name
 // what changed (space, documents, transfer); views reload through the API.
 // While the stream is down, watchBusy (poll.svelte.js) falls back to polling.
 
@@ -22,7 +22,7 @@ function emit(ev) {
 export function startEvents() {
   if (es || typeof EventSource === 'undefined') return;
   clearTimeout(retry);
-  es = new EventSource('/api/events');
+  es = new EventSource('/api/v1/events');
   es.addEventListener('ready', () => {
     live.connected = true;
     // anything may have changed while we were not connected

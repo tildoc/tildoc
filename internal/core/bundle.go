@@ -21,7 +21,7 @@ import (
 // text). See docs/bundle-format.md.
 const (
 	BundleFormat  = "tildoc-bundle"
-	BundleVersion = 3
+	BundleVersion = 4
 	manifestName  = "manifest.json"
 	maxManifest   = 1 << 30
 )
@@ -234,16 +234,24 @@ type MGrant struct {
 
 // MDocument is a document with its full history and places.
 type MDocument struct {
-	ID             string     `json:"id"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	CreatedBy      *string    `json:"created_by"`
-	ForkedFrom     *string    `json:"forked_from"`
-	DeletedAt      *time.Time `json:"deleted_at"`
-	CurrentVersion int        `json:"current_version"`
-	Versions       []MVersion `json:"versions"`
-	Links          []MLink    `json:"links"`
-	Tags           []string   `json:"tags"`
+	ID             string      `json:"id"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+	CreatedBy      *string     `json:"created_by"`
+	ForkedFrom     *string     `json:"forked_from"`
+	DeletedAt      *time.Time  `json:"deleted_at"`
+	CurrentVersion int         `json:"current_version"`
+	Versions       []MVersion  `json:"versions"`
+	Links          []MLink     `json:"links"`
+	Tags           []string    `json:"tags"`
+	External       []MExternal `json:"external,omitempty"`
+}
+
+// MExternal is an application's own id for a document.
+type MExternal struct {
+	Source    string    `json:"source"`
+	Ref       string    `json:"ref"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // MVersion is one version.
@@ -467,7 +475,25 @@ func (b *manifestBuilder) documents(where string, arg any, withTrash bool) ([]MD
 		d.Tags = append(d.Tags, tag)
 	}
 	trows.Close()
-	return docs, trows.Err()
+	if err := trows.Err(); err != nil {
+		return nil, err
+	}
+	xrows, err := b.tx.Query(b.ctx, `SELECT document_id::text, source, ref, created_at FROM external_refs WHERE document_id = ANY($1::uuid[]) ORDER BY source, ref`, ids)
+	if err != nil {
+		return nil, err
+	}
+	for xrows.Next() {
+		var docID string
+		var e MExternal
+		if err := xrows.Scan(&docID, &e.Source, &e.Ref, &e.CreatedAt); err != nil {
+			xrows.Close()
+			return nil, err
+		}
+		d := &docs[idx[docID]]
+		d.External = append(d.External, e)
+	}
+	xrows.Close()
+	return docs, xrows.Err()
 }
 
 // space loads a space with folders and documents.
@@ -480,8 +506,8 @@ func (b *manifestBuilder) space(id string, withTrash bool) (*MSpace, error) {
 	}
 	if withTrash { // server backup
 		st := &SpaceSettings{}
-		if err := b.tx.QueryRow(b.ctx, `SELECT allow_login_links, allow_public_links, allow_drop_links, allow_file_shares, allow_drop_in, write_protected, no_ocr FROM spaces WHERE id=$1`, id).
-			Scan(&st.AllowLoginLinks, &st.AllowPublicLinks, &st.AllowDropLinks, &st.AllowFileShares, &st.AllowDropIn, &st.WriteProtected, &st.NoOCR); err != nil {
+		if err := b.tx.QueryRow(b.ctx, `SELECT allow_login_links, allow_public_links, allow_drop_links, allow_file_shares, allow_drop_in, write_policy, no_ocr FROM spaces WHERE id=$1`, id).
+			Scan(&st.AllowLoginLinks, &st.AllowPublicLinks, &st.AllowDropLinks, &st.AllowFileShares, &st.AllowDropIn, &st.WritePolicy, &st.NoOCR); err != nil {
 			return nil, err
 		}
 		sp.Settings = st

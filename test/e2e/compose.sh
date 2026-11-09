@@ -33,8 +33,8 @@ step "compose up"
 "${DC[@]}" up -d --build --wait --wait-timeout 180 >/dev/null || fail "compose up"
 B="https://localhost:$HTTPS"
 # nginx has no healthcheck; it listens only after generating its certificate
-for i in $(seq 1 60); do curl -skf "$B/api/health" 2>/dev/null | grep -q ok && break; sleep 0.5; done
-curl -skf "$B/api/health" | grep -q ok || fail "health via nginx"
+for i in $(seq 1 60); do curl -skf "$B/api/v1/health" 2>/dev/null | grep -q ok && break; sleep 0.5; done
+curl -skf "$B/api/v1/health" | grep -q ok || fail "health via nginx"
 
 step "UI via nginx (SPA fallback + CSP)"
 curl -skf "$B/f/whatever" | grep -q 'content-security-policy' || fail "SPA fallback/CSP"
@@ -51,9 +51,9 @@ curl -skI -H 'Accept-Encoding: gzip' "$B/_app/immutable/assets/$WJS" | grep -qi 
 curl -skI -H 'Accept-Encoding: gzip' "$B/" | grep -qi '^content-encoding: gzip' || fail "precompressed index.html"
 
 step "setup + access key"
-curl -skf -X POST "$B/api/setup" -H 'Content-Type: application/json' -d '{"username":"admin","password":"supersecret"}' -c "$WORK/c" >/dev/null || fail setup
-TOKEN=$(curl -skf -X POST "$B/api/auth/login" -H 'Content-Type: application/json' -d '{"username":"admin","password":"supersecret"}' | sed -E 's/.*"token":"([^"]+)".*/\1/')
-KJ=$(curl -skf -X POST "$B/api/me/access-keys" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"label":"e2e"}')
+curl -skf -X POST "$B/api/v1/setup" -H 'Content-Type: application/json' -d '{"username":"admin","password":"supersecret"}' -c "$WORK/c" >/dev/null || fail setup
+TOKEN=$(curl -skf -X POST "$B/api/v1/auth/login" -H 'Content-Type: application/json' -d '{"username":"admin","password":"supersecret"}' | sed -E 's/.*"token":"([^"]+)".*/\1/')
+KJ=$(curl -skf -X POST "$B/api/v1/me/access-keys" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"label":"e2e"}')
 AK=$(echo "$KJ" | sed -E 's/.*"id":"([^"]+)".*/\1/'); SK=$(echo "$KJ" | sed -E 's/.*"secret":"([^"]+)".*/\1/')
 
 (cd "$ROOT" && go run ./test/e2e/mkpdf "$WORK/pdf")
@@ -92,29 +92,29 @@ step "rclone SFTP"
 "${RC[@]}" lsf "sftp:admin/Verträge" | grep -q "Mietvertrag.pdf" || fail "sftp list"
 
 step "dedup across protocols (scanned.pdf via S3 and WebDAV = one document)"
-curl -skf "$B/api/search?q=scanned.pdf" -H "Authorization: Bearer $TOKEN" | grep -q '"link_count":2' || fail "expected dedup"
+curl -skf "$B/api/v1/search?q=scanned.pdf" -H "Authorization: Bearer $TOKEN" | grep -q '"link_count":2' || fail "expected dedup"
 
 step "worker OCR (scanned PDF becomes searchable)"
 for i in $(seq 1 90); do
-  R=$(curl -skf "$B/api/search?q=RECEIPT" -H "Authorization: Bearer $TOKEN")
+  R=$(curl -skf "$B/api/v1/search?q=RECEIPT" -H "Authorization: Bearer $TOKEN")
   echo "$R" | grep -q '"total":[1-9]' && break
   sleep 2
 done
 echo "$R" | grep -q '"total":[1-9]' || fail "OCR text not searchable"
 DOC=$(echo "$R" | sed -E 's/.*"document_id":"([^"]+)".*/\1/')
-curl -skf "$B/api/documents/$DOC" -H "Authorization: Bearer $TOKEN" | grep -q '"has_searchable":true' || fail "no searchable PDF"
-curl -skf -o "$WORK/searchable.pdf" "$B/api/documents/$DOC/content?variant=searchable" -H "Authorization: Bearer $TOKEN" || fail "download searchable"
+curl -skf "$B/api/v1/documents/$DOC" -H "Authorization: Bearer $TOKEN" | grep -q '"has_searchable":true' || fail "no searchable PDF"
+curl -skf -o "$WORK/searchable.pdf" "$B/api/v1/documents/$DOC/content?variant=searchable" -H "Authorization: Bearer $TOKEN" || fail "download searchable"
 head -c 5 "$WORK/searchable.pdf" | grep -q '%PDF' || fail "searchable is not a PDF"
-curl -skI "$B/api/documents/$DOC/content?inline=1" -H "Authorization: Bearer $TOKEN" | grep -qi '^content-security-policy: sandbox' || fail "inline PDF not sandboxed"
-curl -skf "$B/api/search?q=RECEIPT" -H "Authorization: Bearer $TOKEN" | grep -q '"page":1' || fail "search hit page"
-curl -skf "$B/api/search?q=Altona" -H "Authorization: Bearer $TOKEN" | grep -q '"total":1' || fail "digital PDF text"
+curl -skI "$B/api/v1/documents/$DOC/content?inline=1" -H "Authorization: Bearer $TOKEN" | grep -qi '^content-security-policy: sandbox' || fail "inline PDF not sandboxed"
+curl -skf "$B/api/v1/search?q=RECEIPT" -H "Authorization: Bearer $TOKEN" | grep -q '"page":1' || fail "search hit page"
+curl -skf "$B/api/v1/search?q=Altona" -H "Authorization: Bearer $TOKEN" | grep -q '"total":1' || fail "digital PDF text"
 
 step "foreign OCR layer: image-only variant + tildoc OCR (ghostscript, ocrmypdf in the worker image)"
 "${AWS[@]}" s3 cp /w/pdf/foreign-ocr.pdf "s3://admin/Fremd/foreign-ocr.pdf" >/dev/null 2>&1 || fail "upload foreign-ocr.pdf"
 for i in $(seq 1 90); do
-  R=$(curl -skf "$B/api/search?q=foreign-ocr.pdf" -H "Authorization: Bearer $TOKEN")
+  R=$(curl -skf "$B/api/v1/search?q=foreign-ocr.pdf" -H "Authorization: Bearer $TOKEN")
   FDOC=$(echo "$R" | sed -E 's/.*"document_id":"([^"]+)".*/\1/')
-  D=$(curl -skf "$B/api/documents/$FDOC" -H "Authorization: Bearer $TOKEN" || true)
+  D=$(curl -skf "$B/api/v1/documents/$FDOC" -H "Authorization: Bearer $TOKEN" || true)
   echo "$D" | grep -q '"kind":"searchable_pdf"' && break
   sleep 2
 done
@@ -124,10 +124,10 @@ echo "$D" | grep -q '"kind":"searchable_pdf"' || fail "no tildoc OCR variant"
 TV=$(sed -n 's/^ARG TESSERACT_VERSION=//p' "$ROOT/Dockerfile")
 "${DC[@]}" exec -T worker tesseract --version 2>&1 | grep -q "tesseract $TV" || fail "worker does not run tesseract $TV"
 echo "$D" | grep -q "tesseract $TV" || fail "OCR variant not made with tesseract $TV"
-curl -skf "$B/api/search?q=Bravo" -H "Authorization: Bearer $TOKEN" | grep -q '"total":[1-9]' || fail "existing OCR text not searchable"
+curl -skf "$B/api/v1/search?q=Bravo" -H "Authorization: Bearer $TOKEN" | grep -q '"total":[1-9]' || fail "existing OCR text not searchable"
 
 step "exports through nginx, server backup in the worker container"
-curl -skf -o "$WORK/admin.zip" "$B/api/folders/$(curl -skf "$B/api/spaces" -H "Authorization: Bearer $TOKEN" | sed -E 's/.*"root_folder_id":"([^"]+)".*/\1/')/export" \
+curl -skf -o "$WORK/admin.zip" "$B/api/v1/folders/$(curl -skf "$B/api/v1/spaces" -H "Authorization: Bearer $TOKEN" | sed -E 's/.*"root_folder_id":"([^"]+)".*/\1/')/export" \
   -H "Authorization: Bearer $TOKEN" || fail "zip export via nginx"
 python3 -m zipfile -t "$WORK/admin.zip" >/dev/null || fail "zip export is not a valid archive"
 "${DC[@]}" exec -T worker tildoc backup full >/dev/null || fail "backup in worker container"
@@ -138,33 +138,33 @@ python3 -m zipfile -t "$WORK/admin.zip" >/dev/null || fail "zip export is not a 
 
 step "live events (SSE) and conditional JSON through nginx"
 AUTH=(-H "Authorization: Bearer $TOKEN")
-timeout 6 curl -skN "${AUTH[@]}" "$B/api/events" > "$WORK/sse" 2>/dev/null &
+timeout 6 curl -skN "${AUTH[@]}" "$B/api/v1/events" > "$WORK/sse" 2>/dev/null &
 SSE=$!
 sleep 1
-ROOTF=$(curl -skf "$B/api/spaces" "${AUTH[@]}" | sed -E 's/.*"root_folder_id":"([^"]+)".*/\1/')
-curl -skf -X PUT "$B/api/folders/$ROOTF/files?path=live-event.txt" "${AUTH[@]}" -H 'Content-Type: application/octet-stream' --data-binary 'live' >/dev/null || fail "upload for live event"
+ROOTF=$(curl -skf "$B/api/v1/spaces" "${AUTH[@]}" | sed -E 's/.*"root_folder_id":"([^"]+)".*/\1/')
+curl -skf -X PUT "$B/api/v1/folders/$ROOTF/files?path=live-event.txt" "${AUTH[@]}" -H 'Content-Type: application/octet-stream' --data-binary 'live' >/dev/null || fail "upload for live event"
 wait $SSE || true
 grep -q '^event: ready' "$WORK/sse" || fail "SSE stream not opened through nginx"
 grep -q '^data: \[{"type":"space"' "$WORK/sse" || fail "no live event through nginx (buffering?)"
-H=$(curl -sk -D - -o /dev/null -H 'Accept-Encoding: gzip' "${AUTH[@]}" "$B/api/folders/$ROOTF")
+H=$(curl -sk -D - -o /dev/null -H 'Accept-Encoding: gzip' "${AUTH[@]}" "$B/api/v1/folders/$ROOTF")
 echo "$H" | grep -qi '^content-encoding: gzip' || fail "JSON not gzipped"
 ETAG=$(echo "$H" | grep -i '^etag:' | cut -d' ' -f2- | tr -d '\r')
 [ -n "$ETAG" ] || fail "no ETag"
-CODE=$(curl -sk -o /dev/null -w '%{http_code}' -H "If-None-Match: $ETAG" "${AUTH[@]}" "$B/api/folders/$ROOTF")
+CODE=$(curl -sk -o /dev/null -w '%{http_code}' -H "If-None-Match: $ETAG" "${AUTH[@]}" "$B/api/v1/folders/$ROOTF")
 [ "$CODE" = 304 ] || fail "revalidation returned $CODE, not 304"
 
 step "version only after login"
-curl -skf "$B/api/me" "${AUTH[@]}" | grep -qE '"version":"[^"]*-g[0-9a-f]+"|"version":"[0-9a-f]{7,}"' || fail "no git version in /api/me"
-curl -skf "$B/api/info" | grep -q '"version"' && fail "/api/info shows the version without login"
+curl -skf "$B/api/v1/me" "${AUTH[@]}" | grep -qE '"version":"[^"]*-g[0-9a-f]+"|"version":"[0-9a-f]{7,}"' || fail "no git version in /api/v1/me"
+curl -skf "$B/api/v1/info" | grep -q '"version"' && fail "/api/v1/info shows the version without login"
 
 step "text editor lease through nginx"
-TD=$(curl -skf -X PUT "$B/api/folders/$ROOTF/files?path=edit-me.md" "${AUTH[@]}" -H 'Content-Type: application/octet-stream' --data-binary '# edit me' \
+TD=$(curl -skf -X PUT "$B/api/v1/folders/$ROOTF/files?path=edit-me.md" "${AUTH[@]}" -H 'Content-Type: application/octet-stream' --data-binary '# edit me' \
   | sed -E 's/.*"document_id":"([^"]+)".*/\1/')
 C1=11111111-1111-4111-8111-111111111111; C2=22222222-2222-4222-8222-222222222222
-curl -skf -X POST "$B/api/documents/$TD/edit-lease" "${AUTH[@]}" -H 'Content-Type: application/json' -d "{\"client_id\":\"$C1\"}" >/dev/null || fail "lease"
-CODE=$(curl -sk -o /dev/null -w '%{http_code}' -X POST "$B/api/documents/$TD/edit-lease" "${AUTH[@]}" -H 'Content-Type: application/json' -d "{\"client_id\":\"$C2\"}")
+curl -skf -X POST "$B/api/v1/documents/$TD/edit-lease" "${AUTH[@]}" -H 'Content-Type: application/json' -d "{\"client_id\":\"$C1\"}" >/dev/null || fail "lease"
+CODE=$(curl -sk -o /dev/null -w '%{http_code}' -X POST "$B/api/v1/documents/$TD/edit-lease" "${AUTH[@]}" -H 'Content-Type: application/json' -d "{\"client_id\":\"$C2\"}")
 [ "$CODE" = 409 ] || fail "second editor got $CODE, not 409"
-curl -skf -X PUT "$B/api/documents/$TD/text?client=$C1" "${AUTH[@]}" -H 'Content-Type: application/octet-stream' --data-binary '# edited' \
+curl -skf -X PUT "$B/api/v1/documents/$TD/text?client=$C1" "${AUTH[@]}" -H 'Content-Type: application/octet-stream' --data-binary '# edited' \
   | grep -q '"source":"editor"' || fail "save from the editor"
 
 step "office: own origin, WOPI not published, frame policy"

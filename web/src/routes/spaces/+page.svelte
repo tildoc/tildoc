@@ -75,8 +75,8 @@
             <td class="actions">
               <button class="small" onclick={() => (sharing = s)}>{canShareAny(s.caps) ? tx('common_share') : tx('spaces_shared_with')}</button>
               {#if s.caps.includes('export')}
-                <a class="btn small ghost" href={`/api/spaces/${s.id}/export?format=zip`} download title={tx('spaces_all_current_files_as_a_zip')}>{tx('c_zip')}</a>
-                <a class="btn small ghost" href={`/api/spaces/${s.id}/export?format=bundle`} download title={tx('spaces_everything_incl_versions_tags_and_collections')}>{tx('c_export')}</a>
+                <a class="btn small ghost" href={`/api/v1/spaces/${s.id}/export?format=zip`} download title={tx('spaces_all_current_files_as_a_zip')}>{tx('c_zip')}</a>
+                <a class="btn small ghost" href={`/api/v1/spaces/${s.id}/export?format=bundle`} download title={tx('spaces_everything_incl_versions_tags_and_collections')}>{tx('c_export')}</a>
               {/if}
               {#if s.caps.includes('manage')}<button class="small" onclick={() => (settingsFor = s)}>{tx('spaces_settings')}</button>{/if}
               {#if s.caps.includes('transfer')}<button class="small" onclick={() => (transferring = s)}>{tx('spaces_transfer')}</button>{/if}

@@ -21,6 +21,6 @@ TILDOC_DEV_NO_ENV=1 TILDOC_OFFICE_URL=http://127.0.0.1:19981 TILDOC_WOPI_URL=htt
   TILDOC_SFTP_ADDR=off scripts/dev.sh >.data/dev.log 2>&1 &  # no SFTP: avoids clashing with a running stack
 SRV=$!
 trap 'kill $SRV $STUB 2>/dev/null; for pid in $(ss -ltnp 2>/dev/null | grep -E ":8080 " | grep -oE "pid=[0-9]+" | cut -d= -f2); do kill $pid; done' EXIT
-for i in $(seq 1 120); do curl -sf localhost:8080/api/health >/dev/null && break; sleep 0.5; done
+for i in $(seq 1 120); do curl -sf localhost:8080/api/v1/health >/dev/null && break; sleep 0.5; done
 cd test/ui && [ -d node_modules ] || npm install --no-audit --no-fund >/dev/null
 node smoke.mjs

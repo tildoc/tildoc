@@ -101,7 +101,7 @@ await step('upload files', async () => {
   // the list follows background processing without a reload (live events)
   for (const n of ['Quartalsbericht.pdf', 'notes.txt', 'Handbuch.pdf'])
     await row(n).locator('.pill.status.done').waitFor({ timeout: 30000 });
-  if (!requests.some((u) => u.includes('/api/events'))) throw new Error('no live event stream');
+  if (!requests.some((u) => u.includes('/api/v1/events'))) throw new Error('no live event stream');
 });
 
 await step('dedup upload', async () => {
@@ -247,7 +247,7 @@ await step('viewer find highlights', async () => {
   await page.getByPlaceholder('Find in document').fill('zebra');
   await page.locator('.find .count', { hasText: '1 of 1' }).waitFor();
   // pages were pre-selected with the server's text
-  if (!requests.slice(before).some((u) => /\/api\/documents\/[^/]+\/text/.test(u))) throw new Error('find did not use the server text');
+  if (!requests.slice(before).some((u) => /\/api\/v1\/documents\/[^/]+\/text/.test(u))) throw new Error('find did not use the server text');
   await page.locator('.textLayer .hl.current', { hasText: /zebra/i }).waitFor();
   await page.locator('.thumb .hitmark').first().waitFor();
   await page.waitForFunction(() => document.querySelector('.pager input').value === '4');
@@ -515,7 +515,7 @@ await step('dark viewer', async () => {
 
 // ---------------------------------------------------------------- live and large
 const api = async (method, path, data) => {
-  const r = await page.request.fetch(BASE + '/api' + path, {
+  const r = await page.request.fetch(BASE + '/api/v1' + path, {
     method, data, headers: { 'X-Tildoc-CSRF': '1', 'Content-Type': typeof data === 'string' ? 'application/octet-stream' : 'application/json' }
   });
   if (!r.ok()) throw new Error(`${method} ${path}: ${r.status()} ${await r.text()}`);
@@ -573,15 +573,15 @@ await step('revisit renders from cache', async () => {
   // back: the folder shows from the cache even while the API is slow, and
   // the revalidation is answered with 304 Not Modified
   const statuses = [];
-  const onResp = (r) => r.url().includes(`/api/folders/${folderId}`) && statuses.push(r.status());
+  const onResp = (r) => r.url().includes(`/api/v1/folders/${folderId}`) && statuses.push(r.status());
   page.on('response', onResp);
-  await page.route(`**/api/folders/${folderId}`, async (route) => {
+  await page.route(`**/api/v1/folders/${folderId}`, async (route) => {
     await new Promise((r) => setTimeout(r, 3000));
     await route.continue().catch(() => {}); // may already be unrouted
   });
   await page.goBack();
   await row('Handbuch.pdf').waitFor({ timeout: 1500 });
-  await page.unroute(`**/api/folders/${folderId}`);
+  await page.unroute(`**/api/v1/folders/${folderId}`);
   for (let i = 0; i < 50 && !statuses.length; i++) await page.waitForTimeout(100);
   page.off('response', onResp);
   if (!statuses.includes(304)) throw new Error(`revalidation statuses ${statuses}`);
@@ -733,7 +733,7 @@ await step('selection in the URL, shareable', async () => {
   const grant = await api('POST', `/spaces/${team.id}/grants`, { user: 'mia', role: 'viewer' });
   const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const p2 = await ctx2.newPage();
-  await p2.request.post(BASE + '/api/auth/login', { data: { username: 'mia', password: 'miapass12' } });
+  await p2.request.post(BASE + '/api/v1/auth/login', { data: { username: 'mia', password: 'miapass12' } });
   await p2.goto(BASE + '/');
   await p2.evaluate(() => localStorage.setItem('tildoc.peek', 'false')); // she closed the preview before
   await p2.goto(shared);
@@ -869,7 +869,7 @@ await step('sharing: restricted viewer, public link, drop link', async () => {
   const f = await api('POST', '/folders', { parent_id: mine.root_folder_id, name: 'Geteilt' });
   const up = await api('PUT', `/folders/${f.id}/files?path=vertraulich.txt`, 'Vertrauliche Zeilen');
   await api('PATCH', '/admin/settings', { public_links: true });
-  const allow = { allow_login_links: true, allow_public_links: true, allow_drop_links: true, allow_file_shares: true, write_protected: false, no_ocr: false };
+  const allow = { allow_login_links: true, allow_public_links: true, allow_drop_links: true, allow_file_shares: true, write_policy: 'open', no_ocr: false };
   await api('PATCH', `/spaces/${mine.id}/settings`, allow);
 
   // restricted viewer: can read, nothing offers the file
@@ -877,14 +877,14 @@ await step('sharing: restricted viewer, public link, drop link', async () => {
   await api('POST', `/spaces/${mine.id}/grants`, { user: 'rita', role: 'restricted_viewer' });
   const rc = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const rp = await rc.newPage();
-  await rp.request.post(BASE + '/api/auth/login', { data: { username: 'rita', password: 'ritapass12' } });
+  await rp.request.post(BASE + '/api/v1/auth/login', { data: { username: 'rita', password: 'ritapass12' } });
   await rp.goto(`${BASE}/f/${f.id}`);
   await rp.locator('tbody tr', { hasText: 'vertraulich.txt' }).click();
   await rp.locator('aside.peek').getByText('Vertrauliche Zeilen').waitFor();
   for (const name of ['Download', 'Export as ZIP']) {
     if (await rp.getByRole('link', { name }).count()) throw new Error(`restricted viewer is offered ${name}`);
   }
-  if ((await rp.request.get(`${BASE}/api/files/${up.file.link_id}/content`)).status() !== 403) throw new Error('download not refused');
+  if ((await rp.request.get(`${BASE}/api/v1/files/${up.file.link_id}/content`)).status() !== 403) throw new Error('download not refused');
   await rc.close();
 
   // public link, view only: no account, token only in the fragment
@@ -930,11 +930,11 @@ await step('sharing: restricted viewer, public link, drop link', async () => {
 await step('transfer a space, shared with me', async () => {
   const sp = await api('POST', '/spaces', { slug: 'uebergabe', name: 'Übergabe' });
   const up = await api('PUT', `/folders/${sp.root_folder_id}/files?path=akte.txt`, 'Aktentext');
-  await api('PATCH', `/spaces/${sp.id}/settings`, { allow_login_links: false, allow_public_links: false, allow_drop_links: false, allow_file_shares: true, write_protected: false, no_ocr: false });
+  await api('PATCH', `/spaces/${sp.id}/settings`, { allow_login_links: false, allow_public_links: false, allow_drop_links: false, allow_file_shares: true, write_policy: 'open', no_ocr: false });
   await api('POST', `/documents/${up.file.document_id}/grants`, { user: 'mia', role: 'viewer' });
   const mc = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const mp = await mc.newPage();
-  await mp.request.post(BASE + '/api/auth/login', { data: { username: 'mia', password: 'miapass12' } });
+  await mp.request.post(BASE + '/api/v1/auth/login', { data: { username: 'mia', password: 'miapass12' } });
   await mp.goto(`${BASE}/shared`);
   await mp.getByRole('button', { name: 'akte.txt' }).click();
   await mp.getByText('Aktentext').waitFor();
@@ -976,7 +976,7 @@ await step('space settings: off by default, write protection', async () => {
 
 await step('Drop-In token and waiting accounts', async () => {
   const sp = await api('POST', '/spaces', { slug: 'eingang', name: 'Eingang' });
-  await api('PATCH', `/spaces/${sp.id}/settings`, { allow_login_links: false, allow_public_links: false, allow_drop_links: false, allow_file_shares: false, allow_drop_in: true, write_protected: false, no_ocr: false });
+  await api('PATCH', `/spaces/${sp.id}/settings`, { allow_login_links: false, allow_public_links: false, allow_drop_links: false, allow_file_shares: false, allow_drop_in: true, write_policy: 'open', no_ocr: false });
   await page.goto(`${BASE}/f/${sp.root_folder_id}`);
   await page.getByRole('button', { name: 'Share', exact: true }).click();
   const dlg = page.getByRole('dialog');
@@ -1010,14 +1010,14 @@ await step('roles matrix and API key', async () => {
   await page.getByLabel('New role').fill('Prüfer');
   await page.getByRole('button', { name: 'Add role' }).click();
   await page.getByLabel('View for Prüfer').check();
-  await page.waitForFunction(async () => (await (await fetch('/api/roles')).json()).find((r) => r.name === 'Prüfer')?.permissions.includes('view'));
+  await page.waitForFunction(async () => (await (await fetch('/api/v1/roles')).json()).find((r) => r.name === 'Prüfer')?.permissions.includes('view'));
   await page.goto(`${BASE}/settings`);
   await page.getByRole('checkbox', { name: 'View', exact: true }).check();
   await page.getByLabel('API key label').fill('skript');
   await page.getByRole('button', { name: 'Create API key' }).click();
   const token = await page.getByLabel('New API key').inputValue();
   const anon = await browser.newContext();
-  const r = await anon.request.get(`${BASE}/api/spaces`, { headers: { Authorization: `Bearer ${token}` } });
+  const r = await anon.request.get(`${BASE}/api/v1/spaces`, { headers: { Authorization: `Bearer ${token}` } });
   if (!r.ok() || !(await r.json()).length) throw new Error('API key rejected');
   await anon.close();
 });
@@ -1075,7 +1075,7 @@ await step('text editor: one editor at a time, live hand-over', async () => {
   const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const p2 = await ctx2.newPage();
   p2.on('pageerror', (e) => errors.push(`pageerror (mia): ${e.message}`));
-  await p2.request.post(BASE + '/api/auth/login', { data: { username: 'mia', password: 'miapass12' } });
+  await p2.request.post(BASE + '/api/v1/auth/login', { data: { username: 'mia', password: 'miapass12' } });
   await p2.goto(`${BASE}/view/${up.file.link_id}`);
   await p2.locator('.editor .note', { hasText: 'Ada Admin is editing' }).waitFor();
   // admin leaves: the lease is released, mia can edit at once
@@ -1098,6 +1098,15 @@ await step('text editor: one editor at a time, live hand-over', async () => {
   const doc = await api('GET', `/documents/${up.file.document_id}`);
   if (doc.version !== 3 || doc.versions[0].source !== 'editor' || doc.versions[1].source !== 'web') throw new Error('versions');
   await ctx2.close();
+});
+
+await step('append only: uploading stays, changing goes', async () => {
+  const [sp] = await api('GET', '/spaces');
+  await api('PATCH', `/spaces/${sp.id}/settings`, { write_policy: 'append_only' });
+  await page.goto(`${BASE}/f/${sp.root_folder_id}`);
+  await page.getByRole('button', { name: 'Upload', exact: true }).waitFor();
+  if (await page.getByText('Read only').count()) throw new Error('append-only shown as read only');
+  await api('PATCH', `/spaces/${sp.id}/settings`, { write_policy: 'open' });
 });
 
 await step('language: chosen in Settings, untranslated text stays English', async () => {

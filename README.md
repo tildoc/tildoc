@@ -45,7 +45,7 @@ people, tags, versions and import progress appear as they happen.
 flowchart LR
   A[worker, WebDAV, S3, SFTP, UI] -->|writes| PG[(PostgreSQL)]
   PG -->|triggers: pg_notify| H[tildoc server<br/>event hub]
-  H -->|only spaces you can read| B[browser<br/>GET /api/events, SSE]
+  H -->|only spaces you can read| B[browser<br/>GET /api/v1/events, SSE]
   B -->|reload what changed,<br/>mostly 304 Not Modified| H
 ```
 
@@ -62,7 +62,7 @@ flowchart LR
   those pages of a large scan are loaded. Hovering a file name preloads the
   viewer and pdf.js.
 - Reverse proxies other than the bundled nginx must not buffer
-  `/api/events` (tildoc sends `X-Accel-Buffering: no`) and should allow
+  `/api/v1/events` (tildoc sends `X-Accel-Buffering: no`) and should allow
   idle reads of at least 30 s (heartbeat every 25 s).
 
 ### Editing text files
@@ -134,11 +134,12 @@ it can fill the disk up to the upload limit: give it an expiry.
 (enable "Drop-In tokens" in the space's settings):
 
 ```
-curl -T file.pdf -H "Authorization: Bearer tildoc_…" https://host/api/drop/
+curl -T file.pdf -H "Authorization: Bearer tildoc_…" https://host/api/v1/drop/
 ```
 
 **API keys** (Settings): `Authorization: Bearer tildoc_…` for the REST API,
 limited to chosen permissions and spaces, never more than their owner can do.
+The REST API is described in [docs/api.md](docs/api.md) (OpenAPI 3.1 at `/api/v1/openapi.json`).
 
 ### Places
 
@@ -288,7 +289,7 @@ All settings are `TILDOC_*` environment variables (template: `deploy/.env.exampl
 ### Sign in with Google
 
 Optional. Create an OAuth client of type "web application" in Google Cloud with
-the redirect URI `<TILDOC_PUBLIC_URL>/api/auth/google/callback`, then set in
+the redirect URI `<TILDOC_PUBLIC_URL>/api/v1/auth/google/callback`, then set in
 `deploy/.env`:
 
 ```
@@ -435,7 +436,7 @@ web/               SvelteKit UI (static SPA)   deploy/         compose, nginx te
   browser refuses to run its viewer in a sandbox); the server checks that
   preference. The UI ships a strict hash-based CSP (`'wasm-unsafe-eval'` only for
   pdf.js image decoders, no JS eval).
-- Live events (`GET /api/events`) carry only ids and are filtered per
+- Live events (`GET /api/v1/events`) carry only ids and are filtered per
   subscriber by the spaces it can read (re-checked every 30 s, streams end
   after 5 min and reconnect with a fresh authentication); max. 8 streams
   per user.

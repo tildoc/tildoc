@@ -73,7 +73,7 @@
   });
 
   const params = $derived(file?.link_id ? { file: file.link_id } : {});
-  const download = $derived(info && file ? `/api/public/${info.id}/content${file.link_id ? `?file=${file.link_id}` : ''}` : '');
+  const download = $derived(info && file ? `/api/v1/public/${info.id}/content${file.link_id ? `?file=${file.link_id}` : ''}` : '');
 </script>
 
 <svelte:head><title>{tx('s_x_tildoc', { info: info?.name ?? tx('s_shared') })}</title><meta name="robots" content="noindex" /></svelte:head>
@@ -105,7 +105,7 @@
     </div>
   {:else if file}
     <main class="stage">
-      <DocView file={{ ...file, document_id: '' }} contentBase={`/api/public/${info.id}/content`} contentParams={params} noDownload={!info.can_download} mode="full" />
+      <DocView file={{ ...file, document_id: '' }} contentBase={`/api/v1/public/${info.id}/content`} contentParams={params} noDownload={!info.can_download} mode="full" />
     </main>
   {:else if listing}
     <div class="list">

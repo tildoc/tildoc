@@ -107,7 +107,7 @@
   <div class="bar">
     <button class="primary" onclick={open}><Icon name="open" size={16} /> {tx('common_open')}</button>
     {#if !viewVersion && canEditPdfInOffice(doc, file.name, session.office, session.spaces)}<button onclick={() => onopen?.({ office: true })}><Icon name="edit" size={16} /> {tx('peekpanel_edit_in_office')}</button>{/if}
-{#if canDownload(doc)}    <a class="btn" href={`/api/files/${file.link_id}/content`} download><Icon name="download" size={16} /> {tx('common_download')}</a>{/if}
+{#if canDownload(doc)}    <a class="btn" href={`/api/v1/files/${file.link_id}/content`} download><Icon name="download" size={16} /> {tx('common_download')}</a>{/if}
     {#if viewVersion || viewVariant}<span class="pill">{variant !== 'original' ? tx('peekpanel_viewing_version_variant', { version: viewVersion || doc?.version, variant: VARIANT_NAME[variant] }) : tx('peekpanel_viewing_version', { version: viewVersion || doc?.version })}</span>{/if}
   </div>
 

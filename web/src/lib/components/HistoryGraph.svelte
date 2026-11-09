@@ -27,7 +27,7 @@
   function select(r) {
     ({ viewVersion, viewVariant } = nodeSelection(doc, r));
   }
-  const contentURL = $derived(`/api/documents/${doc.id}/content`);
+  const contentURL = $derived(`/api/v1/documents/${doc.id}/content`);
 
   const ORIGINAL = { 'pdf-ocred': tx('historygraph_scan_with_an_existing_ocr_layer'), 'pdf-scanned': tx('historygraph_scan_without_text'), 'pdf-mixed': tx('historygraph_partly_scanned'),
     'pdf-digital': tx('historygraph_with_a_text_layer'), 'pdf-tildoc-ocr': tx('historygraph_tildoc_ocr_result') };

@@ -1,4 +1,4 @@
-# tildoc bundle format, version 3
+# tildoc bundle format, version 4
 
 A bundle moves spaces, collections or a whole server between tildoc
 instances. It is a POSIX tar stream (PAX headers); exports use the file
@@ -17,7 +17,7 @@ name, and treat the whole bundle as untrusted input.
 
 | Field | Content |
 |-------|---------|
-| `format`, `version` | `"tildoc-bundle"`, `3` |
+| `format`, `version` | `"tildoc-bundle"`, `4` |
 | `kind` | `space` (one space), `collection` (one collection, documents without folders), `server` (backup) |
 | `created_at`, `instance` | time and UUID of the exporting instance |
 | `backup` | server backups: `{id, mode: full\|differential, base_id}` |

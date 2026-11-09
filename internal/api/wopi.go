@@ -15,8 +15,8 @@ import (
 
 // officeRoutes registers the UI's calls and the WOPI host Collabora calls.
 func (s *Server) officeRoutes(h func(string, http.Handler)) {
-	h("GET /api/office", s.authed(s.officeInfo))
-	h("POST /api/documents/{id}/office", s.authed(s.officeOpen))
+	h("GET /api/v1/office", s.authed(s.officeInfo))
+	h("POST /api/v1/documents/{id}/office", s.authed(s.officeOpen))
 	h("GET /wopi/files/{id}", s.wopiAuth(s.wopiFileInfo))
 	h("GET /wopi/files/{id}/contents", s.wopiAuth(s.wopiGetFile))
 	h("POST /wopi/files/{id}/contents", s.wopiAuth(s.wopiPutFile))

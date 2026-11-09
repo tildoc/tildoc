@@ -144,9 +144,9 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) error {
 	if s.Cfg.MaxUploadBytes > 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, s.Cfg.MaxUploadBytes)
 	}
-	res, err := s.Svc.PutFile(r.Context(), p, folder.SpaceID, append(base, relSegs...), r.Body, core.PutOptions{
-		Protocol: "web", ImportID: r.URL.Query().Get("import"), CreateParents: true,
-	})
+	opt := core.PutOptions{Protocol: "web", ImportID: r.URL.Query().Get("import"), CreateParents: true}
+	uploadConditions(r, &opt)
+	res, err := s.Svc.PutFile(r.Context(), p, folder.SpaceID, append(base, relSegs...), r.Body, opt)
 	var mbe *http.MaxBytesError
 	if errors.As(err, &mbe) {
 		return &core.Error{Kind: core.ErrTooLarge, Msg: "file exceeds the upload limit"}

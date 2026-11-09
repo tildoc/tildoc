@@ -44,13 +44,13 @@ step "start tildoc"
 echo "$PASS" | "$WORK/tildoc" user create -username alice -admin >/dev/null
 "$WORK/tildoc" all >"$WORK/server.log" 2>&1 &
 PID=$!
-for i in $(seq 1 50); do curl -sf "http://$HTTP/api/health" >/dev/null && break; sleep 0.2; done
-curl -sf "http://$HTTP/api/health" >/dev/null || fail "server did not start"
+for i in $(seq 1 50); do curl -sf "http://$HTTP/api/v1/health" >/dev/null && break; sleep 0.2; done
+curl -sf "http://$HTTP/api/v1/health" >/dev/null || fail "server did not start"
 
 step "login + access key"
-TOKEN=$(curl -sf -X POST "http://$HTTP/api/auth/login" -H 'Content-Type: application/json' \
+TOKEN=$(curl -sf -X POST "http://$HTTP/api/v1/auth/login" -H 'Content-Type: application/json' \
   -d "{\"username\":\"alice\",\"password\":\"$PASS\"}" | sed -E 's/.*"token":"([^"]+)".*/\1/')
-KEYJSON=$(curl -sf -X POST "http://$HTTP/api/me/access-keys" -H "Authorization: Bearer $TOKEN" \
+KEYJSON=$(curl -sf -X POST "http://$HTTP/api/v1/me/access-keys" -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d '{"label":"e2e"}')
 AK=$(echo "$KEYJSON" | sed -E 's/.*"id":"([^"]+)".*/\1/')
 SK=$(echo "$KEYJSON" | sed -E 's/.*"secret":"([^"]+)".*/\1/')
@@ -84,7 +84,7 @@ curl -sf "$URL" | grep -q "hello from aws" || fail "presigned GET"
 "${AWS[@]}" s3 sync /w/src s3://alice/aws --delete >/dev/null || fail "aws sync 2"
 
 step "dedup check (duplicate.txt and hello.txt share one document)"
-SEARCH=$(curl -sf "http://$HTTP/api/search?q=hello" -H "Authorization: Bearer $TOKEN")
+SEARCH=$(curl -sf "http://$HTTP/api/v1/search?q=hello" -H "Authorization: Bearer $TOKEN")
 echo "$SEARCH" | grep -q '"link_count":2' || fail "expected deduplicated document with 2 links: $SEARCH"
 
 step "aws-cli: object tagging maps to tildoc tags"
@@ -92,7 +92,7 @@ step "aws-cli: object tagging maps to tildoc tags"
   --tagging '{"TagSet":[{"Key":"Steuer 2025","Value":""},{"Key":"Belege","Value":""}]}' || fail "put-object-tagging"
 "${AWS[@]}" s3api get-object-tagging --bucket alice --key aws/Notes/duplicate.txt | tee "$WORK/tags.json"
 grep -q '"Steuer 2025"' "$WORK/tags.json" && grep -q '"Belege"' "$WORK/tags.json" || fail "get-object-tagging"
-curl -sf "http://$HTTP/api/tags" -H "Authorization: Bearer $TOKEN" | grep -q '"name":"Steuer 2025","color":"","count":1' \
+curl -sf "http://$HTTP/api/v1/tags" -H "Authorization: Bearer $TOKEN" | grep -q '"name":"Steuer 2025","color":"","count":1' \
   || fail "tag not visible in the API"
 
 RC=(docker run --rm --network host --user "$(id -u):$(id -g)" -v "$WORK:/w" -e RCLONE_CONFIG=/w/rclone.conf rclone/rclone)
@@ -143,15 +143,34 @@ done
 step "versions kept on overwrite (sftp)"
 "${RC[@]}" copyto /w/src/Notes/hello.txt sftp:alice/ver.txt
 "${RC[@]}" copyto /w/v2.txt sftp:alice/ver.txt
-ROOTF=$(curl -sf "http://$HTTP/api/spaces" -H "Authorization: Bearer $TOKEN" | sed -E 's/.*"root_folder_id":"([^"]+)".*/\1/')
-curl -sf "http://$HTTP/api/folders/$ROOTF" -H "Authorization: Bearer $TOKEN" | grep -q '"name":"ver.txt"[^}]*"version":2' \
+ROOTF=$(curl -sf "http://$HTTP/api/v1/spaces" -H "Authorization: Bearer $TOKEN" | sed -E 's/.*"root_folder_id":"([^"]+)".*/\1/')
+curl -sf "http://$HTTP/api/v1/folders/$ROOTF" -H "Authorization: Bearer $TOKEN" | grep -q '"name":"ver.txt"[^}]*"version":2' \
   || fail "expected version 2 for ver.txt"
 
+step "append-only space: every protocol adds, none changes"
+SPACE=$(curl -sf "http://$HTTP/api/v1/spaces" -H "Authorization: Bearer $TOKEN" | sed -E 's/^\[\{"id":"([^"]+)".*/\1/')
+policy() { curl -sf -X PATCH "http://$HTTP/api/v1/spaces/$SPACE/settings" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d "{\"write_policy\":\"$1\"}" >/dev/null || fail "set policy $1"; }
+RC1=("${RC[@]}" --retries 1 --low-level-retries 1)
+policy append_only
+echo new >"$WORK/ao-new.txt"; echo changed >"$WORK/ao-changed.txt"
+"${AWS[@]}" s3 cp /w/ao-new.txt s3://alice/ao-s3.txt >/dev/null || fail "s3 add in append-only"
+"${RC1[@]}" copyto /w/ao-new.txt dav:alice/ao-dav.txt || fail "webdav add in append-only"
+"${RC1[@]}" copyto --inplace /w/ao-new.txt sftp:alice/ao-sftp.txt || fail "sftp add in append-only"
+"${AWS[@]}" s3 cp /w/ao-changed.txt s3://alice/ao-s3.txt >/dev/null 2>&1 && fail "s3 overwrote in append-only"
+"${AWS[@]}" s3 rm s3://alice/ao-s3.txt >/dev/null 2>&1 && fail "s3 deleted in append-only"
+"${RC1[@]}" copyto /w/ao-changed.txt dav:alice/ao-dav.txt 2>/dev/null && fail "webdav overwrote in append-only"
+"${RC1[@]}" deletefile dav:alice/ao-dav.txt 2>/dev/null && fail "webdav deleted in append-only"
+"${RC1[@]}" copyto --inplace /w/ao-changed.txt sftp:alice/ao-sftp.txt 2>/dev/null && fail "sftp overwrote in append-only"
+"${RC1[@]}" moveto sftp:alice/ao-sftp.txt sftp:alice/ao-moved.txt 2>/dev/null && fail "sftp renamed in append-only"
+policy open
+"${AWS[@]}" s3 cp s3://alice/ao-s3.txt - | grep -q new || fail "append-only file changed"
+
 step "collections are read-only folders in WebDAV and SFTP"
-DOC=$(curl -sf "http://$HTTP/api/search?q=ver.txt" -H "Authorization: Bearer $TOKEN" | sed -E 's/.*"document_id":"([^"]+)".*/\1/')
-COLL=$(curl -sf -X POST "http://$HTTP/api/collections" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+DOC=$(curl -sf "http://$HTTP/api/v1/search?q=ver.txt" -H "Authorization: Bearer $TOKEN" | sed -E 's/.*"document_id":"([^"]+)".*/\1/')
+COLL=$(curl -sf -X POST "http://$HTTP/api/v1/collections" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"name":"Steuer 2025"}' | sed -E 's/.*"id":"([^"]+)".*/\1/')
-curl -sf -X POST "http://$HTTP/api/collections/$COLL/items" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+curl -sf -X POST "http://$HTTP/api/v1/collections/$COLL/items" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d "{\"document_ids\":[\"$DOC\"]}" >/dev/null || fail "add to collection"
 for R in dav sftp; do
   "${RC[@]}" lsf "$R:" | grep -q "@collections/" || fail "rclone $R: /@collections missing"
@@ -162,10 +181,10 @@ done
 
 step "worker processed text files"
 for i in $(seq 1 30); do
-  curl -sf "http://$HTTP/api/search?q=Übergrößenträger" -H "Authorization: Bearer $TOKEN" | grep -q '"total":[1-9]' && break
+  curl -sf "http://$HTTP/api/v1/search?q=Übergrößenträger" -H "Authorization: Bearer $TOKEN" | grep -q '"total":[1-9]' && break
   sleep 0.5
 done
-curl -sf "http://$HTTP/api/search?q=Übergrößenträger" -H "Authorization: Bearer $TOKEN" | grep -q '"total":[1-9]' \
+curl -sf "http://$HTTP/api/v1/search?q=Übergrößenträger" -H "Authorization: Bearer $TOKEN" | grep -q '"total":[1-9]' \
   || fail "full text search did not find extracted text"
 
 step "export / import / backup via CLI and REST"
@@ -173,17 +192,17 @@ step "export / import / backup via CLI and REST"
 python3 -m zipfile -t "$WORK/alice.zip" >/dev/null || fail "zip archive is not valid"
 python3 -m zipfile -l "$WORK/alice.zip" | grep -q "alice/ver.txt" || fail "zip lacks the shown structure"
 if command -v unzip >/dev/null; then unzip -tq "$WORK/alice.zip" >/dev/null || fail "unzip test"; fi
-curl -sf -o "$WORK/rest.tildoc" "http://$HTTP/api/spaces/alice/export?format=bundle" -H "Authorization: Bearer $TOKEN" \
-  || curl -sf -o "$WORK/rest.tildoc" "http://$HTTP/api/spaces/$(curl -sf "http://$HTTP/api/spaces" -H "Authorization: Bearer $TOKEN" | sed -E 's/.*"id":"([^"]+)","slug":"alice".*/\1/')/export?format=bundle" -H "Authorization: Bearer $TOKEN" \
+curl -sf -o "$WORK/rest.tildoc" "http://$HTTP/api/v1/spaces/alice/export?format=bundle" -H "Authorization: Bearer $TOKEN" \
+  || curl -sf -o "$WORK/rest.tildoc" "http://$HTTP/api/v1/spaces/$(curl -sf "http://$HTTP/api/v1/spaces" -H "Authorization: Bearer $TOKEN" | sed -E 's/.*"id":"([^"]+)","slug":"alice".*/\1/')/export?format=bundle" -H "Authorization: Bearer $TOKEN" \
   || fail "rest bundle export"
 tar -tf "$WORK/rest.tildoc" >"$WORK/bundle.list" || fail "bundle is not a tar archive"
 [ "$(sed -n 1p "$WORK/bundle.list")" = "manifest.json" ] || fail "bundle must start with manifest.json"
 "$WORK/tildoc" import -user alice -space-name "Kopie" "$WORK/rest.tildoc" | tee "$WORK/import.json"
 grep -q '"blobs_new": 0' "$WORK/import.json" || fail "re-import on the same server stored content again"
-TR=$(curl -sf -X POST "http://$HTTP/api/transfers?kind=import_bundle&space_name=Rest" -H "Authorization: Bearer $TOKEN" \
+TR=$(curl -sf -X POST "http://$HTTP/api/v1/transfers?kind=import_bundle&space_name=Rest" -H "Authorization: Bearer $TOKEN" \
   --data-binary "@$WORK/rest.tildoc" | sed -E 's/.*"id":"([^"]+)".*/\1/')
-for i in $(seq 1 60); do curl -sf "http://$HTTP/api/transfers/$TR" -H "Authorization: Bearer $TOKEN" | grep -q '"status":"done"' && break; sleep 0.5; done
-curl -sf "http://$HTTP/api/transfers/$TR" -H "Authorization: Bearer $TOKEN" | grep -q '"status":"done"' || fail "import transfer"
+for i in $(seq 1 60); do curl -sf "http://$HTTP/api/v1/transfers/$TR" -H "Authorization: Bearer $TOKEN" | grep -q '"status":"done"' && break; sleep 0.5; done
+curl -sf "http://$HTTP/api/v1/transfers/$TR" -H "Authorization: Bearer $TOKEN" | grep -q '"status":"done"' || fail "import transfer"
 TILDOC_BACKUP_DIR="$WORK/backups" "$WORK/tildoc" backup full >"$WORK/full.path" || fail "backup full"
 echo "after the full backup" | "$WORK/tildoc" user create -username dora >/dev/null
 TILDOC_BACKUP_DIR="$WORK/backups" "$WORK/tildoc" backup differential >"$WORK/diff.path" || fail "backup differential"

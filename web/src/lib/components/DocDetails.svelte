@@ -51,6 +51,7 @@
 
   const spaceSlug = (id) => session.spaces.find((s) => s.id === id)?.slug ?? '';
   const canWrite = $derived((session.spaces.find((s) => s.id === doc.space_id)?.perm ?? 0) >= 2);
+  const canTag = $derived(!!session.spaces.find((s) => s.id === doc.space_id)?.caps?.includes('tag'));
 
   async function reprocess() {
     try {
@@ -119,7 +120,7 @@
     {#if tab === 'details'}
       <div class="org">
         <span class="lbl">{tx('admin_tags')}</span>
-        <TagEditor doc={shown} {canWrite} onchange={(d) => { local = d; onchanged?.(); }} />
+        <TagEditor doc={shown} canWrite={canTag} onchange={(d) => { local = d; onchanged?.(); }} />
         <span class="lbl">{tx('docdetails_collections')}</span>
         <div class="colls">
           {#each shown.collections as c (c.id)}<a class="pill" href={`/c/${c.id}`}><Icon name="collection" size={13} /> {c.name}</a>{/each}

@@ -46,7 +46,7 @@ func (e *officeEnv) open(c *client, docID, lock string) *wopitest.Session {
 		AccessToken string `json:"access_token"`
 		TTL         int64  `json:"access_token_ttl"`
 	}
-	c.ok("POST", "/api/documents/"+docID+"/office", map[string]any{}, &o)
+	c.ok("POST", "/api/v1/documents/"+docID+"/office", map[string]any{}, &o)
 	if !strings.Contains(o.URL, "/browser/stub/cool.html?WOPISrc=") || strings.Contains(o.URL, "ignored.example") || o.TTL == 0 {
 		e.t.Fatalf("office url %+v", o)
 	}
@@ -68,7 +68,7 @@ type officeDoc struct {
 func upDocx(t *testing.T, c *client, sp space, name string) string {
 	t.Helper()
 	var up upload
-	c.ok("PUT", "/api/folders/"+sp.RootFolderID+"/files?path="+name, wopitest.Doc(name), &up) // the name: identical content would be deduplicated
+	c.ok("PUT", "/api/v1/folders/"+sp.RootFolderID+"/files?path="+name, wopitest.Doc(name), &up) // the name: identical content would be deduplicated
 	return up.File.DocumentID
 }
 
@@ -82,7 +82,7 @@ func wantStatus(t *testing.T, got int, err error, want int, what string) {
 func sessionOnly(t *testing.T, c *client, id string, version int, what string) officeDoc {
 	t.Helper()
 	var d officeDoc
-	c.ok("GET", "/api/documents/"+id, nil, &d)
+	c.ok("GET", "/api/v1/documents/"+id, nil, &d)
 	if d.Version != version {
 		t.Fatalf("%s: version %d, want %d (%+v)", what, d.Version, version, d.Versions)
 	}
@@ -95,7 +95,7 @@ func TestOfficeOneVersionPerSession(t *testing.T) {
 	id := upDocx(t, alice, sp, "report.docx")
 
 	var exts struct{ Extensions, Editable, Create []string }
-	alice.ok("GET", "/api/office", nil, &exts)
+	alice.ok("GET", "/api/v1/office", nil, &exts)
 	if strings.Join(exts.Extensions, ",") != "docx,odt,pdf,txt" || strings.Join(exts.Create, ",") != "docx,pdf" {
 		t.Fatalf("office info %+v", exts)
 	}
@@ -147,7 +147,7 @@ func TestOfficeOneVersionPerSession(t *testing.T) {
 		t.Fatalf("joining editor reads %q", body)
 	}
 	var content string
-	alice.ok("GET", "/api/documents/"+id+"/content", nil, &content)
+	alice.ok("GET", "/api/v1/documents/"+id+"/content", nil, &content)
 	if content != string(wopitest.Doc("report.docx")) {
 		t.Fatalf("content during the session: %q", content)
 	}
@@ -284,12 +284,12 @@ func TestOfficeSecurity(t *testing.T) {
 
 	// a reader: read-only, no lock, no save
 	admin := newClient(t, e.ts.URL)
-	admin.ok("POST", "/api/auth/login", map[string]string{"username": "admin", "password": "supersecret"}, nil)
-	admin.ok("POST", "/api/users", map[string]any{"username": "bob", "password": "bobspassword"}, nil)
+	admin.ok("POST", "/api/v1/auth/login", map[string]string{"username": "admin", "password": "supersecret"}, nil)
+	admin.ok("POST", "/api/v1/users", map[string]any{"username": "bob", "password": "bobspassword"}, nil)
 	var grant struct{ ID string }
-	alice.ok("POST", "/api/spaces/"+sp.ID+"/grants", map[string]any{"user": "bob", "role": "viewer"}, &grant)
+	alice.ok("POST", "/api/v1/spaces/"+sp.ID+"/grants", map[string]any{"user": "bob", "role": "viewer"}, &grant)
 	bob := newClient(t, e.ts.URL)
-	bob.ok("POST", "/api/auth/login", map[string]string{"username": "bob", "password": "bobspassword"}, nil)
+	bob.ok("POST", "/api/v1/auth/login", map[string]string{"username": "bob", "password": "bobspassword"}, nil)
 	r := e.open(bob, id, "b")
 	var info map[string]any
 	st, err := r.Info(&info)
@@ -311,28 +311,28 @@ func TestOfficeSecurity(t *testing.T) {
 			t.Fatalf("%s: %d", what, st)
 		}
 	}
-	alice.ok("DELETE", "/api/spaces/"+sp.ID+"/grants/"+grant.ID, nil, nil)
+	alice.ok("DELETE", "/api/v1/spaces/"+sp.ID+"/grants/"+grant.ID, nil, nil)
 	expectGone("revoked")
 
 	// no access: no token either
-	expect(t, bob.do("POST", "/api/documents/"+id+"/office", map[string]any{}, nil), 404, "stranger")
+	expect(t, bob.do("POST", "/api/v1/documents/"+id+"/office", map[string]any{}, nil), 404, "stranger")
 	// logout ends the token
-	bob.ok("POST", "/api/auth/logout", map[string]any{}, nil)
+	bob.ok("POST", "/api/v1/auth/logout", map[string]any{}, nil)
 	if st, _ := r.Info(nil); st != 401 {
 		t.Fatalf("after logout %d", st)
 	}
 
 	// text and PDFs are not Collabora's
 	var up upload
-	alice.ok("PUT", "/api/folders/"+sp.RootFolderID+"/files?path=note.txt", "plain", &up)
-	expect(t, alice.do("POST", "/api/documents/"+up.File.DocumentID+"/office", map[string]any{}, nil), 400, "text")
+	alice.ok("PUT", "/api/v1/folders/"+sp.RootFolderID+"/files?path=note.txt", "plain", &up)
+	expect(t, alice.do("POST", "/api/v1/documents/"+up.File.DocumentID+"/office", map[string]any{}, nil), 400, "text")
 
 	// trash ends access; purging takes the working copy along
 	s.Put(wopitest.Doc("draft only in the working copy"), false)
 	work := sha(wopitest.Doc("draft only in the working copy"))
 	var f struct{ Links []struct{ ID string } }
-	alice.ok("GET", "/api/documents/"+id, nil, &f)
-	expect(t, alice.do("DELETE", "/api/files/"+f.Links[0].ID, nil, nil), 204, "trash")
+	alice.ok("GET", "/api/v1/documents/"+id, nil, &f)
+	expect(t, alice.do("DELETE", "/api/v1/files/"+f.Links[0].ID, nil, nil), 204, "trash")
 	if st, _ := s.Info(nil); st != 404 {
 		t.Fatalf("trashed %d", st)
 	}
@@ -348,7 +348,7 @@ func TestOfficeSecurity(t *testing.T) {
 	if !e.srv.Svc.Blobs.Exists(work) {
 		t.Fatal("GC removed the working copy")
 	}
-	expect(t, alice.do("DELETE", "/api/trash/"+id, nil, nil), 204, "purge")
+	expect(t, alice.do("DELETE", "/api/v1/trash/"+id, nil, nil), 204, "purge")
 	if e.srv.Svc.Blobs.Exists(work) {
 		t.Fatal("purge left the working copy: " + hex.EncodeToString(work[:]))
 	}
@@ -359,11 +359,11 @@ func TestOfficeDisabled(t *testing.T) {
 	alice, sp := aliceClient(t, ts.URL)
 	id := upDocx(t, alice, sp, "report.docx")
 	var exts struct{ Extensions []string }
-	alice.ok("GET", "/api/office", nil, &exts)
+	alice.ok("GET", "/api/v1/office", nil, &exts)
 	if len(exts.Extensions) != 0 {
 		t.Fatalf("extensions %v", exts.Extensions)
 	}
-	expect(t, alice.do("POST", "/api/documents/"+id+"/office", map[string]any{}, nil), 404, "open")
+	expect(t, alice.do("POST", "/api/v1/documents/"+id+"/office", map[string]any{}, nil), 404, "open")
 	resp, err := http.Get(ts.URL + "/wopi/files/" + id + "?access_token=x")
 	if err != nil || resp.StatusCode != 404 {
 		t.Fatalf("wopi %v %v", resp, err)
@@ -399,7 +399,7 @@ func TestNewFile(t *testing.T) {
 		Size       int64
 		Version    int
 	}
-	folder := "/api/folders/" + sp.RootFolderID + "/new-file"
+	folder := "/api/v1/folders/" + sp.RootFolderID + "/new-file"
 	var a, b, doc info
 	alice.ok("POST", folder, map[string]string{"name": "a.docx"}, &a)
 	alice.ok("POST", folder, map[string]string{"name": "b.docx"}, &b)
@@ -426,19 +426,19 @@ func TestNewFile(t *testing.T) {
 	// a text file with any ending can be edited at once
 	alice.ok("POST", folder, map[string]string{"name": "notes.whatever"}, &doc)
 	const c = "33333333-3333-4333-8333-333333333333"
-	alice.ok("POST", "/api/documents/"+doc.DocumentID+"/edit-lease", map[string]any{"client_id": c}, nil)
-	alice.ok("PUT", "/api/documents/"+doc.DocumentID+"/text?client="+c, "hello\n", nil)
+	alice.ok("POST", "/api/v1/documents/"+doc.DocumentID+"/edit-lease", map[string]any{"client_id": c}, nil)
+	alice.ok("PUT", "/api/v1/documents/"+doc.DocumentID+"/text?client="+c, "hello\n", nil)
 	sessionOnly(t, alice, doc.DocumentID, 2, "text saved")
 
 	// a PDF can open in the office server, a reader cannot create
 	var up upload
-	alice.ok("PUT", "/api/folders/"+sp.RootFolderID+"/files?path=doc.pdf", "%PDF-1.7 x", &up)
+	alice.ok("PUT", "/api/v1/folders/"+sp.RootFolderID+"/files?path=doc.pdf", "%PDF-1.7 x", &up)
 	e.open(alice, up.File.DocumentID, "p")
 	admin := newClient(t, e.ts.URL)
-	admin.ok("POST", "/api/auth/login", map[string]string{"username": "admin", "password": "supersecret"}, nil)
-	admin.ok("POST", "/api/users", map[string]any{"username": "rita", "password": "ritaspassword"}, nil)
-	alice.ok("POST", "/api/spaces/"+sp.ID+"/grants", map[string]any{"user": "rita", "role": "viewer"}, nil)
+	admin.ok("POST", "/api/v1/auth/login", map[string]string{"username": "admin", "password": "supersecret"}, nil)
+	admin.ok("POST", "/api/v1/users", map[string]any{"username": "rita", "password": "ritaspassword"}, nil)
+	alice.ok("POST", "/api/v1/spaces/"+sp.ID+"/grants", map[string]any{"user": "rita", "role": "viewer"}, nil)
 	rita := newClient(t, e.ts.URL)
-	rita.ok("POST", "/api/auth/login", map[string]string{"username": "rita", "password": "ritaspassword"}, nil)
+	rita.ok("POST", "/api/v1/auth/login", map[string]string{"username": "rita", "password": "ritaspassword"}, nil)
 	expect(t, rita.do("POST", folder, map[string]string{"name": "r.docx"}, nil), 403, "reader")
 }

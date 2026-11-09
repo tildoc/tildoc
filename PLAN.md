@@ -1394,87 +1394,44 @@ flowchart LR
 - [x] 29.4 `docs/translating.md`, tests (browser test switches to a fixture translation)
 - [ ] 29.5 Server messages: stable codes the UI translates (later)
 
-### Phase 30 — Public REST API v1 and append-only spaces
+### Phase 30 — REST API v1 and write policies per space
 
-**Goal:** a complete, stable REST API under `/api/v1` that any application can
-use as its document store, next to S3, WebDAV and SFTP; and spaces that only
-accept new documents. tildoc stays independent: no client application is named
-or special-cased in code, schema, docs or tests. Status: proposal, questions open.
+**Goal:** the whole REST API becomes `/api/v1`, documented by OpenAPI, so that
+any application can use tildoc as its document store next to S3, WebDAV and
+SFTP. Spaces get a write policy. tildoc stays independent: no client application
+is named or special-cased. While in development everything is v1; breaking
+changes are a step to v2 once that is decided.
 
-#### Append-only
+#### Write policy (per space, set by whoever has `manage`, audited)
 
-`spaces.write_protected` becomes one column, because the states exclude each other:
+| `write_policy` | New documents | Change, rename, move, delete | Tags | Other settings, OCR |
+|---|---|---|---|---|
+| `open` (default) | yes | yes | yes | yes |
+| `append_only` | yes | no | yes | yes |
+| `read_only` ("Write protection": about the data inside) | no | no | yes | yes |
+| `frozen` (nothing changes) | no | no | no | no; only unfreezing |
 
-| `write_policy` | New documents | Change, rename, move, delete |
-|---|---|---|
-| `open` (default) | yes | yes |
-| `append_only` | yes | no |
-| `read_only` (today's write protection) | no | no |
+- New permissions: `add` (new documents and folders), `tag` (tags, external references). `write` only changes what exists. Roles with `write` also got both.
+- Removed in `space_permissions()`, so every protocol is covered; database triggers on `entries` and `document_versions` back it up.
+- Collections belong to people and teams, not to the space, so no policy touches them. Sharing is access, not data, so it stays possible (each kind still needs its setting).
+- Known limit: clients that upload to a temporary name and rename fail, because a rename is a change.
 
-- New permission `add` (new documents and folders); `write` now only changes what exists. Every role with `write` also gets `add`. A key with only `add` can upload but never overwrite.
-- `space_permissions()` removes `write`, `move`, `delete`, `purge` under `append_only`, and `add` too under `read_only`. Every protocol goes through `core`, so all are covered.
-- Still possible under `append_only`: Drop-In, OCR and derived variants (originals stay untouched).
-- Enforced in the database as well: triggers refuse changing or deleting links and versions in an `append_only` space.
-- Known limit: clients that upload to a temporary name and rename afterwards (rclone over WebDAV/SFTP without `--inplace`, some desktop clients) fail, because a rename is a change. S3 is not affected.
+#### API
 
-#### API v1
-
-- New package `internal/api/v1`, only through `core`, with its own response types, so internal changes can't alter the contract.
-- API keys only (`Authorization: Bearer tildoc_…`); no cookies, no CSRF surface. Keys keep their permission and space limits.
-- Contract: `docs/api/openapi.json` (OpenAPI 3.1; JSON so that tests need no YAML library), served at `/api/v1/openapi.json`.
-- Errors: `{ "code": "...", "message": "..." }` with a documented list of codes. Lists: `?limit=&cursor=`.
-- Stability: within v1 only additions; breaking changes need v2. Binding from productivation, like the export format.
-
-| Resource | Operations |
-|---|---|
-| me | key's user, permissions and spaces |
-| spaces | list, get |
-| folders | create, get with paged children, find by path, rename/move, copy, delete, export |
-| files (links) | upload by path, get, content, rename/move, copy, delete |
-| documents | get, content (Range, ETag), text, versions, new version, restore version, delete version, extra link |
-| external references | put (create or new version), get, list, delete the reference |
-| tags, collections | list, create, change, delete; tag and untag documents; collection items |
-| share links | list, create, revoke |
-| trash | list, restore, delete for good |
-| search, events | search; SSE stream, filtered as in the UI |
-
-Not in v1: administration (users, teams, roles, grants, backups, settings, audit), login, API key management, office sessions, edit leases.
-
-```mermaid
-flowchart LR
-  app[Any application] -->|API key| v1[internal/api/v1]
-  ui[Web UI] --> api[internal/api]
-  s3[S3 / WebDAV / SFTP] --> core
-  v1 --> core[internal/core]
-  api --> core
-  core --> db[(PostgreSQL + blobs)]
-```
-
-**External references** (new glossary term): an application's own id for a document, so retries are safe.
-
-```
-PUT /api/v1/spaces/{space}/external/{source}/{ref}?path=Invoices/2026/42.pdf
-    Content-Type, X-Content-SHA256, If-Match (all but the first optional); raw body
-201 created | 200 same content (nothing new) or new version
-403 append_only | 412 If-Match failed | 422 hash mismatch
-```
-
-Table `external_refs(space_id, source, ref, document_id)`, unique on the first three; in backups and bundles.
+- Every route moved from `/api/` to `/api/v1/`, including `/api/v1/auth/google/callback`.
+- Sessions and API keys as before. API keys hold no instance permissions, so administration needs a signed-in user.
+- Uploads: `X-Content-SHA256` (422), `If-Match`, `If-None-Match: *` (412).
+- External references: `PUT|GET|DELETE /spaces/{id}/external/{source}/{ref}`, `GET /spaces/{id}/external` (paged). New glossary term: an application's own id for a document, so that retries are safe.
+- Contract: OpenAPI 3.1, built at runtime from the route table and the Go types, served at `/api/v1/openapi.json`, exported by `tildoc openapi`. Not committed: a workflow publishes it for pull requests (artifact) and releases (asset). A test fails when a route is undocumented.
 
 #### Steps
 
-- [ ] 30.1 Schema: `write_policy`, permission `add`, triggers, `external_refs`; backup and bundle; breaking, dev stacks are recreated
-- [ ] 30.2 `core`: `add` / `write` split on every path; checksum and If-Match on upload; external references
-- [ ] 30.3 Space settings UI: three-way choice, permission help, translations
-- [ ] 30.4 `internal/api/v1`, error codes, cursors, every route above
-- [ ] 30.5 `openapi.json`, stability policy, `docs/api.md` with curl examples
-- [ ] 30.6 Tests: every route against real Postgres; contract test (routes and OpenAPI paths match both ways, responses match their schemas); append-only over REST, WebDAV, S3 and SFTP (`make e2e`)
-
-#### Open questions (recommendation first)
-
-1. Switching `append_only` off: **allowed with `manage`, written to the audit log** / one-way, the space can then never shrink.
-2. Tags and collections in an `append_only` space: **allowed, they describe a document and don't change it** / frozen too.
-3. Scope of v1: **documents and their organisation, as listed; administration stays out** / also users, teams, roles and grants.
+- [x] 30.1 Move the API to `/api/v1`
+- [x] 30.2 Schema: `write_policy`, `add`, `tag`, triggers, `external_refs`; backup, bundle v4
+- [x] 30.3 `core`: add/write/tag on every path; checksum and conditions; external references
+- [x] 30.4 Space settings UI, permission help, translations
+- [x] 30.5 Tests: policies over REST, WebDAV, S3 and SFTP; external references
+- [x] 30.6 OpenAPI generator, `docs/api.md`
 
 ## Open Topics
 
@@ -1565,6 +1522,8 @@ Collected 2026-11-08; each becomes a phase or step when picked up.
 | 43 | Export compatibility | development: only the current format; from productivation (to be defined) importing older exports is mandatory |
 | 44 | Encryption scope | instance-level only; no per-space keys |
 | 45 | Translations | UI first, server messages stay English for now; pull requests on i18next JSON files, compatible with Weblate |
+| 46 | REST API | everything is v1 while in development; breaking changes are a step to v2 |
+| 47 | Write policy | per space: open, append only, read only (data), frozen (everything); reversible by whoever manages the space, audited |
 
 ## Open Questions
 

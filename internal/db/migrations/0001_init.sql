@@ -94,13 +94,13 @@ CREATE TABLE spaces (
     owner_user_id uuid REFERENCES users ON DELETE RESTRICT,
     owner_team_id uuid REFERENCES teams ON DELETE CASCADE,
     -- settings of the space, all off by default: enabling one adds a way of
-    -- sharing, stops all writing, or stops tildoc's OCR and image-only step
+    -- sharing, limits writing (write_policy), or stops tildoc's OCR and image-only step
     allow_login_links  boolean NOT NULL DEFAULT false,
     allow_public_links boolean NOT NULL DEFAULT false,
     allow_drop_links   boolean NOT NULL DEFAULT false,
     allow_file_shares  boolean NOT NULL DEFAULT false,
     allow_drop_in      boolean NOT NULL DEFAULT false,
-    write_protected    boolean NOT NULL DEFAULT false,
+    write_policy       text NOT NULL DEFAULT 'open' CHECK (write_policy IN ('open', 'append_only', 'read_only', 'frozen')),
     no_ocr             boolean NOT NULL DEFAULT false,
     created_at    timestamptz NOT NULL DEFAULT now(),
     CHECK ((owner_user_id IS NULL) <> (owner_team_id IS NULL))
@@ -118,7 +118,7 @@ CREATE TABLE permissions (
     scope text NOT NULL CHECK (scope IN ('space', 'instance'))
 );
 INSERT INTO permissions(name, scope)
-SELECT n, 'space' FROM unnest(ARRAY['view', 'download', 'export', 'write', 'move', 'delete', 'purge', 'manage', 'transfer', 'drop_in',
+SELECT n, 'space' FROM unnest(ARRAY['view', 'download', 'export', 'write', 'add', 'tag', 'move', 'delete', 'purge', 'manage', 'transfer', 'drop_in',
     'share.space.people', 'share.space.login_link', 'share.space.public_link', 'share.space.drop_link',
     'share.file.people', 'share.file.login_link', 'share.file.public_link']) n
 UNION ALL
@@ -156,8 +156,8 @@ INSERT INTO role_permissions(role_id, permission)
 SELECT r.id, x.p FROM roles r JOIN (VALUES
     ('restricted_viewer', ARRAY['view']),
     ('viewer', ARRAY['view', 'download', 'export']),
-    ('editor', ARRAY['view', 'download', 'export', 'write', 'drop_in']),
-    ('manager', ARRAY['view', 'download', 'export', 'write', 'drop_in', 'move', 'delete', 'purge', 'manage',
+    ('editor', ARRAY['view', 'download', 'export', 'write', 'add', 'tag', 'drop_in']),
+    ('manager', ARRAY['view', 'download', 'export', 'write', 'add', 'tag', 'drop_in', 'move', 'delete', 'purge', 'manage',
         'share.space.people', 'share.space.login_link', 'share.space.public_link', 'share.space.drop_link',
         'share.file.people', 'share.file.login_link', 'share.file.public_link']),
     ('user', ARRAY['spaces.create', 'teams.create'])
@@ -237,7 +237,9 @@ $$;
 -- what can be done now: the space's settings take away what they switch off
 CREATE FUNCTION space_permissions(sid uuid, uid uuid) RETURNS text[] LANGUAGE sql STABLE AS $$
     SELECT ARRAY(SELECT h FROM spaces s, unnest(space_permissions_held(sid, uid)) h WHERE s.id = sid AND NOT (
-        (s.write_protected AND h IN ('write', 'move', 'delete', 'purge', 'drop_in'))
+        (s.write_policy <> 'open' AND h IN ('write', 'move', 'delete', 'purge'))
+        OR (s.write_policy IN ('read_only', 'frozen') AND h IN ('add', 'drop_in'))
+        OR (s.write_policy = 'frozen' AND h = 'tag')
         OR (NOT s.allow_drop_in AND h = 'drop_in')
         OR (NOT s.allow_login_links AND h IN ('share.space.login_link', 'share.file.login_link'))
         OR (NOT s.allow_public_links AND h IN ('share.space.public_link', 'share.file.public_link'))
@@ -764,9 +766,49 @@ CREATE FUNCTION document_permissions(doc uuid, uid uuid) RETURNS text[] LANGUAGE
         SELECT e.permission FROM grant_effective e
         JOIN documents d ON d.id = e.document_id JOIN spaces s ON s.id = d.space_id
         WHERE e.document_id = doc AND s.allow_file_shares AND e.permission IN ('view', 'download', 'write')
-          AND NOT (s.write_protected AND e.permission = 'write') AND (
+          AND NOT (s.write_policy <> 'open' AND e.permission = 'write') AND (
             e.user_id = uid OR e.team_id IN (SELECT team_id FROM team_members WHERE user_id = uid)))
 $$;
+
+-- The write policy also holds below the application: what exists in a space
+-- that isn't open can't be renamed, moved, deleted or given a new version.
+CREATE FUNCTION entries_write_policy() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' AND (OLD.parent_id, OLD.name, OLD.document_id, OLD.deleted_at)
+            IS NOT DISTINCT FROM (NEW.parent_id, NEW.name, NEW.document_id, NEW.deleted_at) THEN
+        RETURN NEW;
+    END IF;
+    IF EXISTS (SELECT 1 FROM spaces WHERE id = OLD.space_id AND write_policy <> 'open') THEN
+        RAISE EXCEPTION 'the write policy of this space does not allow this' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN COALESCE(NEW, OLD);
+END $$;
+CREATE TRIGGER entries_write_policy BEFORE UPDATE OR DELETE ON entries
+    FOR EACH ROW EXECUTE FUNCTION entries_write_policy();
+
+CREATE FUNCTION versions_write_policy() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE doc uuid := COALESCE(NEW.document_id, OLD.document_id);
+BEGIN
+    IF (TG_OP = 'DELETE' OR NEW.version > 1) AND EXISTS (SELECT 1 FROM documents d JOIN spaces s ON s.id = d.space_id
+            WHERE d.id = doc AND s.write_policy <> 'open') THEN
+        RAISE EXCEPTION 'the write policy of this space does not allow this' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN COALESCE(NEW, OLD);
+END $$;
+CREATE TRIGGER versions_write_policy BEFORE INSERT OR DELETE ON document_versions
+    FOR EACH ROW EXECUTE FUNCTION versions_write_policy();
+
+-- an application's own id for a document: makes its uploads safe to retry
+CREATE TABLE external_refs (
+    space_id    uuid NOT NULL REFERENCES spaces ON DELETE CASCADE,
+    source      text NOT NULL CHECK (source ~ '^[a-z0-9][a-z0-9._-]{0,63}$'),
+    ref         text NOT NULL CHECK (length(ref) BETWEEN 1 AND 255),
+    document_id uuid NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (space_id, source, ref),
+    FOREIGN KEY (document_id, space_id) REFERENCES documents (id, space_id) ON DELETE CASCADE
+);
+CREATE INDEX external_refs_document ON external_refs(document_id);
 
 -- a URL giving access to a space or file. The token is stored hashed.
 -- login: signed-in users; public: anyone; drop: anyone may only upload.

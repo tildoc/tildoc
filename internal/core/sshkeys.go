@@ -24,8 +24,8 @@ type SSHKey struct {
 
 // AddSSHKey registers an authorized_keys formatted public key.
 func (s *Service) AddSSHKey(ctx context.Context, p *Principal, authorizedKey, label string) (*SSHKey, error) {
-	if p == nil || p.Via == "accesskey" || p.Via == "ssh" {
-		return nil, errf(ErrForbidden, "ssh keys can only be managed from a login session")
+	if err := requireSession(p); err != nil {
+		return nil, err
 	}
 	pub, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(strings.TrimSpace(authorizedKey)))
 	if err != nil {

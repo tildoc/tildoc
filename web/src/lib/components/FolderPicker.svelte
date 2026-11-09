@@ -11,7 +11,7 @@
   let space = $state(untrack(() => spaceId));
   let tree = $state([]);
   let selected = $state(null);
-  let spaces = $derived(session.spaces.filter((s) => s.perm >= 2));
+  let spaces = $derived(session.spaces.filter((s) => s.caps?.includes('add')));
 
   $effect(() => {
     const id = space;
