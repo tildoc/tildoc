@@ -177,9 +177,12 @@ func (w *Worker) execute(ctx context.Context, j *core.Job) error {
 		}
 		return core.Enqueue(ctx, w.Svc.DB, core.JobGCBlobs, map[string]any{}, core.JobGCBlobs, time.Time{})
 	case core.JobGCBlobs:
-		n, err := w.Svc.GCBlobs(ctx, time.Hour)
+		n, ok, err := w.Svc.GCBlobs(ctx, nil)
 		if err != nil {
 			return err
+		}
+		if !ok { // an export or import holds the blobs: try again later
+			return core.Enqueue(ctx, w.Svc.DB, core.JobGCBlobs, map[string]any{}, core.JobGCBlobs, time.Now().Add(5*time.Minute))
 		}
 		o, err := w.Svc.SweepOrphanFiles(ctx, 24*time.Hour)
 		if n+o > 0 {

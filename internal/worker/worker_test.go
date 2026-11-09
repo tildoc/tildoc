@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tildoc/tildoc/internal/blob"
 	"github.com/tildoc/tildoc/internal/core"
 	"github.com/tildoc/tildoc/internal/testutil"
 	"github.com/tildoc/tildoc/internal/worker"
@@ -206,14 +207,17 @@ func TestScannedPDF(t *testing.T) {
 	if cs.SHA256 == fi.SHA256 || cs.MIME != "application/pdf" {
 		t.Fatalf("searchable: %+v", cs)
 	}
-	// derived blob survives GC while the source is referenced, and is collected afterwards
-	if n, _ := f.env.Svc.GCBlobs(f.ctx, 0); n != 0 {
+	// derived blob survives GC while the source is referenced, and is deleted with the document
+	if n, _, _ := f.env.Svc.GCBlobs(f.ctx, nil); n != 0 {
 		t.Fatalf("gc removed referenced blobs: %d", n)
 	}
 	f.env.Svc.DeleteLink(f.ctx, f.p, fi.LinkID)
 	f.env.Svc.PurgeDocument(f.ctx, f.p, fi.DocumentID)
-	if n, _ := f.env.Svc.GCBlobs(f.ctx, 0); n != 2 {
-		t.Fatalf("gc after purge: %d", n)
+	if f.env.Blobs.Exists(fi.SHA256) || f.env.Blobs.Exists(cs.SHA256) {
+		t.Fatal("purge must delete the original and its OCR variant at once")
+	}
+	if n, _, _ := f.env.Svc.GCBlobs(f.ctx, nil); n != 0 {
+		t.Fatalf("nothing left for gc after purge: %d", n)
 	}
 }
 
@@ -374,10 +378,17 @@ func TestForeignOCRVariantTree(t *testing.T) {
 	if f.search(t, "4711") != 1 {
 		t.Fatal("text of the own OCR version must be searchable")
 	}
-	// the whole tree is collected with the document
+	// the whole tree is deleted with the document
 	f.env.Svc.DeleteLink(f.ctx, f.p, fi.LinkID)
 	f.env.Svc.PurgeDocument(f.ctx, f.p, fi.DocumentID)
-	if n, _ := f.env.Svc.GCBlobs(f.ctx, 0); n != 3 {
-		t.Fatalf("gc after purge: %d", n)
+	for _, h := range []blob.SHA256{fi.SHA256, img.SHA256, ocr.SHA256} {
+		if f.env.Blobs.Exists(h) {
+			t.Fatalf("blob %s survived the purge", h.Hex())
+		}
+	}
+	var left int
+	f.env.Pool.QueryRow(f.ctx, `SELECT count(*) FROM blobs`).Scan(&left)
+	if left != 0 {
+		t.Fatalf("%d blobs left after purging the only document", left)
 	}
 }

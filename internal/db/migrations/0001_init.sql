@@ -140,8 +140,7 @@ CREATE TABLE blobs (
     md5          bytea NOT NULL CHECK (length(md5) = 16),
     size         bigint NOT NULL CHECK (size >= 0),
     mime         text NOT NULL,
-    created_at   timestamptz NOT NULL DEFAULT now(),
-    last_used_at timestamptz NOT NULL DEFAULT now()
+    created_at   timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE imports (

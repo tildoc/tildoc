@@ -280,9 +280,8 @@ func TestDeleteTrashRestorePurge(t *testing.T) {
 	if err := f.svc.PurgeDocument(f.ctx, f.alice, d.ID); err != nil {
 		t.Fatal(err)
 	}
-	n := ck(f.svc.GCBlobs(f.ctx, 0))
-	if n != 1 || f.env.Blobs.Exists(d.SHA256) {
-		t.Fatalf("gc: %d", n)
+	if f.env.Blobs.Exists(d.SHA256) {
+		t.Fatal("purge must delete the content at once")
 	}
 	// referenced blobs survive
 	if f.count(t, `SELECT count(*) FROM blobs`) != 2 {

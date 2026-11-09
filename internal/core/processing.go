@@ -160,13 +160,14 @@ func (s *Service) StoreDerivative(ctx context.Context, source blob.SHA256, d Der
 	if d.Meta == nil {
 		d.Meta = map[string]any{}
 	}
-	if _, err := s.Blobs.Commit(st); err != nil {
-		s.Blobs.Discard(st)
-		return err
-	}
+	c := s.claim(st)
+	defer c.discardUnused()
 	return s.tx(ctx, func(tx pgx.Tx) error {
+		if err := c.commit(ctx, tx); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `INSERT INTO blobs(sha256, md5, size, mime) VALUES($1,$2,$3,$4)
-			ON CONFLICT (sha256) DO UPDATE SET last_used_at=now()`, st.SHA256[:], st.MD5[:], st.Size, DetectMIME(st.Head)); err != nil {
+			ON CONFLICT (sha256) DO NOTHING`, st.SHA256[:], st.MD5[:], st.Size, DetectMIME(st.Head)); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `INSERT INTO blob_derivatives(source_sha256, kind, derived_sha256, input_sha256, engine, meta)

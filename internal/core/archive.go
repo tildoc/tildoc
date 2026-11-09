@@ -2,10 +2,13 @@ package core
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/tildoc/tildoc/internal/blob"
 )
 
 // Sealer wraps an export stream, e.g. to encrypt it. nil means plain output.
@@ -54,6 +57,44 @@ func (s *Service) holdBlobs(ctx context.Context) (release func(), err error) {
 		conn.Exec(context.Background(), `SELECT pg_advisory_unlock_shared($1)`, int64(blobLockKey))
 		conn.Release()
 	}, nil
+}
+
+// blobClaim writes a staged blob into the store from inside the transaction
+// that records it. The transaction holds the shared blob lock, so garbage
+// collection (exclusive) can never delete the content between the file
+// being written and the database referencing it. Safe for retried
+// transactions; call discardUnused after the transaction.
+type blobClaim struct {
+	s                *Service
+	st               *blob.Staged
+	committed, isNew bool
+}
+
+func (s *Service) claim(st *blob.Staged) *blobClaim { return &blobClaim{s: s, st: st} }
+
+func (c *blobClaim) commit(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock_shared($1)`, int64(blobLockKey)); err != nil {
+		return err
+	}
+	if c.committed { // a retried transaction: the file was moved into place before
+		if !c.s.Blobs.Exists(c.st.SHA256) {
+			return errors.New("blob disappeared between transaction attempts")
+		}
+		return nil
+	}
+	n, err := c.s.Blobs.Commit(c.st)
+	if err != nil {
+		return err
+	}
+	c.committed, c.isNew = true, n
+	return nil
+}
+
+// discardUnused removes the staged file if the transaction never committed it.
+func (c *blobClaim) discardUnused() {
+	if !c.committed {
+		c.s.Blobs.Discard(c.st)
+	}
 }
 
 // tryBlobGC takes the exclusive GC lock if no export is running.

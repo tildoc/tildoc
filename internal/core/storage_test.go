@@ -5,9 +5,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/tildoc/tildoc/internal/core"
 )
@@ -252,7 +252,6 @@ func TestStoredOnceVisibleOnlyWithAccess(t *testing.T) {
 	if err := f.svc.PurgeDocument(f.ctx, f.alice, ra.File.DocumentID); err != nil {
 		t.Fatal(err)
 	}
-	ck(f.svc.GCBlobs(f.ctx, -time.Hour))
 	if s, err := f.readDoc(f.bob, rb.File.DocumentID); err != nil || s != content {
 		t.Fatalf("bob lost the shared content: %q %v", s, err)
 	}
@@ -262,8 +261,56 @@ func TestStoredOnceVisibleOnlyWithAccess(t *testing.T) {
 	if err := f.svc.PurgeDocument(f.ctx, f.bob, rb.File.DocumentID); err != nil {
 		t.Fatal(err)
 	}
-	ck(f.svc.GCBlobs(f.ctx, -time.Hour))
 	if f.env.Blobs.Exists(ra.File.SHA256) || f.count(t, `SELECT count(*) FROM blob_texts WHERE sha256=$1`, ra.File.SHA256[:]) != 0 {
 		t.Fatal("unreferenced content and its index must be removed")
+	}
+}
+
+// Deleting a file and emptying the trash really deletes its content: an
+// upload of the same bytes afterwards is new content, processed from scratch.
+func TestPurgeDeletesContentAtOnce(t *testing.T) {
+	f := newFixture(t)
+	r := f.put(t, f.alice, f.home.ID, "/scan.pdf", "%PDF same bytes")
+	sha := r.File.SHA256
+	// as if the worker had processed it: status, text, an OCR variant
+	noErr(t, f.svc.SetProcessing(f.ctx, sha, core.StatusDone, "pdf-scanned", nil, ""))
+	noErr(t, f.svc.StoreText(f.ctx, sha, "ocr", "old recognised text"))
+	ocr := ck(f.env.Blobs.Stage(strings.NewReader("%PDF old ocr result"), 0))
+	noErr(t, f.svc.StoreDerivative(f.ctx, sha, core.Derivation{Kind: "searchable_pdf", Input: sha, Engine: "test"}, ocr))
+
+	noErr(t, f.svc.DeleteLink(f.ctx, f.alice, r.File.LinkID))
+	if n := ck(f.svc.EmptyTrash(f.ctx, f.alice, f.home.ID)); n != 1 {
+		t.Fatalf("emptied %d", n)
+	}
+	for _, tbl := range []string{"blobs", "blob_processing", "blob_texts", "blob_derivatives"} {
+		if n := f.count(t, `SELECT count(*) FROM `+tbl); n != 0 {
+			t.Fatalf("%s: %d rows left after emptying the trash", tbl, n)
+		}
+	}
+	if f.env.Blobs.Exists(sha) || f.env.Blobs.Exists(ocr.SHA256) {
+		t.Fatal("blob files left after emptying the trash")
+	}
+
+	// the same bytes again: a new document, queued for processing, no old text or variant
+	r2 := f.put(t, f.alice, f.home.ID, "/scan.pdf", "%PDF same bytes")
+	if !r2.NewBlob || r2.Deduplicated {
+		t.Fatalf("re-upload: %+v", r2)
+	}
+	d := ck(f.svc.GetDocument(f.ctx, f.alice, r2.File.DocumentID))
+	if d.Status != core.StatusPending || d.HasText || len(d.Variants) != 0 {
+		t.Fatalf("re-upload reuses old data: status %s text %v variants %d", d.Status, d.HasText, len(d.Variants))
+	}
+	if f.count(t, `SELECT count(*) FROM jobs WHERE kind='process_blob' AND status='queued'`) == 0 {
+		t.Fatal("re-upload not queued for processing")
+	}
+
+	// content used elsewhere stays: purge in one space keeps it for the other
+	team := ck(f.svc.CreateTeam(f.ctx, f.alice, "T"))
+	ts := ck(f.svc.CreateSpace(f.ctx, f.alice, "team", "", team.ID))
+	f.put(t, f.alice, ts.ID, "/scan.pdf", "%PDF same bytes")
+	noErr(t, f.svc.DeleteLink(f.ctx, f.alice, r2.File.LinkID))
+	ck(f.svc.EmptyTrash(f.ctx, f.alice, f.home.ID))
+	if !f.env.Blobs.Exists(sha) || f.count(t, `SELECT count(*) FROM blob_processing`) != 1 {
+		t.Fatal("content still used in the team space was deleted")
 	}
 }

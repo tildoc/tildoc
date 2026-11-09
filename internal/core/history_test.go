@@ -39,8 +39,8 @@ func TestHistoryVersionsAndVariants(t *testing.T) {
 
 	ck(f.svc.AddDocumentVersion(f.ctx, f.alice, doc, strings.NewReader("%PDF v2 from WebDAV"), "webdav"))
 	ck(f.svc.AddDocumentVersion(f.ctx, f.alice, doc, strings.NewReader("%PDF tildoc ocr of v1"), "web")) // v3: the OCR PDF again
-	ck(f.svc.RestoreVersion(f.ctx, f.alice, doc, 2))                                                       // v4
-	d := ck(f.svc.AddDocumentVersion(f.ctx, f.alice, doc, strings.NewReader("%PDF scan v1"), "web"))       // v5: v1 again
+	ck(f.svc.RestoreVersion(f.ctx, f.alice, doc, 2))                                                      // v4
+	d := ck(f.svc.AddDocumentVersion(f.ctx, f.alice, doc, strings.NewReader("%PDF scan v1"), "web"))      // v5: v1 again
 
 	if d.Version != 5 || len(d.Versions) != 5 || d.Versions[0].Version != 5 {
 		t.Fatalf("versions (newest first): %+v", d.Versions)
@@ -90,7 +90,7 @@ func TestHistoryMergeKeepsRestores(t *testing.T) {
 	x := f.put(t, f.alice, f.home.ID, "/x.txt", "alpha")
 	ck(f.svc.AddDocumentVersion(f.ctx, f.alice, x.File.DocumentID, strings.NewReader("beta"), "web"))
 	ck(f.svc.RestoreVersion(f.ctx, f.alice, x.File.DocumentID, 1)) // v3 = alpha, restored from 1
-	y := f.put(t, f.alice, ts.ID, "/y.txt", "alpha")                // same content, later
+	y := f.put(t, f.alice, ts.ID, "/y.txt", "alpha")               // same content, later
 
 	// move x into the team space: merges x's history into y's document
 	root := ck(f.svc.FolderByPath(f.ctx, f.alice, ts.ID, nil))

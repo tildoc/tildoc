@@ -74,15 +74,15 @@ func (s *Service) PutStaged(ctx context.Context, p *Principal, spaceID string, s
 	if opt.Protocol == "" {
 		opt.Protocol = "api"
 	}
-	newBlob, err := s.Blobs.Commit(st)
-	if err != nil {
-		s.Blobs.Discard(st)
-		return nil, err
-	}
-	res := &PutResult{NewBlob: newBlob}
+	c := s.claim(st)
+	defer c.discardUnused()
+	res := &PutResult{}
 	var linkID string
-	err = s.tx(ctx, func(tx pgx.Tx) error {
-		*res = PutResult{NewBlob: newBlob}
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		if err := c.commit(ctx, tx); err != nil {
+			return err
+		}
+		*res = PutResult{NewBlob: c.isNew}
 		if err := registerBlobTx(ctx, tx, st); err != nil {
 			return err
 		}
@@ -160,7 +160,7 @@ func (s *Service) PutStaged(ctx context.Context, p *Principal, spaceID string, s
 // registerBlobTx records blob metadata and schedules processing for new content.
 func registerBlobTx(ctx context.Context, tx pgx.Tx, st *blob.Staged) error {
 	_, err := tx.Exec(ctx, `INSERT INTO blobs(sha256, md5, size, mime) VALUES($1,$2,$3,$4)
-		ON CONFLICT (sha256) DO UPDATE SET last_used_at = now()`, st.SHA256[:], st.MD5[:], st.Size, DetectMIME(st.Head))
+		ON CONFLICT (sha256) DO NOTHING`, st.SHA256[:], st.MD5[:], st.Size, DetectMIME(st.Head))
 	if err != nil {
 		return err
 	}
@@ -375,11 +375,12 @@ func (s *Service) AddDocumentVersion(ctx context.Context, p *Principal, docID st
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.Blobs.Commit(st); err != nil {
-		s.Blobs.Discard(st)
-		return nil, err
-	}
+	c := s.claim(st)
+	defer c.discardUnused()
 	err = s.tx(ctx, func(tx pgx.Tx) error {
+		if err := c.commit(ctx, tx); err != nil {
+			return err
+		}
 		if err := registerBlobTx(ctx, tx, st); err != nil {
 			return err
 		}

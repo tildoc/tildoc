@@ -17,7 +17,7 @@ Arch Linux works natively.
 | **Versions** | Overwriting a file creates a new version (UI, S3 `PUT`, WebDAV `PUT`/`MOVE` over a file, SFTP posix-rename). Old versions stay downloadable/restorable. |
 | **Copy-on-write** | Writing through one link of a multi-linked document forks that link into its own document (history copied). |
 | **Provenance** | The path a file was imported at is kept forever. Files can be remapped freely and moved back with "Original location". |
-| **Trash** | Deleting a link removes only that link. A document goes to the trash with its last link and is purged after the retention period (default 30 days). |
+| **Trash** | Deleting a link removes only that link. A document goes to the trash with its last link and is purged after the retention period (default 30 days). Purging (also emptying the trash) deletes the content at once, incl. extracted text and OCR variants, unless another document still uses the same content; uploading it again later is processed from scratch. |
 
 ## Web UI
 

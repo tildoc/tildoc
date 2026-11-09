@@ -322,6 +322,13 @@ func (s *Service) ImportBundle(ctx context.Context, p *Principal, r io.Reader, o
 	if err := requireSession(p); err != nil {
 		return nil, err
 	}
+	// blob files are written while reading and recorded at the end: keep
+	// garbage collection away for the whole import
+	release, err := s.holdBlobs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	in, err := open(r, opener)
 	if err != nil {
 		return nil, err
@@ -536,7 +543,7 @@ func (s *Service) importBlobsTx(ctx context.Context, tx pgx.Tx, br *bundleReader
 			md5 = st.MD5[:]
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO blobs(sha256, md5, size, mime) VALUES($1,$2,$3,$4)
-			ON CONFLICT (sha256) DO UPDATE SET last_used_at = now()`, h[:], md5, mb.Size, mb.MIME); err != nil {
+			ON CONFLICT (sha256) DO NOTHING`, h[:], md5, mb.Size, mb.MIME); err != nil {
 			return err
 		}
 	}

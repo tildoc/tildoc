@@ -14,31 +14,31 @@ import (
 
 // Document is the identity of a piece of content in a space.
 type Document struct {
-	ID            string          `json:"id"`
-	SpaceID       string          `json:"space_id"`
-	Version       int             `json:"version"`
-	SHA256        blob.SHA256     `json:"sha256"`
-	MD5           string          `json:"md5"`
-	Size          int64           `json:"size"`
-	MIME          string          `json:"mime"`
-	Status        string          `json:"status"`
-	Kind          string          `json:"kind"`
-	Pages         *int            `json:"pages"`
-	ProcessError  string          `json:"process_error,omitempty"`
-	CreatedAt     time.Time       `json:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at"`
-	DeletedAt     *time.Time      `json:"deleted_at"`
-	ForkedFrom    *string         `json:"forked_from"`
-	HasText       bool            `json:"has_text"`
-	TextMethod    string          `json:"text_method,omitempty"`
-	HasSearchable bool            `json:"has_searchable"`
-	Versions      []VersionInfo   `json:"versions"`
-	Links         []LinkRef       `json:"links"`
+	ID            string        `json:"id"`
+	SpaceID       string        `json:"space_id"`
+	Version       int           `json:"version"`
+	SHA256        blob.SHA256   `json:"sha256"`
+	MD5           string        `json:"md5"`
+	Size          int64         `json:"size"`
+	MIME          string        `json:"mime"`
+	Status        string        `json:"status"`
+	Kind          string        `json:"kind"`
+	Pages         *int          `json:"pages"`
+	ProcessError  string        `json:"process_error,omitempty"`
+	CreatedAt     time.Time     `json:"created_at"`
+	UpdatedAt     time.Time     `json:"updated_at"`
+	DeletedAt     *time.Time    `json:"deleted_at"`
+	ForkedFrom    *string       `json:"forked_from"`
+	HasText       bool          `json:"has_text"`
+	TextMethod    string        `json:"text_method,omitempty"`
+	HasSearchable bool          `json:"has_searchable"`
+	Versions      []VersionInfo `json:"versions"`
+	Links         []LinkRef     `json:"links"`
 	// SameContent: places of other documents with identical current content
 	// (e.g. the same file uploaded to a personal and a team space; stored and
 	// processed once, but a separate document per space). Only places in
 	// spaces the caller can read.
-	SameContent []ContentPlace `json:"same_content"`
+	SameContent   []ContentPlace  `json:"same_content"`
 	Tags          []TagRef        `json:"tags"`
 	Collections   []CollectionRef `json:"collections"` // the caller's collections containing it
 	Variants      []Variant       `json:"variants"`    // derived variants of the current content

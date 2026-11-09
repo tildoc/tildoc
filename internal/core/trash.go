@@ -129,11 +129,38 @@ func (s *Service) PurgeDocument(ctx context.Context, p *Principal, docID string)
 	if err := s.requirePerm(ctx, s.DB, p, d.SpaceID, PermDelete); err != nil {
 		return err
 	}
-	_, err = s.DB.Exec(ctx, `DELETE FROM documents WHERE id=$1 AND deleted_at IS NOT NULL`, docID)
-	if err == nil {
-		Enqueue(ctx, s.DB, JobGCBlobs, map[string]any{}, JobGCBlobs, time.Now().Add(time.Minute))
-	}
+	_, err = s.purgeDocuments(ctx, `id=$1`, docID)
 	return err
+}
+
+// purgeDocuments deletes trashed documents matching cond and then their
+// content (blob, text, processing state, OCR variants), unless the content
+// is still used by another document.
+func (s *Service) purgeDocuments(ctx context.Context, cond string, args ...any) (int, error) {
+	// the SELECT sees the versions as they were before the cascade deletes them
+	rows, err := s.DB.Query(ctx, `
+		WITH gone AS (DELETE FROM documents WHERE deleted_at IS NOT NULL AND `+cond+` RETURNING id)
+		SELECT (SELECT count(*) FROM gone), sha256 FROM document_versions
+		WHERE document_id IN (SELECT id FROM gone) GROUP BY sha256`, args...)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	var shas [][]byte
+	for rows.Next() {
+		var sha []byte
+		if err := rows.Scan(&n, &sha); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		shas = append(shas, sha)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	s.purgeContent(ctx, shas)
+	return n, nil
 }
 
 // EmptyTrash purges all trashed documents of a space.
@@ -141,47 +168,55 @@ func (s *Service) EmptyTrash(ctx context.Context, p *Principal, spaceID string) 
 	if err := s.requirePerm(ctx, s.DB, p, spaceID, PermDelete); err != nil {
 		return 0, err
 	}
-	tag, err := s.DB.Exec(ctx, `DELETE FROM documents WHERE space_id=$1 AND deleted_at IS NOT NULL`, spaceID)
-	if err != nil {
-		return 0, err
-	}
-	Enqueue(ctx, s.DB, JobGCBlobs, map[string]any{}, JobGCBlobs, time.Now().Add(time.Minute))
-	return int(tag.RowsAffected()), nil
+	return s.purgeDocuments(ctx, `space_id=$1`, spaceID)
 }
 
 // PurgeExpired deletes documents whose trash retention has passed.
 func (s *Service) PurgeExpired(ctx context.Context) (int, error) {
-	tag, err := s.DB.Exec(ctx, `DELETE FROM documents WHERE deleted_at IS NOT NULL AND deleted_at < now() - make_interval(secs => $1)`,
-		s.Cfg.TrashRetention.Seconds())
-	if err != nil {
-		return 0, err
-	}
-	return int(tag.RowsAffected()), nil
+	return s.purgeDocuments(ctx, `deleted_at < now() - make_interval(secs => $1)`, s.Cfg.TrashRetention.Seconds())
 }
 
-// GCBlobs deletes blobs no longer referenced by any version (and not
-// derived from a referenced blob) that were not used within grace.
-// Derived blobs become collectable once their source is gone, hence the loop.
-func (s *Service) GCBlobs(ctx context.Context, grace time.Duration) (int, error) {
+// GCBlobs deletes blobs no longer referenced by any version (and not part
+// of the variant tree of a referenced blob), with their processing state,
+// text and variants. only limits it to these blobs and the variants derived
+// from them (nil: all). Writers record blobs under the shared blob lock and
+// GC takes it exclusively, so there is no grace period: unreferenced content
+// is gone at once. ok=false: an export or import holds the lock, try later.
+func (s *Service) GCBlobs(ctx context.Context, only [][]byte) (n int, ok bool, err error) {
 	conn, ok, err := s.tryBlobGC(ctx)
 	if err != nil || !ok {
-		return 0, err // an export or backup is streaming blobs; try again later
+		return 0, false, err
 	}
 	defer func() {
 		conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, int64(blobLockKey))
 		conn.Release()
 	}()
-	total := 0
-	for round := 0; round < 5; round++ {
+	all := only == nil
+	for round := 0; round < 5 && (all || len(only) > 0); round++ {
+		var next [][]byte
+		if !all {
+			// variants of the candidates become candidates once their source is gone
+			rows, err := s.DB.Query(ctx, `SELECT derived_sha256 FROM blob_derivatives WHERE source_sha256 = ANY($1)
+				UNION SELECT input_sha256 FROM blob_derivatives WHERE source_sha256 = ANY($1)`, only)
+			if err != nil {
+				return n, true, err
+			}
+			for rows.Next() {
+				var b []byte
+				rows.Scan(&b)
+				next = append(next, b)
+			}
+			rows.Close()
+		}
 		rows, err := s.DB.Query(ctx, `
 			DELETE FROM blobs b
-			WHERE b.last_used_at < now() - make_interval(secs => $1)
+			WHERE ($1::bytea[] IS NULL OR b.sha256 = ANY($1))
 			  AND NOT EXISTS (SELECT 1 FROM document_versions v WHERE v.sha256 = b.sha256)
 			  AND NOT EXISTS (SELECT 1 FROM blob_derivatives x WHERE x.source_sha256 <> b.sha256
 			                  AND (x.derived_sha256 = b.sha256 OR x.input_sha256 = b.sha256))
-			RETURNING b.sha256`, grace.Seconds())
+			RETURNING b.sha256`, only)
 		if err != nil {
-			return total, err
+			return n, true, err
 		}
 		var shas []blob.SHA256
 		for rows.Next() {
@@ -193,19 +228,36 @@ func (s *Service) GCBlobs(ctx context.Context, grace time.Duration) (int, error)
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
-			return total, err
+			return n, true, err
 		}
 		for _, h := range shas {
 			if err := s.Blobs.Delete(h); err != nil {
 				s.Log.Warn("gc: delete blob file", "sha256", h.Hex(), "err", err)
 			}
 		}
-		total += len(shas)
-		if len(shas) == 0 {
+		n += len(shas)
+		if len(shas) == 0 && all {
 			break
 		}
+		if !all {
+			only = next
+		}
 	}
-	return total, nil
+	return n, true, nil
+}
+
+// purgeContent deletes the content of purged documents right away (unless
+// still used elsewhere); if an export holds the blobs, a GC job does it later.
+func (s *Service) purgeContent(ctx context.Context, shas [][]byte) {
+	if len(shas) == 0 {
+		return
+	}
+	if _, ok, err := s.GCBlobs(ctx, shas); err != nil || !ok {
+		if err != nil {
+			s.Log.Warn("purge content", "err", err)
+		}
+		Enqueue(ctx, s.DB, JobGCBlobs, map[string]any{}, JobGCBlobs, time.Now().Add(time.Minute))
+	}
 }
 
 // SweepOrphanFiles removes blob files that have no database row and were not
