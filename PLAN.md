@@ -858,8 +858,8 @@ the SVG (keyboard and screen reader friendly); the SVG is decoration
 - [x] 16.4 Worker (if confirmed): content that is already a tildoc variant is not OCRed again
 - [x] 16.5 Tests: layout function (lanes, reuse, merge back, restore), API, UI smoke (graph shows variants and versions, open a variant of an old version)
 - [x] 16.6 Docs: README (history), bundle format if changed
-- [x] 16.8 Selecting or opening a file starts at its latest node (newest version, newest variant); horizontal strip widened and flattened
 - [x] 16.7 Viewer toolbar: the graph horizontally (`HistoryStrip.svelte`, same layout mirrored on the diagonal) replaces the OCR buttons; nodes select version + variant
+- [x] 16.8 Selecting or opening a file starts at its latest node (newest version, newest variant); horizontal strip widened and flattened
 
 Answers (2026-11-08): oldest at the top; one "History" tab; `restored_from`
 as a column with FK; tildoc's own OCR output is not OCRed again (kind
