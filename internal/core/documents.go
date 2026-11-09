@@ -40,7 +40,9 @@ type Document struct {
 	// spaces the caller can read.
 	SameContent []ContentPlace `json:"same_content"`
 	// EditLease: someone edits the document in the web editor right now.
-	EditLease     *EditLease      `json:"edit_lease"`
+	EditLease *EditLease `json:"edit_lease"`
+	// OfficeSession: the document is open in Collabora right now.
+	OfficeSession *OfficeSession  `json:"office_session"`
 	Tags          []TagRef        `json:"tags"`
 	Collections   []CollectionRef `json:"collections"` // the caller's collections containing it
 	Variants      []Variant       `json:"variants"`    // derived variants of the current content
@@ -269,6 +271,9 @@ func (s *Service) GetDocument(ctx context.Context, p *Principal, id string) (*Do
 		return nil, err
 	}
 	if d.EditLease, err = s.editLease(ctx, p, id); err != nil {
+		return nil, err
+	}
+	if d.OfficeSession, err = s.officeSession(ctx, id); err != nil {
 		return nil, err
 	}
 	return d, nil

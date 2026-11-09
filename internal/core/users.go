@@ -283,7 +283,7 @@ func (s *Service) SessionPrincipal(ctx context.Context, token string) (*Principa
 	if token == "" {
 		return nil, ErrUnauthorized
 	}
-	p := &Principal{Via: "session"}
+	p := &Principal{Via: "session", SessionHash: tokenHash(token)}
 	var lastSeen time.Time
 	err := s.DB.QueryRow(ctx, `
 		SELECT u.id::text, u.username, u.is_admin, s.last_seen_at

@@ -20,11 +20,13 @@ export default defineConfig({
           'font-src': ['self'],
           'style-src': ['self', 'unsafe-inline'],
           'img-src': ['self', 'data:', 'blob:'],
-          'frame-src': ['self'],
+          // the build cannot know the Collabora origin: the servers narrow
+          // these two to it with a response header (both policies apply)
+          'frame-src': ['self', 'https:', 'http:'],
           'connect-src': ['self'],
           'object-src': ['none'],
           'base-uri': ['self'],
-          'form-action': ['self']
+          'form-action': ['self', 'https:', 'http:']
         }
       }
     })

@@ -176,7 +176,7 @@ CREATE TABLE document_versions (
     sha256      bytea NOT NULL REFERENCES blobs,
     created_at  timestamptz NOT NULL DEFAULT now(),
     created_by  uuid REFERENCES users ON DELETE SET NULL,
-    source      text NOT NULL CHECK (source IN ('web', 'api', 'webdav', 'sftp', 's3', 'rename', 'copy', 'restore', 'editor')),
+    source      text NOT NULL CHECK (source IN ('web', 'api', 'webdav', 'sftp', 's3', 'rename', 'copy', 'restore', 'editor', 'office')),
     meta        jsonb NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(meta) = 'object'),
     -- a restore re-adds the content of an earlier version of the same document
     restored_from integer CHECK (restored_from < version),
@@ -480,6 +480,31 @@ CREATE TABLE edit_leases (
     CHECK (expires_at > acquired_at)
 );
 
+-- an office editing session (Collabora, WOPI): one per document, shared by
+-- its co-editors. Saves replace the working copy; the end of the session
+-- turns it into one version.
+CREATE TABLE office_sessions (
+    document_id    uuid PRIMARY KEY REFERENCES documents ON DELETE CASCADE,
+    lock_id        text NOT NULL CHECK (length(lock_id) BETWEEN 1 AND 1024),
+    working_sha256 bytea REFERENCES blobs,
+    saved_by       uuid REFERENCES users ON DELETE SET NULL,
+    saved_at       timestamptz,
+    started_at     timestamptz NOT NULL DEFAULT now(),
+    expires_at     timestamptz NOT NULL,
+    CHECK ((working_sha256 IS NULL) = (saved_at IS NULL))
+);
+CREATE INDEX office_sessions_expiry ON office_sessions(expires_at);
+CREATE INDEX office_sessions_working ON office_sessions(working_sha256) WHERE working_sha256 IS NOT NULL;
+
+-- what Collabora presents for one user and document; ends with the login session
+CREATE TABLE wopi_tokens (
+    token_hash   bytea PRIMARY KEY CHECK (length(token_hash) = 32),
+    document_id  uuid NOT NULL REFERENCES documents ON DELETE CASCADE,
+    session_hash bytea NOT NULL REFERENCES sessions ON DELETE CASCADE,
+    expires_at   timestamptz NOT NULL
+);
+CREATE INDEX wopi_tokens_expiry ON wopi_tokens(expires_at);
+
 -- Live events for the web UI (internal/core/events.go). Payloads are small
 -- JSON objects on channel tildoc_events; PostgreSQL delivers identical
 -- payloads of one transaction only once. Receivers filter by permission.
@@ -554,4 +579,8 @@ BEGIN
     RETURN NULL;
 END $$;
 CREATE TRIGGER edit_leases_event AFTER INSERT OR DELETE OR UPDATE OF client_id, user_id ON edit_leases
+    FOR EACH ROW EXECUTE FUNCTION edit_leases_event();
+
+-- session started or ended (refreshes and autosaves are silent)
+CREATE TRIGGER office_sessions_event AFTER INSERT OR DELETE ON office_sessions
     FOR EACH ROW EXECUTE FUNCTION edit_leases_event();

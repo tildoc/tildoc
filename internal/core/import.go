@@ -166,7 +166,7 @@ func shaOf(h string) blob.SHA256 {
 
 // ---------------------------------------------------------------- validation
 
-var versionSources = map[string]bool{"web": true, "api": true, "webdav": true, "sftp": true, "s3": true, "rename": true, "copy": true, "restore": true, "editor": true}
+var versionSources = map[string]bool{"web": true, "api": true, "webdav": true, "sftp": true, "s3": true, "rename": true, "copy": true, "restore": true, "editor": true, "office": true}
 
 // validateManifest checks a bundle as untrusted input. server allows the
 // server-only parts (users, teams, keys).

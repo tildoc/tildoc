@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -47,6 +48,11 @@ type Config struct {
 	OCRRedoForeign    bool // re-OCR PDFs that come with a foreign OCR layer (image-only variant + own OCR)
 	ProcessTimeout    time.Duration
 
+	// Office documents (Collabora Online via WOPI); OfficeURL empty = off.
+	OfficeURL         string // public origin of Collabora, never tildoc's own
+	OfficeInternalURL string // where tildoc fetches the discovery from
+	WOPIURL           string // how Collabora reaches tildoc
+
 	UIDir    string
 	LogLevel slog.Level
 }
@@ -68,7 +74,10 @@ func Load() (*Config, error) {
 		OcrmypdfBin:    env("TILDOC_OCRMYPDF_BIN", "ocrmypdf"),
 		GhostscriptBin: env("TILDOC_GHOSTSCRIPT_BIN", "gs"),
 		UIDir:          env("TILDOC_UI_DIR", ""),
+		OfficeURL:      strings.TrimRight(env("TILDOC_OFFICE_URL", ""), "/"),
+		WOPIURL:        strings.TrimRight(env("TILDOC_WOPI_URL", ""), "/"),
 	}
+	c.OfficeInternalURL = strings.TrimRight(env("TILDOC_OFFICE_INTERNAL_URL", c.OfficeURL), "/")
 	var errs []error
 	c.CookieSecure = boolEnv("TILDOC_COOKIE_SECURE", true, &errs)
 	c.OCREnabled = boolEnv("TILDOC_OCR_ENABLED", true, &errs)
@@ -118,6 +127,7 @@ func Load() (*Config, error) {
 		}
 		c.MasterKey = key
 	}
+	errs = append(errs, c.checkOffice()...)
 	c.BackupDir = env("TILDOC_BACKUP_DIR", "")
 	if c.BackupDir == "" {
 		c.BackupDir = c.DataDir + "/backups"
@@ -126,6 +136,33 @@ func Load() (*Config, error) {
 		c.WorkerConcurrency = 1
 	}
 	return c, errors.Join(errs...)
+}
+
+// checkOffice validates the office settings. Collabora renders untrusted
+// documents, so it must never share an origin with tildoc.
+func (c *Config) checkOffice() (errs []error) {
+	if c.OfficeURL == "" {
+		return nil
+	}
+	origin := func(name, v string) string {
+		u, err := url.Parse(v)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || (u.Path != "" && u.Path != "/") || u.RawQuery != "" {
+			errs = append(errs, fmt.Errorf("%s must be an http(s) origin without a path: %q", name, v))
+			return ""
+		}
+		return strings.ToLower(u.Scheme + "://" + u.Host)
+	}
+	office := origin("TILDOC_OFFICE_URL", c.OfficeURL)
+	origin("TILDOC_OFFICE_INTERNAL_URL", c.OfficeInternalURL)
+	if c.WOPIURL == "" {
+		errs = append(errs, errors.New("TILDOC_WOPI_URL is required with TILDOC_OFFICE_URL"))
+	} else {
+		origin("TILDOC_WOPI_URL", c.WOPIURL)
+	}
+	if office != "" && office == strings.ToLower(c.PublicURL) {
+		errs = append(errs, errors.New("TILDOC_OFFICE_URL must be a different origin than TILDOC_PUBLIC_URL (use a subdomain)"))
+	}
+	return errs
 }
 
 func env(k, def string) string {

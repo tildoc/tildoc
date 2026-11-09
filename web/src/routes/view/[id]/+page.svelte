@@ -7,7 +7,7 @@
   import { get, cachedData, revalidate } from '#lib/api.js';
   import { errorToast, session, stored, store } from '#lib/state.svelte.js';
   import { COLUMNS, loadView } from '#lib/columns.js';
-  import { shownVariant, hasVariant } from '#lib/format.js';
+  import { shownVariant, hasVariant, opensInOffice } from '#lib/format.js';
   import Icon from '#lib/components/Icon.svelte';
   import DocView from '#lib/components/viewer/DocView.svelte';
   import DocDetails from '#lib/components/DocDetails.svelte';
@@ -32,7 +32,8 @@
   let viewVersion = $state(0);
   // what is shown: the chosen variant of the shown version (or its default)
   let variant = $derived(doc ? shownVariant(doc, viewVersion, viewVariant) : 'original');
-  let editsText = $derived(!!doc && (doc.mime ?? '').startsWith('text/') && !viewVersion);
+  // the text editor and Collabora hold unsaved work: never rebuilt on new versions
+  let editsInPlace = $derived(!!doc && !viewVersion && ((doc.mime ?? '').startsWith('text/') || opensInOffice(file?.name, doc.mime, session.office)));
   let initialPage = $state(1);
   let view = $state();
   let pageInput = $state('1');
@@ -292,9 +293,8 @@
     {#if error}
       <div class="msg"><strong>This document can't be opened</strong><span>{error}</span><button onclick={close}>Back</button></div>
     {:else if doc && file}
-      <!-- a new version re-creates the view (PDF pages reload) — but never the
-           text editor: it must keep unsaved text and handles new versions itself -->
-      {#key editsText ? file.document_id : `${file.document_id}:${doc.version}`}
+      <!-- a new version re-creates the view (PDF pages reload), but never an editor -->
+      {#key editsInPlace ? file.document_id : `${file.document_id}:${doc.version}`}
         <DocView bind:this={view} file={{ ...file, mime: doc.mime, size: doc.size }} {doc} {variant} version={viewVersion} mode="full" edit onsaved={() => reloadDoc(true)}
           {query} {thumbs} {initialPage} transitionName="doc-page"
           bind:page bind:numPages bind:zoom bind:scale bind:matchCount bind:current bind:searching />

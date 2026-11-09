@@ -750,6 +750,32 @@ await step('multi-select survives a shaky Ctrl-click', async () => {
   await page.locator('.tools .count', { hasText: '10 selected' }).waitFor();
 });
 
+await step('office document: Collabora, one version per session', async () => {
+  const spaces = await api('GET', '/spaces');
+  const mine = spaces.find((x) => x.slug === 'admin') ?? spaces[0];
+  const f = await api('POST', '/folders', { parent_id: mine.root_folder_id, name: 'Office' });
+  const up = await api('PUT', `/folders/${f.id}/files?path=bericht.docx`, 'PK\x03\x04 first');
+  const doc = `/documents/${up.file.document_id}`;
+  await page.goto(`${BASE}/f/${f.id}`);
+  await row('bericht.docx').click();
+  await page.locator('aside.peek').getByRole('button', { name: 'Open' }).click();
+  const frame = page.frameLocator('iframe.office');
+  await frame.getByRole('heading', { name: 'bericht.docx' }).waitFor();
+  await frame.getByText('editing as').waitFor();
+  // saves during the session are no versions
+  await frame.getByRole('button', { name: 'Autosave' }).click();
+  await frame.getByText('done: save').waitFor();
+  let d = await api('GET', doc);
+  if (d.version !== 1 || !d.office_session?.saved_at) throw new Error(`during the session: v${d.version}`);
+  await page.getByText('become a new version when you close').waitFor();
+  // closing makes exactly one version, and the iframe stayed in place
+  await frame.getByRole('button', { name: 'Close document' }).click();
+  await frame.getByText('done: exit').waitFor();
+  d = await api('GET', doc);
+  if (d.version !== 2 || d.versions[0].source !== 'office' || d.office_session) throw new Error(`after the session: ${JSON.stringify(d.versions)}`);
+  await frame.getByText('done: exit').waitFor();
+});
+
 await step('text editor: edit, keys, review and save', async () => {
   const sp = await home();
   const f = await api('POST', '/folders', { parent_id: sp.root_folder_id, name: 'Editor' });

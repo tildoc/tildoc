@@ -82,6 +82,17 @@ version arrives that way while you edit, you are warned and the review
 compares with it; your save becomes the newest version, the other stays in
 the history.
 
+### Editing office documents
+
+With Collabora Online (optional, see below), `.docx`, `.xlsx`, `.pptx`, `.odt`
+and the other types it supports open as a web application in the full viewer.
+Several people can edit at the same time. Saves during the session are kept
+as a working copy; **when the last person closes the document it becomes one
+new version** (source "Office"). If Collabora crashes or loses its
+connection, the working copy becomes a version after 30 minutes. Users without
+write access get the document read-only. WebDAV, SFTP and S3 keep showing the
+last version until the session ends, and are not blocked: the last save wins.
+
 ### Places
 
 *Places* in the document details lists where the document appears, plus
@@ -227,6 +238,25 @@ All settings are `TILDOC_*` environment variables (template: `deploy/.env.exampl
 | `TILDOC_BACKUP_DIR` | `<data dir>/backups` | where server backups are written (compose: `/backups` volume) |
 | `TILDOC_OCR_REDO_FOREIGN` | `true` | add tildoc's OCR to PDFs that come with a foreign OCR layer |
 
+### Office documents (Collabora Online)
+
+Collabora needs **its own subdomain**, which must resolve to this host and be
+covered by the certificate (a generated self-signed certificate includes it;
+delete the `certs` volume to regenerate it). tildoc refuses to start if the
+office URL has the same origin as tildoc. In `deploy/.env`:
+
+```
+COMPOSE_PROFILES=office
+TILDOC_OFFICE_SERVER_NAME=office.example.org
+TILDOC_OFFICE_URL=https://office.example.org:8443
+```
+
+This runs the CODE edition (MPL-2.0, in its own container; it shows a
+development notice and is meant for small installations), using about
+0.5 GB of RAM when idle, plus more per open document. `/wopi` is reachable only from
+Collabora inside the compose network. Without `TILDOC_OFFICE_URL` the feature
+is off.
+
 ## Connecting from Arch Linux / KDE
 
 Create an **access key** in *Settings & access*. Its secret is the password for
@@ -366,6 +396,10 @@ web/               SvelteKit UI (static SPA)   deploy/         compose, nginx te
   and OCR results are shared per content, so uploading bytes that someone else
   already stored shows them as processed right away (this reveals that the
   identical file existed on the server, nothing about where or whose).
+- **Office documents**: Collabora renders untrusted files, so it runs on its
+  own origin and cannot reach the tildoc session cookie or API. Its tokens are
+  stored hashed, bound to one document and login session, and every WOPI call
+  checks permissions again. Requests are verified with Collabora's proof key.
 - **Backups**: server backups (see above) contain password hashes and encrypted
   access key secrets; keep them as safe as the server. They are not
   downloadable in the UI. Keep `TILDOC_MASTER_KEY` separately; without it
@@ -375,4 +409,5 @@ web/               SvelteKit UI (static SPA)   deploy/         compose, nginx te
 ## License
 
 AGPL-3.0-only, see [LICENSE](LICENSE). Bundled runtime dependencies:
-pdf.js (Apache-2.0), CodeMirror 6 (MIT).
+pdf.js (Apache-2.0), CodeMirror 6 (MIT). Collabora Online CODE (MPL-2.0) is an
+optional, separate container and not part of tildoc.

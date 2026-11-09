@@ -5,14 +5,15 @@
   import ImageView from './ImageView.svelte';
   import TextView from './TextView.svelte';
   import TextEditor from './TextEditor.svelte';
+  import OfficeView from './OfficeView.svelte';
   import Icon from '../Icon.svelte';
-  import { prefs } from '../../state.svelte.js';
-  import { size as fmtSize, shortType, textVariant } from '../../format.js';
+  import { prefs, session } from '../../state.svelte.js';
+  import { size as fmtSize, shortType, textVariant, opensInOffice } from '../../format.js';
 
   let {
     file, // {document_id, name, mime, size}
     doc = null, // the document (optional): enables the fast in-document search
-    edit = false, // text files open in the editor (full viewer, current version)
+    edit = false, // text and office files open for editing (full viewer, current version)
     onsaved, // editor saved a new version
     variant = 'original',
     version = 0,
@@ -57,6 +58,7 @@
   );
 
   const editing = $derived(kind === 'text' && edit && !!doc && (!version || version === doc.version));
+  const office = $derived(kind === 'other' && edit && !!doc && (!version || version === doc.version) && opensInOffice(file.name, mime, session.office));
 
   export const capabilities = () => ({
     find: kind === 'pdf' || (kind === 'text' && !editing), // the editor has its own search (Ctrl+F)
@@ -81,6 +83,8 @@
   <ImageView {url} alt={file.name} {mode} {transitionName} bind:zoom bind:scale />
 {:else if editing}
   {#key doc.id}<TextEditor {doc} {file} {onsaved} />{/key}
+{:else if office}
+  {#key doc.id}<OfficeView {doc} {file} />{/key}
 {:else if kind === 'text'}
   <TextView bind:this={inner} {url} mime={file.mime} name={file.name} size={file.size} {query} {mode} bind:matchCount bind:current />
 {:else}
@@ -89,6 +93,7 @@
       <Icon name="file" size={40} />
       <strong>{file.name}</strong>
       <span>{shortType(file.mime, file.name)} file, {fmtSize(file.size)}</span>
+      {#if doc?.office_session}<p>Open in Office right now. Changes become a new version when everyone has closed it.</p>{/if}
       <p>There is no preview for this type. The file is stored unchanged and can be downloaded.</p>
       <a class="btn primary" href={base} download><Icon name="download" size={16} /> Download</a>
     </div>

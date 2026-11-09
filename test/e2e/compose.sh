@@ -163,4 +163,11 @@ CODE=$(curl -sk -o /dev/null -w '%{http_code}' -X POST "$B/api/documents/$TD/edi
 curl -skf -X PUT "$B/api/documents/$TD/text?client=$C1" "${AUTH[@]}" -H 'Content-Type: application/octet-stream' --data-binary '# edited' \
   | grep -q '"source":"editor"' || fail "save from the editor"
 
+step "office: own origin, WOPI not published, frame policy"
+"${DC[@]}" --profile office config -q || fail "compose profile office is invalid"
+curl -sk "$B/wopi/files/x?access_token=x" | grep -qi '<!doctype html' || fail "/wopi is published through nginx"
+curl -skI "$B/" | grep -qi "content-security-policy: frame-src 'self'" || fail "no frame policy on the UI"
+CODE=$(curl -sk -o /dev/null -w '%{http_code}' --resolve "office.localhost:$HTTPS:127.0.0.1" "https://office.localhost:$HTTPS/")
+[ "$CODE" = 502 ] || fail "office host without the profile returned $CODE, not 502"
+
 printf '\n\033[1;32mCOMPOSE E2E PASSED\033[0m\n'

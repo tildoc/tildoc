@@ -140,8 +140,9 @@ func (s *Service) purgeDocuments(ctx context.Context, cond string, args ...any) 
 	// the SELECT sees the versions as they were before the cascade deletes them
 	rows, err := s.DB.Query(ctx, `
 		WITH gone AS (DELETE FROM documents WHERE deleted_at IS NOT NULL AND `+cond+` RETURNING id)
-		SELECT (SELECT count(*) FROM gone), sha256 FROM document_versions
-		WHERE document_id IN (SELECT id FROM gone) GROUP BY sha256`, args...)
+		SELECT (SELECT count(*) FROM gone), sha256 FROM document_versions WHERE document_id IN (SELECT id FROM gone)
+		UNION SELECT (SELECT count(*) FROM gone), working_sha256 FROM office_sessions
+		WHERE document_id IN (SELECT id FROM gone) AND working_sha256 IS NOT NULL`, args...)
 	if err != nil {
 		return 0, err
 	}
@@ -212,6 +213,7 @@ func (s *Service) GCBlobs(ctx context.Context, only [][]byte) (n int, ok bool, e
 			DELETE FROM blobs b
 			WHERE ($1::bytea[] IS NULL OR b.sha256 = ANY($1))
 			  AND NOT EXISTS (SELECT 1 FROM document_versions v WHERE v.sha256 = b.sha256)
+			  AND NOT EXISTS (SELECT 1 FROM office_sessions o WHERE o.working_sha256 = b.sha256)
 			  AND NOT EXISTS (SELECT 1 FROM blob_derivatives x WHERE x.source_sha256 <> b.sha256
 			                  AND (x.derived_sha256 = b.sha256 OR x.input_sha256 = b.sha256))
 			RETURNING b.sha256`, only)

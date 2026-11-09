@@ -109,6 +109,11 @@ func (w *Worker) maintenance(ctx context.Context) {
 		}
 		w.Svc.PruneJobs(ctx, 7*24*time.Hour)
 		w.Svc.PruneEditLeases(ctx)
+		if n, err := w.Svc.ExpireOfficeSessions(ctx); err != nil {
+			w.Log.Warn("expire office sessions", "err", err)
+		} else if n > 0 {
+			w.Log.Info("office sessions ended by lock expiry", "count", n)
+		}
 		if n, err := w.Svc.CleanupUploads(ctx, w.Svc.Cfg.MultipartMaxAge); err == nil && n > 0 {
 			w.Log.Info("aborted stale multipart uploads", "count", n)
 		}

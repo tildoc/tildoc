@@ -18,13 +18,21 @@ import (
 	"time"
 
 	"github.com/tildoc/tildoc/internal/api"
+	"github.com/tildoc/tildoc/internal/config"
 	"github.com/tildoc/tildoc/internal/testutil"
 )
 
 // liveServer is newServer with the event hub running.
 func liveServer(t *testing.T, uiDir string) (*httptest.Server, *api.Server) {
+	return liveServerWith(t, uiDir, nil)
+}
+
+func liveServerWith(t *testing.T, uiDir string, configure func(*config.Config)) (*httptest.Server, *api.Server) {
 	env := testutil.New(t)
 	env.Cfg.UIDir = uiDir
+	if configure != nil {
+		configure(env.Cfg)
+	}
 	srv := api.New(env.Svc, env.Cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

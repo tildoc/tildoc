@@ -948,6 +948,123 @@ licensed AGPL-3.0-only, with its own icon.
 - [x] 18.3 Icon: master `docs/assets/tildoc.png`; `web/static/icon-{32,64,180}.png`
   (cropped, generated with ffmpeg) as favicon, apple-touch icon and brand mark.
 
+---
+
+### Phase 19 — Office documents with Collabora Online
+
+**Goal:** office files (`.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp`, …:
+whatever Collabora's discovery lists) open as a web application in the full
+viewer. An editing session produces **one version, when it ends**; saves
+during the session are not versions.
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant T as tildoc
+  participant C as Collabora (own origin)
+  B->>T: POST /api/documents/{id}/office
+  T-->>B: action URL, access_token, ttl
+  B->>C: form POST into iframe
+  C->>T: CheckFileInfo, GetFile (token, proof)
+  C->>T: LOCK → office session starts
+  loop while editing
+    C->>T: REFRESH_LOCK
+    C->>T: PutFile (autosave / Ctrl+S) → working copy only
+  end
+  alt last editor leaves
+    C->>T: PutFile (exit save) and/or UNLOCK
+    T->>T: working copy ≠ current version → new version (source office)
+  else Collabora gone, lock expires after 30 min
+    T->>T: housekeeping: same promotion
+  end
+  T-)B: SSE: document changed
+```
+
+**Sessions and versions:**
+- `office_sessions` (document PK, WOPI lock string, working copy → `blobs`,
+  last saving user, `expires_at`, trigger for SSE). Not `edit_leases`: a
+  session has several co-editors and a WOPI lock, not one browser tab.
+- `PutFile` without exit flag replaces the working copy. `GetFile` returns the
+  working copy during a session, so joining editors see the current state.
+  WebDAV, SFTP, S3 and the viewer see the last version until the session ends.
+- The session ends on exit save, on `UNLOCK` (Collabora writes nothing on exit
+  when the last autosave already holds everything, so the exit-save header
+  alone would lose those edits), or on lock expiry. A working copy that differs
+  from the current version becomes one version; its author is the user of the
+  last save. The working copy is then released (normal blob GC rules:
+  `blobClaim`, shared advisory lock).
+- Text editor and Collabora never share a document: `text/*` always goes to
+  the text editor, WOPI refuses it.
+- Other channels are not blocked, the last save wins (decision 37). A version
+  arriving during a session shows a notice in the viewer; no WOPI 1010 conflict
+  dialog. Trash or purge ends the session and later `PutFile`s fail.
+- Server backups and bundles do not contain sessions or working copies.
+
+**Security:**
+- Collabora runs on its **own origin** (own subdomain), never under
+  tildoc's origin: it renders untrusted documents and must not reach the
+  session cookie or `/api`. The build's CSP (meta tag) cannot know that
+  origin, so it allows http(s) frames and form posts and the servers narrow
+  both to that origin with a response header (both policies apply);
+  Collabora's `frame_ancestors` and `aliasgroup1` allow only tildoc.
+- `wopi_tokens`: random, stored hashed, bound to user, document and login
+  session (logout revokes), TTL 10 h. Every WOPI call builds a Principal from
+  the token and goes through `requireCap` again, so revoked access applies
+  immediately. `UserCanWrite` follows `PermWrite`; without it the file opens
+  read-only and `PutFile` is refused.
+- `X-WOPI-Proof` verified with the discovery public key (`crypto/rsa`,
+  timestamp window, old key accepted during rotation); compose generates the
+  key.
+- `access_token` is in query strings: masked in nginx `log_format` and in
+  tildoc's request log.
+- Only the configured discovery URL is fetched; extensions and action URLs from
+  it are validated against the office origin. `PutFile` obeys
+  `TILDOC_MAX_UPLOAD_BYTES`.
+
+**Configuration:** `TILDOC_OFFICE_URL` (public origin; empty = feature off, no
+buttons, `/wopi` answers 404), `TILDOC_OFFICE_INTERNAL_URL` (discovery),
+`TILDOC_WOPI_URL` (how Collabora reaches tildoc). Compose: pinned
+`collabora/code` service (CODE edition only: development notice, soft limit around
+20 documents/connections) behind nginx with websocket proxying, enabled via a
+compose profile (~1.5 GB image, 1–2 GB RAM).
+
+#### Steps
+
+- [x] 19.1 Schema + core (`internal/core/office.go`): `office_sessions`, `wopi_tokens`, source `office`, working copy and promotion, housekeeping for expired locks and tokens, GC protection
+- [x] 19.2 Discovery client: extensions, view/edit actions, proof keys, refresh and failure handling
+- [x] 19.3 WOPI adapter (`internal/api/wopi.go`): CheckFileInfo, GetFile, PutFile (autosave/exit headers), Lock, RefreshLock, Unlock, GetLock, proof check; header names, discovery format and proof key checked against CODE 26.04.6.1.1 (a complete editing session with real CODE is still open)
+- [x] 19.4 API + UI: `POST /api/documents/{id}/office`, `GET /api/office` (extensions), `office_session` in the document JSON, `OfficeView.svelte` (iframe, never re-mounted; no postMessage needed), "being edited" and newer-version notices, History label "Office"
+- [x] 19.5 Deployment: compose profile, nginx server block on its own origin, websocket, log masking, `.env.example`
+- [x] 19.6 Tests: core (promotion on exit save, UNLOCK and expiry; no version from autosaves; unchanged session = no version; revoked access; trash during a session), WOPI protocol against a stub Collabora (discovery, proof signatures), UI smoke with a stub iframe; no test against real CODE for now
+- [x] 19.7 Docs: README, AGENTS.md, bundle format (source value), decision 38
+
+Later (not in this phase): store a PDF of office documents for archiving,
+produced directly with `/cool/convert-to/pdf`; this would also give them
+previews and full-text search.
+
+Answers (2026-11-09): only the end of a session creates a version; always the
+CODE edition for now (no paid edition, no image option; MPL-2.0 is accepted
+because it is a separate, optional container, not linked or shipped in
+tildoc's images); a session ending without exit save (crash, lost connection)
+is promoted after the lock expires; several users edit together (Collabora's
+co-editing); Collabora runs on its own subdomain; tests use a stub Collabora
+only. Decision 38.
+
+### Phase 20 — ONLYOFFICE as a selectable office server (planned)
+
+**Goal:** the deployment chooses between Collabora and ONLYOFFICE, for example
+by uncommenting one of two sections in `deploy/docker-compose.yml`. Not started.
+
+**To clarify when it starts:**
+- Connect through ONLYOFFICE's WOPI mode (keeps `internal/wopi` and the session
+  model) or its own Docs API with JWT and callback URLs (more features, a
+  second adapter).
+- The exit save is marked by a Collabora-specific header
+  (`X-COOL-WOPI-IsExitSave`). Without it a session ends on `UNLOCK` or lock
+  expiry, which `core/office.go` already handles.
+- ONLYOFFICE is AGPL-3.0: acceptable as a separate, optional container, as
+  for CODE?
+
 ## Open Topics
 
 Collected 2026-11-08; each becomes a phase or step when picked up.
@@ -1029,6 +1146,7 @@ Collected 2026-11-08; each becomes a phase or step when picked up.
 | 35 | HTTP caching | JSON `no-store` + ETag revalidated by the in-memory UI cache (no authenticated data in the browser disk cache) |
 | 36 | History | one graph of versions and variants, oldest first; restores stored (`restored_from`), continuations derived from content hashes |
 | 37 | Text editor | CodeMirror 6 (lazy); one UI editor per document via a 15 s lease (SSE); other channels not blocked, last save wins; review with diff before every save |
+| 38 | Office documents | Collabora Online via WOPI on its own origin; only the end of an editing session creates a version, saves during it go to a working copy |
 
 ## Open Questions
 

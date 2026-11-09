@@ -80,6 +80,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("POST /api/documents/{id}/edit-lease", s.authed(s.acquireEditLease))
 	h("PUT /api/documents/{id}/edit-lease", s.authed(s.renewEditLease))
 	h("DELETE /api/documents/{id}/edit-lease", s.authed(s.releaseEditLease))
+	s.officeRoutes(h)
 	h("POST /api/documents/{id}/tags", s.authed(s.tagDocument))
 	h("DELETE /api/documents/{id}/tags/{tag}", s.authed(s.untagDocument))
 

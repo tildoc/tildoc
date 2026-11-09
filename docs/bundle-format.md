@@ -36,8 +36,9 @@ per space (`parent_id` null, empty name). A document is `{id, created_at,
 updated_at, created_by, forked_from, deleted_at, current_version, versions,
 links, tags}`; versions are `{version, sha256, created_at, created_by, source,
 meta, restored_from}`, numbered from 1 without gaps and referencing blobs;
-`restored_from` (an earlier version number) is set exactly when `source` is
-`restore`;
+`source` is one of `web`, `api`, `webdav`, `sftp`, `s3`, `rename`, `copy`,
+`restore`, `editor`, `office`; `restored_from` (an earlier version number) is
+set exactly when `source` is `restore`;
 links (places) are `{id, folder_id, name, original_path, import_id,
 created_at, created_by, updated_at, deleted_at, deleted_path}`.
 

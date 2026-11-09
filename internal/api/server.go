@@ -27,6 +27,7 @@ import (
 	"github.com/tildoc/tildoc/internal/blob"
 	"github.com/tildoc/tildoc/internal/config"
 	"github.com/tildoc/tildoc/internal/core"
+	"github.com/tildoc/tildoc/internal/wopi"
 )
 
 // SessionCookie is the name of the session cookie.
@@ -45,6 +46,8 @@ type Server struct {
 	Mounts map[string]http.Handler
 	// Events feeds GET /api/events; run it with Events.Run.
 	Events *core.EventHub
+	// Office is the Collabora discovery client (nil: feature off).
+	Office *wopi.Client
 
 	stop     chan struct{}
 	stopOnce sync.Once
@@ -53,7 +56,7 @@ type Server struct {
 // New creates the API server.
 func New(svc *core.Service, cfg *config.Config, log *slog.Logger) *Server {
 	return &Server{Svc: svc, Cfg: cfg, Log: log, Limiter: auth.NewLimiter(10, 15*time.Minute), Mounts: map[string]http.Handler{},
-		Events: svc.NewEventHub(), stop: make(chan struct{})}
+		Events: svc.NewEventHub(), Office: newOfficeClient(cfg.OfficeInternalURL), stop: make(chan struct{})}
 }
 
 type ctxKey int
@@ -403,6 +406,13 @@ func ServeContent(w http.ResponseWriter, r *http.Request, f blob.File, name, mt,
 
 // ---------------------------------------------------------------- UI
 
+// UIFramePolicy narrows the page's own CSP (a meta tag in the build, which
+// cannot know the deployment): frames and form posts only to tildoc and its
+// Collabora. deploy/nginx/tildoc.conf.template sets the same.
+func UIFramePolicy(officeURL string) string {
+	return "frame-src 'self' " + officeURL + "; form-action 'self' " + officeURL
+}
+
 func (s *Server) uiHandler() http.Handler {
 	root := s.Cfg.UIDir
 	fs := http.FileServer(http.Dir(root))
@@ -415,6 +425,7 @@ func (s *Server) uiHandler() http.Handler {
 		if st, err := os.Stat(filepath.Join(root, filepath.FromSlash(p))); err != nil || st.IsDir() {
 			// SPA fallback
 			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Content-Security-Policy", UIFramePolicy(s.Cfg.OfficeURL))
 			http.ServeFile(w, r, filepath.Join(root, "index.html"))
 			return
 		}

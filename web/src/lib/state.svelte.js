@@ -2,7 +2,7 @@
 import { get, patch, setUnauthorizedHandler, clearCache } from './api.js';
 import { startEvents, stopEvents, onEvent } from './events.svelte.js';
 
-export const session = $state({ user: null, ready: false, spaces: [], info: null, teams: [], collections: [], tags: [] });
+export const session = $state({ user: null, ready: false, spaces: [], info: null, teams: [], collections: [], tags: [], office: [] });
 export const ui = $state({ toasts: [], uploads: [], sidebarOpen: false, treeVersion: 0, palette: false, returnTo: null, currentSpace: null });
 
 setUnauthorizedHandler(() => {
@@ -29,16 +29,18 @@ export function errorToast(e) {
 // trip instead of four) and starts the live event stream.
 export async function loadSession() {
   const nr = { noRedirect: true };
-  const [me, spaces, colls, info] = await Promise.allSettled([
+  const [me, spaces, colls, info, office] = await Promise.allSettled([
     get('/me', nr),
     get('/spaces', nr),
     get('/collections', nr),
-    session.info ? Promise.resolve(session.info) : get('/info', nr)
+    session.info ? Promise.resolve(session.info) : get('/info', nr),
+    get('/office', nr)
   ]);
   if (me.status === 'fulfilled') {
     session.user = me.value;
     session.spaces = spaces.status === 'fulfilled' ? spaces.value : [];
     session.collections = colls.status === 'fulfilled' ? colls.value : [];
+    session.office = office.status === 'fulfilled' ? office.value.extensions : [];
     startEvents();
   } else {
     session.user = null;

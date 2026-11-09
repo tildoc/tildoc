@@ -47,6 +47,7 @@ type Principal struct {
 	ReadOnly     bool
 	Via          string // session | accesskey | ssh | system
 	KeyID        string
+	SessionHash  []byte // Via session: the login session
 }
 
 // SystemPrincipal is used by background jobs.

@@ -91,3 +91,12 @@ export function defaultVariant(doc, version = 0) {
 export function shownVariant(doc, version, chosen) {
   return chosen && hasVariant(doc, version, chosen) ? chosen : defaultVariant(doc, version);
 }
+
+// opensInOffice: does this file open in Collabora? Same types as the server
+// (core.OfficeMIME): the viewer and the text editor keep theirs.
+export function opensInOffice(name, mime, extensions) {
+  const m = mime ?? '';
+  if (m.startsWith('text/') || m.startsWith('application/pdf') || m.includes('json') || m.startsWith('image/')) return false;
+  const i = (name ?? '').lastIndexOf('.');
+  return i >= 0 && (extensions ?? []).includes(name.slice(i + 1).toLowerCase());
+}

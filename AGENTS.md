@@ -130,6 +130,11 @@ When the user requests a programming task, **do not start coding immediately.**
   (`internal/core/editing.go`); saving needs the lease of that window
   (`client_id`). Never re-key or re-mount the editor on new versions: it
   holds unsaved text.
+- **Office documents:** Collabora via WOPI (`internal/wopi`, `internal/api/wopi.go`,
+  `internal/core/office.go`), always on its own origin (`config.checkOffice`).
+  Only the end of a session creates a version; saves go to the working copy.
+  Tests use `internal/wopi/wopitest` instead of real Collabora. Never re-mount
+  `OfficeView` on new versions.
 - **Live updates:** schema triggers `pg_notify('tildoc_events', …)` (see end
   of `0001_init.sql`); `core.EventHub` filters per subscriber; `/api/events`
   is SSE. New tables whose changes the UI shows get a trigger, never a new
