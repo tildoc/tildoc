@@ -76,6 +76,10 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("POST /api/documents/{id}/versions", s.authed(s.addVersion))
 	h("POST /api/documents/{id}/versions/{v}/restore", s.authed(s.restoreVersion))
 	h("POST /api/documents/{id}/reprocess", s.authed(s.reprocess))
+	h("PUT /api/documents/{id}/text", s.authed(s.saveText))
+	h("POST /api/documents/{id}/edit-lease", s.authed(s.acquireEditLease))
+	h("PUT /api/documents/{id}/edit-lease", s.authed(s.renewEditLease))
+	h("DELETE /api/documents/{id}/edit-lease", s.authed(s.releaseEditLease))
 	h("POST /api/documents/{id}/tags", s.authed(s.tagDocument))
 	h("DELETE /api/documents/{id}/tags/{tag}", s.authed(s.untagDocument))
 

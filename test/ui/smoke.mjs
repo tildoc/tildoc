@@ -142,8 +142,13 @@ await step('row click previews, name opens', async () => {
   await page.locator('aside.peek', { hasText: 'Quartalsbericht.pdf' }).waitFor();
   await row('notes.txt').getByRole('button', { name: 'notes.txt' }).click();
   await page.waitForURL('**/view/**');
-  await page.locator('.viewer .sheet-text', { hasText: 'Protokoll' }).waitFor();
+  // text files open in the editor; Escape stays in it, the close button leaves
+  await page.locator('.viewer .cm-editor', { hasText: 'Protokoll' }).waitFor();
+  await page.locator('.editor .bar .state', { hasText: 'Saved' }).waitFor(); // editable and focused
   await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  if (!page.url().includes('/view/')) throw new Error('Escape in the editor closed the viewer');
+  await page.locator('.viewer .bar').getByRole('button', { name: /^Close/ }).click();
   await page.waitForURL('**/f/**');
   await page.locator('tr.sel', { hasText: 'notes.txt' }).waitFor();
 });
@@ -262,12 +267,15 @@ await step('viewer details and next document', async () => {
   await page.keyboard.press(']');
   await page.waitForURL((u) => u.href !== before);
   await page.locator('.viewer h1', { hasText: 'notes-copy.txt' }).waitFor();
-  await page.locator('.viewer .sheet-text', { hasText: 'Protokoll' }).waitFor();
-  await page.keyboard.press('i');
+  await page.locator('.viewer .cm-editor', { hasText: 'Protokoll' }).waitFor();
+  await page.locator('.editor .bar .state', { hasText: 'Saved' }).waitFor();
+  // the editor has the focus now: "i" would be typed, so use the button
+  await page.getByRole('button', { name: 'Document details' }).click();
 });
 
 await step('viewer closes to folder', async () => {
-  await page.keyboard.press('Escape');
+  // a text file is open in the editor, which keeps Escape: close via the button
+  await page.locator('.viewer .bar').getByRole('button', { name: 'Close viewer' }).click();
   await page.waitForURL('**/f/**');
   await page.locator('tr.sel', { hasText: 'notes-copy.txt' }).waitFor();
 });
@@ -740,6 +748,84 @@ await step('multi-select survives a shaky Ctrl-click', async () => {
   const n = await page.locator('tbody tr.sel').count();
   if (n !== 10) throw new Error(`${n} rows selected, want 10`);
   await page.locator('.tools .count', { hasText: '10 selected' }).waitFor();
+});
+
+await step('text editor: edit, keys, review and save', async () => {
+  const sp = await home();
+  const f = await api('POST', '/folders', { parent_id: sp.root_folder_id, name: 'Editor' });
+  await api('PUT', `/folders/${f.id}/files?path=notes.md`, '# Title\nline one\nline two\n');
+  await page.goto(`${BASE}/f/${f.id}`);
+  // the preview stays read-only
+  await row('notes.md').click();
+  await page.locator('aside.peek', { hasText: 'line one' }).waitFor();
+  if (await page.locator('aside.peek .cm-editor').count()) throw new Error('editor in the preview');
+  // opening goes straight into the editor
+  await row('notes.md').locator('button.link').click();
+  await page.waitForURL('**/view/**');
+  await page.locator('.viewer .cm-editor').waitFor();
+  await page.locator('.editor .bar .state', { hasText: 'Saved' }).waitFor();
+  await page.locator('.cm-line', { hasText: 'line two' }).click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' and more');
+  await page.keyboard.press('Alt+ArrowUp'); // move the line up
+  await page.locator('.editor .bar .state', { hasText: 'Unsaved changes' }).waitFor();
+  const lines = await page.locator('.cm-content .cm-line').allTextContents();
+  if (lines[1] !== 'line two and more' || lines[2] !== 'line one') throw new Error(`lines ${lines}`);
+  // search and replace panel
+  await page.keyboard.press('Control+f');
+  await page.locator('.cm-panel.cm-search').waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('.cm-panel.cm-search').waitFor({ state: 'detached' });
+  if (!page.url().includes('/view/')) throw new Error('Escape in the editor closed the viewer');
+  // Ctrl+S: review with the diff, Enter saves
+  await page.locator('.cm-content').click();
+  await page.keyboard.press('Control+s');
+  const dlg = page.getByRole('dialog', { name: 'Save changes' });
+  await dlg.locator('.cm-changedLine').first().waitFor();
+  await dlg.getByRole('button', { name: 'Save as version 2' }).waitFor();
+  await page.screenshot({ path: join(OUT, 'editor_review.png') });
+  await page.keyboard.press('Enter');
+  await toast('Saved as version 2');
+  await page.locator('.editor .bar .state', { hasText: 'Saved' }).waitFor();
+  const vh = await viewerHistory();
+  await vh.locator('li', { hasText: 'Version 2' }).locator('.meta', { hasText: 'Editor' }).waitFor();
+});
+
+await step('text editor: one editor at a time, live hand-over', async () => {
+  const spaces = await api('GET', '/spaces');
+  const team = spaces.find((x) => x.name === 'Belege');
+  const up = await api('PUT', `/folders/${team.root_folder_id}/files?path=protokoll.txt`, 'Punkt 1\nPunkt 2\n');
+  await api('POST', `/spaces/${team.id}/grants`, { user: 'mia', role: 'member' });
+  // admin edits
+  await page.goto(`${BASE}/view/${up.file.link_id}`);
+  await page.locator('.editor .bar .state', { hasText: 'Saved' }).waitFor();
+  // mia sees it read-only, live
+  const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const p2 = await ctx2.newPage();
+  p2.on('pageerror', (e) => errors.push(`pageerror (mia): ${e.message}`));
+  await p2.request.post(BASE + '/api/auth/login', { data: { username: 'mia', password: 'miapass12' } });
+  await p2.goto(`${BASE}/view/${up.file.link_id}`);
+  await p2.locator('.editor .note', { hasText: 'Ada Admin is editing' }).waitFor();
+  // admin leaves: the lease is released, mia can edit at once
+  await page.goto(BASE + '/');
+  await p2.locator('.editor .bar .state', { hasText: 'Saved' }).waitFor();
+  await p2.locator('.toast', { hasText: 'You can edit this document now' }).first().waitFor();
+  // a version arrives meanwhile from another channel (e.g. WebDAV): warned, last save wins
+  await p2.locator('.cm-line', { hasText: 'Punkt 2' }).click();
+  await p2.keyboard.press('End');
+  await p2.keyboard.type(' (Mia)');
+  await api('PUT', `/folders/${team.root_folder_id}/files?path=protokoll.txt`, 'Punkt 1\nPunkt 2\nPunkt 3 extern\n');
+  // her unsaved text stays, she is warned
+  await p2.locator('.editor .bar .warn', { hasText: 'arrived meanwhile' }).waitFor();
+  if (!(await p2.locator('.cm-content').innerText()).includes('Punkt 2 (Mia)')) throw new Error('unsaved text lost when a version arrived');
+  await p2.keyboard.press('Control+s');
+  const dlg = p2.getByRole('dialog', { name: 'Save changes' });
+  await dlg.locator('p.warn', { hasText: 'was saved meanwhile' }).waitFor();
+  await dlg.getByRole('button', { name: 'Save as version 3' }).click();
+  await p2.locator('.toast', { hasText: 'Saved as version 3' }).first().waitFor();
+  const doc = await api('GET', `/documents/${up.file.document_id}`);
+  if (doc.version !== 3 || doc.versions[0].source !== 'editor' || doc.versions[1].source !== 'web') throw new Error('versions');
+  await ctx2.close();
 });
 
 await browser.close();

@@ -108,6 +108,7 @@ func (w *Worker) maintenance(ctx context.Context) {
 			w.Log.Warn("reclaimed stale jobs", "count", n)
 		}
 		w.Svc.PruneJobs(ctx, 7*24*time.Hour)
+		w.Svc.PruneEditLeases(ctx)
 		if n, err := w.Svc.CleanupUploads(ctx, w.Svc.Cfg.MultipartMaxAge); err == nil && n > 0 {
 			w.Log.Info("aborted stale multipart uploads", "count", n)
 		}

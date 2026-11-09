@@ -867,6 +867,71 @@ as a column with FK; tildoc's own OCR output is not OCRed again (kind
 
 Open questions: see below.
 
+### Phase 17 — Text editor
+
+**Goal:** text files (`text/*`, up to 5 MB) open directly in an editor in the
+full viewer; the preview stays read-only. Saving is confirmed in a review of
+the changes and creates a new version. Only one person edits a document at a
+time (edit lease, live via SSE).
+
+**Editor:** CodeMirror 6, lazy-loaded like pdf.js (packages `@codemirror/state`,
+`view`, `commands`, `search`, `language`, `merge`, and language modules for
+Markdown, JSON, XML/HTML, YAML, CSS, JavaScript; all from the CodeMirror
+project, MIT). Search/replace (Ctrl+F/H), move lines (Alt+↑/↓), duplicate
+(Shift+Alt+↓), undo history, line numbers, syntax highlighting by type and
+extension; theme from the design tokens (light/dark).
+
+```mermaid
+sequenceDiagram
+  participant A as Browser A (editor)
+  participant S as tildoc
+  participant B as Browser B
+  A->>S: POST /documents/{id}/edit-lease
+  S-->>A: lease (holder A, base version 3)
+  S-)B: SSE: document changed (lease)
+  B->>S: GET document → lease held by A
+  Note over B: read-only, "being edited by A", follows live
+  loop every 5 s
+    A->>S: heartbeat (lease renewed, expires after 15 s)
+  end
+  A->>S: PUT content, base_version 3, lease
+  S-->>A: version 4
+  A->>S: DELETE lease (or tab closed: expires after 15 s)
+  S-)B: SSE → B may edit now
+```
+
+**Concurrent changes:** the lease covers editors in the UI (other users and
+other tabs of the same user). WebDAV, SFTP and S3 clients cannot take part in
+it and are not blocked (decision 37). The last save wins: if a version
+arrived meanwhile through another channel, the review warns and shows the
+difference against that newer version; saving makes the editor's text the
+current version, the other one stays in the history.
+
+**Details:**
+- Lease in the database (`edit_leases`: document, user, client id, base
+  version, expires_at), one per document, renewed by heartbeat, expires 15 s
+  after the last one; a trigger sends the change over the existing event
+  stream. The holder can take over its own lease from another tab after a
+  confirmation.
+- Open read-only (with the reason) when: no write permission, larger than
+  5 MB, not valid UTF-8, or someone else holds the lease. Line endings (LF /
+  CRLF) and a UTF-8 BOM are kept as they were.
+- Save: Ctrl+S or "Save" → review dialog with the diff (unified, against the
+  version opened) → "Save as version N" → confirmation toast; leaving with
+  unsaved changes asks first.
+
+#### Steps
+
+- [x] 17.1 Schema + core: `edit_leases` (acquire, heartbeat, release, expiry), event trigger; save requires the lease, version source `editor`; limits (5 MB, UTF-8)
+- [x] 17.2 API: lease endpoints, `PUT /api/documents/{id}/text` (lease), lease state in the document JSON
+- [x] 17.3 UI: `TextEditor.svelte` (CodeMirror lazy, theme, languages, keys), editor mode in the viewer for text files, read-only states with reason, live lease updates
+- [x] 17.4 UI: review dialog with diff (`@codemirror/merge`), warning when a version arrived meanwhile, unsaved-changes guard
+- [x] 17.5 Tests: core (lease exclusivity, expiry, takeover, base version conflict, size/encoding limits), API, UI smoke (edit, Alt+↑, search/replace, review + save → version, second user read-only then free after release, conflict via WebDAV write), compose (lease through nginx)
+- [x] 17.6 Docs: README, AGENTS.md
+
+Answers (2026-11-09): WebDAV/SFTP/S3 are not blocked, the last save wins;
+the review before saving is always shown. Decision 37.
+
 ---
 
 ## Open Topics
@@ -949,6 +1014,7 @@ Collected 2026-11-08; each becomes a phase or step when picked up.
 | 34 | Live updates | PostgreSQL triggers + LISTEN/NOTIFY, Server-Sent Events filtered per subscriber; polling only as fallback |
 | 35 | HTTP caching | JSON `no-store` + ETag revalidated by the in-memory UI cache (no authenticated data in the browser disk cache) |
 | 36 | History | one graph of versions and variants, oldest first; restores stored (`restored_from`), continuations derived from content hashes |
+| 37 | Text editor | CodeMirror 6 (lazy); one UI editor per document via a 15 s lease (SSE); other channels not blocked, last save wins; review with diff before every save |
 
 ## Open Questions
 

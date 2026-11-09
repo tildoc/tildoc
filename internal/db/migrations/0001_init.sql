@@ -176,7 +176,7 @@ CREATE TABLE document_versions (
     sha256      bytea NOT NULL REFERENCES blobs,
     created_at  timestamptz NOT NULL DEFAULT now(),
     created_by  uuid REFERENCES users ON DELETE SET NULL,
-    source      text NOT NULL CHECK (source IN ('web', 'api', 'webdav', 'sftp', 's3', 'rename', 'copy', 'restore')),
+    source      text NOT NULL CHECK (source IN ('web', 'api', 'webdav', 'sftp', 's3', 'rename', 'copy', 'restore', 'editor')),
     meta        jsonb NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(meta) = 'object'),
     -- a restore re-adds the content of an earlier version of the same document
     restored_from integer CHECK (restored_from < version),
@@ -468,6 +468,18 @@ CREATE TABLE backup_blobs (
     PRIMARY KEY (backup_id, sha256)
 );
 
+-- One web editor per document at a time (internal/core/editing.go). The
+-- editing browser tab (client_id) renews the lease by heartbeat; it is free
+-- again once expires_at has passed (tab closed, connection lost).
+CREATE TABLE edit_leases (
+    document_id uuid PRIMARY KEY REFERENCES documents ON DELETE CASCADE,
+    user_id     uuid NOT NULL REFERENCES users ON DELETE CASCADE,
+    client_id   uuid NOT NULL,
+    acquired_at timestamptz NOT NULL DEFAULT now(),
+    expires_at  timestamptz NOT NULL,
+    CHECK (expires_at > acquired_at)
+);
+
 -- Live events for the web UI (internal/core/events.go). Payloads are small
 -- JSON objects on channel tildoc_events; PostgreSQL delivers identical
 -- payloads of one transaction only once. Receivers filter by permission.
@@ -527,3 +539,19 @@ BEGIN
     RETURN NULL;
 END $$;
 CREATE TRIGGER transfers_event AFTER INSERT OR UPDATE ON transfers FOR EACH ROW EXECUTE FUNCTION transfers_event();
+
+-- lease taken, handed over or released: viewers of the document switch
+-- between read-only and editable (heartbeats change only expires_at: silent)
+CREATE FUNCTION edit_leases_event() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    doc uuid := CASE WHEN TG_OP = 'DELETE' THEN OLD.document_id ELSE NEW.document_id END;
+    sid uuid;
+BEGIN
+    SELECT space_id INTO sid FROM documents WHERE id = doc;
+    IF FOUND THEN
+        PERFORM notify_space(sid, doc, false);
+    END IF;
+    RETURN NULL;
+END $$;
+CREATE TRIGGER edit_leases_event AFTER INSERT OR DELETE OR UPDATE OF client_id, user_id ON edit_leases
+    FOR EACH ROW EXECUTE FUNCTION edit_leases_event();

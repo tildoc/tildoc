@@ -38,7 +38,9 @@ type Document struct {
 	// (e.g. the same file uploaded to a personal and a team space; stored and
 	// processed once, but a separate document per space). Only places in
 	// spaces the caller can read.
-	SameContent   []ContentPlace  `json:"same_content"`
+	SameContent []ContentPlace `json:"same_content"`
+	// EditLease: someone edits the document in the web editor right now.
+	EditLease     *EditLease      `json:"edit_lease"`
 	Tags          []TagRef        `json:"tags"`
 	Collections   []CollectionRef `json:"collections"` // the caller's collections containing it
 	Variants      []Variant       `json:"variants"`    // derived variants of the current content
@@ -264,6 +266,9 @@ func (s *Service) GetDocument(ctx context.Context, p *Principal, id string) (*Do
 		return nil, err
 	}
 	if d.SameContent, err = s.sameContentPlaces(ctx, p, id, d.SHA256); err != nil {
+		return nil, err
+	}
+	if d.EditLease, err = s.editLease(ctx, p, id); err != nil {
 		return nil, err
 	}
 	return d, nil

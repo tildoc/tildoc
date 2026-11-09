@@ -63,6 +63,23 @@ flowchart LR
   `/api/events` (tildoc sends `X-Accel-Buffering: no`) and should allow
   idle reads of at least 30 s (heartbeat every 25 s).
 
+### Editing text files
+
+Opening a text file (`text/*`, up to 5 MB, UTF-8) opens it in an editor;
+the preview stays read-only. Ctrl+F searches and replaces, Alt+↑/↓ moves
+lines, Shift+Alt+↓ duplicates, Ctrl+Z undoes; Markdown, JSON, XML/HTML,
+YAML, CSS and JavaScript are highlighted. Ctrl+S (or *Save…*) shows the
+changes as a diff first; confirming saves a new version (source *Editor* in
+the history).
+
+Only one person edits a document at a time: the editing window holds a
+lease, renewed every 5 s and free again 15 s after the window closed or lost
+its connection. Others see the text read-only, follow saved versions live and
+can edit as soon as it is free. WebDAV, SFTP and S3 are not blocked: if a
+version arrives that way while you edit, you are warned and the review
+compares with it; your save becomes the newest version, the other stays in
+the history.
+
 ### Places
 
 *Places* in the document details lists where the document appears, plus

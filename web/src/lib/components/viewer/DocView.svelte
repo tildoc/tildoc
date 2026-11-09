@@ -4,6 +4,7 @@
   import PdfView from './PdfView.svelte';
   import ImageView from './ImageView.svelte';
   import TextView from './TextView.svelte';
+  import TextEditor from './TextEditor.svelte';
   import Icon from '../Icon.svelte';
   import { prefs } from '../../state.svelte.js';
   import { size as fmtSize, shortType, textVariant } from '../../format.js';
@@ -11,6 +12,8 @@
   let {
     file, // {document_id, name, mime, size}
     doc = null, // the document (optional): enables the fast in-document search
+    edit = false, // text files open in the editor (full viewer, current version)
+    onsaved, // editor saved a new version
     variant = 'original',
     version = 0,
     mode = 'full',
@@ -53,8 +56,10 @@
       : ''
   );
 
+  const editing = $derived(kind === 'text' && edit && !!doc && (!version || version === doc.version));
+
   export const capabilities = () => ({
-    find: kind === 'pdf' || kind === 'text',
+    find: kind === 'pdf' || (kind === 'text' && !editing), // the editor has its own search (Ctrl+F)
     zoom: kind === 'pdf' || kind === 'image',
     pages: kind === 'pdf',
     kind
@@ -74,6 +79,8 @@
   <iframe class="native" title={file.name} src={url} style:view-transition-name={transitionName || null}></iframe>
 {:else if kind === 'image'}
   <ImageView {url} alt={file.name} {mode} {transitionName} bind:zoom bind:scale />
+{:else if editing}
+  {#key doc.id}<TextEditor {doc} {file} {onsaved} />{/key}
 {:else if kind === 'text'}
   <TextView bind:this={inner} {url} mime={file.mime} name={file.name} size={file.size} {query} {mode} bind:matchCount bind:current />
 {:else}

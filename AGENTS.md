@@ -107,7 +107,9 @@ When the user requests a programming task, **do not start coding immediately.**
 - **Dev data** lives in `.data/` (gitignored; dot-dir so `go ./...` ignores it).
 - **UI stack:** SvelteKit 3 (config in `web/vite.config.js`, `#lib/` imports
   via package.json `imports`), Svelte 5 runes, plain CSS, no UI libraries.
-  Only runtime dependency: `pdfjs-dist` (lazy loaded). Design tokens live in
+  Runtime dependencies: `pdfjs-dist` and CodeMirror 6 (`@codemirror/*`,
+  `@lezer/highlight`), both lazy loaded (`lib/viewer/pdfjs.js`,
+  `lib/editor/cm.js`). Design tokens live in
   `web/src/app.css` ("light table": paper only for documents, highlighter
   yellow for search hits, Atkinson Hyperlegible Next as the only typeface;
   subpages use the full width; form hints go below the input). Viewer code:
@@ -119,8 +121,13 @@ When the user requests a programming task, **do not start coding immediately.**
 - **Bundles** (`internal/core/bundle.go`, `import.go`, `backup.go`): format in
   `docs/bundle-format.md`; bump `BundleVersion` for incompatible changes and
   keep imports going through the normal ingest rules.
-- **Window key handlers** must ignore `e.defaultPrevented` events; dialogs and
-  inputs that handle a key call `preventDefault()`.
+- **Window key handlers** must ignore `e.defaultPrevented` events and keys
+  typed into inputs or `contenteditable` (the text editor); dialogs and inputs
+  that handle a key call `preventDefault()`.
+- **Text editor:** one editor per document via `edit_leases`
+  (`internal/core/editing.go`); saving needs the lease of that window
+  (`client_id`). Never re-key or re-mount the editor on new versions: it
+  holds unsaved text.
 - **Live updates:** schema triggers `pg_notify('tildoc_events', …)` (see end
   of `0001_init.sql`); `core.EventHub` filters per subscriber; `/api/events`
   is SSE. New tables whose changes the UI shows get a trigger, never a new

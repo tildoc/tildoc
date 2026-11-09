@@ -32,6 +32,7 @@
   let viewVersion = $state(0);
   // what is shown: the chosen variant of the shown version (or its default)
   let variant = $derived(doc ? shownVariant(doc, viewVersion, viewVariant) : 'original');
+  let editsText = $derived(!!doc && (doc.mime ?? '').startsWith('text/') && !viewVersion);
   let initialPage = $state(1);
   let view = $state();
   let pageInput = $state('1');
@@ -191,7 +192,8 @@
 
   function keydown(e) {
     if (e.defaultPrevented) return;
-    const inField = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+    // typing in a field or the text editor (contenteditable) is not a shortcut
+    const inField = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || !!document.activeElement?.isContentEditable;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f' && caps.find) {
       e.preventDefault();
       openFind();
@@ -290,8 +292,10 @@
     {#if error}
       <div class="msg"><strong>This document can't be opened</strong><span>{error}</span><button onclick={close}>Back</button></div>
     {:else if doc && file}
-      {#key `${file.document_id}:${doc.version}`}
-        <DocView bind:this={view} file={{ ...file, mime: doc.mime, size: doc.size }} {doc} {variant} version={viewVersion} mode="full"
+      <!-- a new version re-creates the view (PDF pages reload) — but never the
+           text editor: it must keep unsaved text and handles new versions itself -->
+      {#key editsText ? file.document_id : `${file.document_id}:${doc.version}`}
+        <DocView bind:this={view} file={{ ...file, mime: doc.mime, size: doc.size }} {doc} {variant} version={viewVersion} mode="full" edit onsaved={() => reloadDoc(true)}
           {query} {thumbs} {initialPage} transitionName="doc-page"
           bind:page bind:numPages bind:zoom bind:scale bind:matchCount bind:current bind:searching />
       {/key}

@@ -32,6 +32,7 @@
   --line: #c6cdc3;
   --line-soft: #dde2da;
   --paper: #ffffff;
+  --editor: #ffffff; /* text editor background: paper in light, a dark surface in dark mode */
   --ink: #1d2a35;
   --ink-2: #56636b;
   --accent: #1f4e79;
@@ -75,6 +76,7 @@
   :root:not([data-theme='light']) {
     --board: #1b2024;
     --surface: #242b30;
+  --editor: #1f2529;
     --surface-2: #2c343a;
     --line: #3b454c;
     --line-soft: #313a40;
@@ -104,6 +106,7 @@
 :root[data-theme='dark'] {
   --board: #1b2024;
   --surface: #242b30;
+  --editor: #1f2529;
   --surface-2: #2c343a;
   --line: #3b454c;
   --line-soft: #313a40;

@@ -40,7 +40,7 @@
   // Row metadata, always in this order: date | size | where it came from
   // (upload channel of a version, program and version that made a variant).
   // Further details go into the tooltip.
-  const SOURCE = { web: 'Web upload', api: 'API', webdav: 'WebDAV', sftp: 'SFTP', s3: 'S3', rename: 'Rename', copy: 'Copy', restore: 'Restore' };
+  const SOURCE = { web: 'Web upload', api: 'API', webdav: 'WebDAV', sftp: 'SFTP', s3: 'S3', rename: 'Rename', copy: 'Copy', restore: 'Restore', editor: 'Editor' };
   const versionInfo = (v) => [date(v.created_at), size(v.size), SOURCE[v.source] ?? v.source].join(' | ');
   const variantInfo = (x) => [date(x.created_at), size(x.size), x.engine || 'unknown program'].join(' | ');
 

@@ -153,4 +153,14 @@ ETAG=$(echo "$H" | grep -i '^etag:' | cut -d' ' -f2- | tr -d '\r')
 CODE=$(curl -sk -o /dev/null -w '%{http_code}' -H "If-None-Match: $ETAG" "${AUTH[@]}" "$B/api/folders/$ROOTF")
 [ "$CODE" = 304 ] || fail "revalidation returned $CODE, not 304"
 
+step "text editor lease through nginx"
+TD=$(curl -skf -X PUT "$B/api/folders/$ROOTF/files?path=edit-me.md" "${AUTH[@]}" -H 'Content-Type: application/octet-stream' --data-binary '# edit me' \
+  | sed -E 's/.*"document_id":"([^"]+)".*/\1/')
+C1=11111111-1111-4111-8111-111111111111; C2=22222222-2222-4222-8222-222222222222
+curl -skf -X POST "$B/api/documents/$TD/edit-lease" "${AUTH[@]}" -H 'Content-Type: application/json' -d "{\"client_id\":\"$C1\"}" >/dev/null || fail "lease"
+CODE=$(curl -sk -o /dev/null -w '%{http_code}' -X POST "$B/api/documents/$TD/edit-lease" "${AUTH[@]}" -H 'Content-Type: application/json' -d "{\"client_id\":\"$C2\"}")
+[ "$CODE" = 409 ] || fail "second editor got $CODE, not 409"
+curl -skf -X PUT "$B/api/documents/$TD/text?client=$C1" "${AUTH[@]}" -H 'Content-Type: application/octet-stream' --data-binary '# edited' \
+  | grep -q '"source":"editor"' || fail "save from the editor"
+
 printf '\n\033[1;32mCOMPOSE E2E PASSED\033[0m\n'
