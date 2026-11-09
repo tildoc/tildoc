@@ -136,6 +136,18 @@ these servers, so this is the first run against the real ones.
 Access tokens never appear in tildoc's or nginx's logs, but Collabora's and
 ONLYOFFICE's own logs may contain them, so check before sharing those.
 
+## Connections to the vendors
+
+`deploy/docker-compose.yml` turns off what the servers do on their own:
+Collabora's update check every 10 hours (`fetch_update_check=0`) and
+ONLYOFFICE's plugin download from GitHub at start (`PLUGINS_ENABLED=false`, so
+its ten optional plugins such as Translator and OCR aren't installed).
+
+Two connections remain, and only after a click in the editor: Collabora's
+feedback form (asked for after 15 document opens; it sends the version and the
+WOPI host ID to `rating.collaboraonline.com`) and ONLYOFFICE's Plugin Manager
+(`onlyoffice.github.io`).
+
 ## Security
 
 - The office server runs on its own origin and cannot reach tildoc's login
