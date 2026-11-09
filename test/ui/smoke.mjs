@@ -345,6 +345,14 @@ await step('prefer browser pdf viewer', async () => {
   if (!src.includes('viewer=native')) throw new Error('native viewer url: ' + src);
   const res = await page.request.get(BASE + src);
   if (res.headers()['content-security-policy']) throw new Error('native PDF still sandboxed');
+  // the same choice applies when the document is opened full-window
+  await page.locator('aside.peek').getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL('**/view/**');
+  const full = page.locator('.viewer iframe.native');
+  await full.waitFor();
+  if (!(await full.getAttribute('src')).includes('viewer=native')) throw new Error('full viewer ignores the preference');
+  if (await page.locator('.viewer .pg canvas').count()) throw new Error('pdf.js used despite the preference');
+  await page.goBack();
   await page.getByRole('link', { name: 'Settings and access' }).click();
   await page.getByRole('radio', { name: /tildoc viewer/ }).check();
   await toast('tildoc viewer');
