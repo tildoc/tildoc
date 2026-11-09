@@ -227,7 +227,7 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 		s.Log.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
 		msg = "internal error"
 	}
-	writeJSON(w, status, apiError{Error: msg, Code: code})
+	writeJSON(w, status, apiError{Error: msg, Code: code}) //nolint:errcheck // the client is gone
 }
 
 // writeJSON writes v. Successful GET responses get an ETag (304 when the

@@ -210,6 +210,9 @@ func (s *Service) UpdateSpaceSettings(ctx context.Context, p *Principal, spaceID
 			st.WriteProtected, st.NoOCR); err != nil {
 			return err
 		}
+		if err := s.audit(ctx, tx, p, "space.settings", "space", spaceID, spaceID, map[string]any{"settings": st}); err != nil {
+			return err
+		}
 		if !hadNoOCR || st.NoOCR {
 			return nil
 		}
@@ -276,9 +279,9 @@ func (s *Service) TransferSpace(ctx context.Context, p *Principal, spaceID, toUs
 		}
 		var toU, toT *string
 		if toUser != "" {
-			q := `SELECT id::text FROM users WHERE username = lower($1) AND NOT disabled AND status = 'active'`
+			q := `SELECT id::text FROM users WHERE username = lower($1) AND status = 'active'`
 			if looksLikeUUID(toUser) {
-				q = `SELECT id::text FROM users WHERE id = $1::uuid AND NOT disabled AND status = 'active'`
+				q = `SELECT id::text FROM users WHERE id = $1::uuid AND status = 'active'`
 			}
 			var id string
 			if err := tx.QueryRow(ctx, q, toUser).Scan(&id); err != nil {
@@ -316,6 +319,9 @@ func (s *Service) TransferSpace(ctx context.Context, p *Principal, spaceID, toUs
 				return err
 			}
 		}
+		if err := s.audit(ctx, tx, p, "space.transfer", "space", spaceID, spaceID, map[string]any{"from_user": fromUser, "from_team": fromTeam, "to_user": toU, "to_team": toT, "keep_role": keepRole}); err != nil {
+			return err
+		}
 		if fromUser == nil {
 			return nil
 		}
@@ -340,7 +346,7 @@ func (s *Service) uniqueSlug(ctx context.Context, tx pgx.Tx, base string) string
 	cand := base
 	for i := 2; ; i++ {
 		var exists bool
-		tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM spaces WHERE slug=$1)`, cand).Scan(&exists)
+		tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM spaces WHERE slug=$1)`, cand).Scan(&exists) //nolint:errcheck // the unique index decides in the end
 		if !exists && ValidateSlug(cand) == nil {
 			return cand
 		}
@@ -400,12 +406,16 @@ func (s *Service) DeleteSpace(ctx context.Context, p *Principal, id string) erro
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
 		var live bool
-		tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM documents WHERE space_id=$1 AND deleted_at IS NULL)`, sp.ID).Scan(&live)
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM documents WHERE space_id=$1 AND deleted_at IS NULL)`, sp.ID).Scan(&live); err != nil {
+			return err
+		}
 		if live {
 			return errf(ErrNotEmpty, "space still contains documents")
 		}
 		var n int
-		tx.QueryRow(ctx, `SELECT count(*) FROM spaces WHERE owner_user_id=$1`, p.UserID).Scan(&n)
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM spaces WHERE owner_user_id=$1`, p.UserID).Scan(&n); err != nil {
+			return err
+		}
 		if sp.OwnerUserID != nil && n <= 1 {
 			return errf(ErrInvalid, "cannot delete your last personal space")
 		}

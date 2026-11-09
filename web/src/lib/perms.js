@@ -7,7 +7,7 @@ export const PERM_LABEL = {
   'share.file.public_link': 'File link (public)',
   'users.manage': 'Manage people', 'teams.manage': 'Manage all teams', 'teams.create': 'Create teams', 'roles.manage': 'Manage roles',
   'spaces.create': 'Create spaces', 'spaces.recover': 'Reassign spaces', 'tags.manage': 'Manage tags', 'backups.manage': 'Backups',
-  'settings.manage': 'Server settings'
+  'settings.manage': 'Server settings', 'audit.view': 'Activity log'
 };
 export const PERM_HELP = {
   view: 'See the files, read them in the browser and search them. Nothing more: without Download the file itself is not handed out.',
@@ -16,7 +16,7 @@ export const PERM_HELP = {
   write: 'Upload, create and edit files and folders, add new versions, tag, and move within the space.',
   move: 'Move files and folders out of this space into another one.',
   delete: 'Move files to the trash.',
-  purge: 'Delete from the trash for good and empty the trash.',
+  purge: 'Delete from the trash for good, empty the trash, and delete single old versions for good.',
   manage: "Rename the space, change its settings, and delete it once it is empty.",
   transfer: 'Hand the whole space to another owner.',
   drop_in: 'Create a Drop-In token: a key that scripts and devices use to send files into this space, and nothing else.',
@@ -35,7 +35,8 @@ export const PERM_HELP = {
   'spaces.recover': 'Give a space a new owner, for example when someone left. Does not allow reading it.',
   'tags.manage': 'Rename, merge and delete tags for everyone.',
   'backups.manage': 'Create and delete server backups.',
-  'settings.manage': 'Change server settings, see statistics and start processing again.'
+  'settings.manage': 'Change server settings, see statistics and start processing again.',
+  'audit.view': 'See who changed permissions, shares, keys and accounts.'
 };
 export const permLabel = (p) => PERM_LABEL[p] ?? p;
 export const permHelp = (p) => PERM_HELP[p] ?? '';

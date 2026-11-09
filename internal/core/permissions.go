@@ -94,6 +94,7 @@ const (
 	InstTags
 	InstBackups
 	InstSettings
+	InstAudit
 )
 
 var instNames = []struct {
@@ -101,7 +102,7 @@ var instNames = []struct {
 	n string
 }{{InstUsers, "users.manage"}, {InstTeams, "teams.manage"}, {InstTeamsCreate, "teams.create"}, {InstRoles, "roles.manage"},
 	{InstSpacesCreate, "spaces.create"}, {InstSpacesRecover, "spaces.recover"}, {InstTags, "tags.manage"},
-	{InstBackups, "backups.manage"}, {InstSettings, "settings.manage"}}
+	{InstBackups, "backups.manage"}, {InstSettings, "settings.manage"}, {InstAudit, "audit.view"}}
 
 func instFromNames(names []string) InstCap {
 	var c InstCap

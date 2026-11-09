@@ -2,6 +2,11 @@ package core
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -80,10 +85,16 @@ func (s *Service) RestoreDocument(ctx context.Context, p *Principal, docID strin
 		var links []rl
 		for rows.Next() {
 			var l rl
-			rows.Scan(&l.id, &l.path, &l.name)
+			if err := rows.Scan(&l.id, &l.path, &l.name); err != nil {
+				rows.Close()
+				return err
+			}
 			links = append(links, l)
 		}
 		rows.Close()
+		if err := rows.Err(); err != nil { // restoring only some places must not go unnoticed
+			return err
+		}
 		if len(links) == 0 {
 			return errf(ErrInvalid, "no restorable location")
 		}
@@ -137,31 +148,166 @@ func (s *Service) PurgeDocument(ctx context.Context, p *Principal, docID string)
 // content (blob, text, processing state, OCR variants), unless the content
 // is still used by another document.
 func (s *Service) purgeDocuments(ctx context.Context, cond string, args ...any) (int, error) {
-	// the SELECT sees the versions as they were before the cascade deletes them
-	rows, err := s.DB.Query(ctx, `
-		WITH gone AS (DELETE FROM documents WHERE deleted_at IS NOT NULL AND `+cond+` RETURNING id)
-		SELECT (SELECT count(*) FROM gone), sha256 FROM document_versions WHERE document_id IN (SELECT id FROM gone)
-		UNION SELECT (SELECT count(*) FROM gone), working_sha256 FROM office_sessions
-		WHERE document_id IN (SELECT id FROM gone) AND working_sha256 IS NOT NULL`, args...)
+	var ids []string
+	var shas [][]byte
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT id::text FROM documents WHERE deleted_at IS NOT NULL AND `+cond+` FOR UPDATE`, args...)
+		if err != nil {
+			return err
+		}
+		if ids, err = pgx.CollectRows(rows, pgx.RowTo[string]); err != nil || len(ids) == 0 {
+			return err
+		}
+		rows, err = tx.Query(ctx, `SELECT sha256 FROM document_versions WHERE document_id = ANY($1::uuid[])
+			UNION SELECT working_sha256 FROM office_sessions WHERE document_id = ANY($1::uuid[]) AND working_sha256 IS NOT NULL`, ids)
+		if err != nil {
+			return err
+		}
+		if shas, err = pgx.CollectRows(rows, pgx.RowTo[[]byte]); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM documents WHERE id = ANY($1::uuid[])`, ids); err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO purge_log(document_id) SELECT unnest($1::uuid[])`, ids)
+		return err
+	})
 	if err != nil {
 		return 0, err
 	}
-	var n int
-	var shas [][]byte
-	for rows.Next() {
-		var sha []byte
-		if err := rows.Scan(&n, &sha); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		shas = append(shas, sha)
+	entries := make([]MPurge, 0, len(ids))
+	for _, id := range ids {
+		entries = append(entries, MPurge{DocumentID: id, PurgedAt: s.now()})
 	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return 0, err
-	}
+	s.appendPurgeFile(entries)
 	s.purgeContent(ctx, shas)
-	return n, nil
+	return len(ids), nil
+}
+
+// PurgeVersion deletes one version for good, e.g. one holding a leaked
+// secret. The current version can't be purged: restore another one first, or
+// delete the document.
+func (s *Service) PurgeVersion(ctx context.Context, p *Principal, docID string, version int) error {
+	d, err := s.GetDocument(ctx, p, docID)
+	if err != nil {
+		return err
+	}
+	if err := s.requireCap(ctx, s.DB, p, d.SpaceID, CapPurge); err != nil {
+		return err
+	}
+	var sha []byte
+	err = s.tx(ctx, func(tx pgx.Tx) error {
+		var cur int
+		if err := tx.QueryRow(ctx, `SELECT current_version FROM documents WHERE id=$1 FOR UPDATE`, docID).Scan(&cur); err != nil {
+			return err
+		}
+		if version == cur {
+			return errf(ErrInvalid, "the current version can't be deleted: restore another version first, or delete the document")
+		}
+		err := tx.QueryRow(ctx, `DELETE FROM document_versions WHERE document_id=$1 AND version=$2 RETURNING sha256`, docID, version).Scan(&sha)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errf(ErrNotFound, "version not found")
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO purge_log(document_id, version) VALUES($1,$2)`, docID, version); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, p, "version.purge", "document", docID, d.SpaceID, map[string]any{"version": version})
+	})
+	if err != nil {
+		return err
+	}
+	s.appendPurgeFile([]MPurge{{DocumentID: docID, Version: &version, PurgedAt: s.now()}})
+	s.purgeContent(ctx, [][]byte{sha})
+	return nil
+}
+
+// purgeLogFile sits next to the backups. It outlives the database, so that a
+// restore of an older backup still knows what was deleted afterwards.
+const purgeLogFile = "purge.log"
+
+func (s *Service) appendPurgeFile(entries []MPurge) {
+	if len(entries) == 0 || s.Cfg.BackupDir == "" {
+		return
+	}
+	if err := os.MkdirAll(s.Cfg.BackupDir, 0o700); err != nil {
+		s.Log.Error("purge log", "err", err)
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(s.Cfg.BackupDir, purgeLogFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		s.Log.Error("purge log", "err", err)
+		return
+	}
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	for _, e := range entries {
+		if err := enc.Encode(e); err != nil {
+			s.Log.Error("purge log", "err", err)
+			return
+		}
+	}
+}
+
+func (s *Service) readPurgeFile(dir string) []MPurge {
+	f, err := os.Open(filepath.Join(dir, purgeLogFile))
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	var out []MPurge
+	dec := json.NewDecoder(f)
+	for {
+		var e MPurge
+		if err := dec.Decode(&e); err != nil {
+			if !errors.Is(err, io.EOF) {
+				s.Log.Error("purge log unreadable, stopped reading it", "err", err)
+			}
+			return out
+		}
+		out = append(out, e)
+	}
+}
+
+// applyPurgesTx removes from a restored instance what was deleted for good.
+func applyPurgesTx(ctx context.Context, tx pgx.Tx, entries []MPurge) error {
+	for _, e := range entries {
+		if e.Version == nil {
+			if _, err := tx.Exec(ctx, `DELETE FROM documents WHERE id=$1`, e.DocumentID); err != nil {
+				return err
+			}
+		} else {
+			var cur int
+			err := tx.QueryRow(ctx, `SELECT current_version FROM documents WHERE id=$1`, e.DocumentID).Scan(&cur)
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if cur == *e.Version { // an older backup, where it still was the current one
+				var newest *int
+				if err := tx.QueryRow(ctx, `SELECT max(version) FROM document_versions WHERE document_id=$1 AND version<>$2`, e.DocumentID, cur).Scan(&newest); err != nil {
+					return err
+				}
+				if newest == nil {
+					if _, err := tx.Exec(ctx, `DELETE FROM documents WHERE id=$1`, e.DocumentID); err != nil {
+						return err
+					}
+					continue
+				}
+				if _, err := tx.Exec(ctx, `UPDATE documents SET current_version=$2 WHERE id=$1`, e.DocumentID, *newest); err != nil {
+					return err
+				}
+			}
+			if _, err := tx.Exec(ctx, `DELETE FROM document_versions WHERE document_id=$1 AND version=$2`, e.DocumentID, *e.Version); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // EmptyTrash purges all trashed documents of a space.
@@ -189,7 +335,7 @@ func (s *Service) GCBlobs(ctx context.Context, only [][]byte) (n int, ok bool, e
 		return 0, false, err
 	}
 	defer func() {
-		conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, int64(blobLockKey))
+		conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, int64(blobLockKey)) //nolint:errcheck // the lock ends with the connection anyway
 		conn.Release()
 	}()
 	all := only == nil
@@ -204,7 +350,10 @@ func (s *Service) GCBlobs(ctx context.Context, only [][]byte) (n int, ok bool, e
 			}
 			for rows.Next() {
 				var b []byte
-				rows.Scan(&b)
+				if err := rows.Scan(&b); err != nil {
+					rows.Close()
+					return n, true, err
+				}
 				next = append(next, b)
 			}
 			rows.Close()
@@ -223,7 +372,10 @@ func (s *Service) GCBlobs(ctx context.Context, only [][]byte) (n int, ok bool, e
 		var shas []blob.SHA256
 		for rows.Next() {
 			var raw []byte
-			rows.Scan(&raw)
+			if err := rows.Scan(&raw); err != nil {
+				rows.Close()
+				return n, true, err
+			}
 			var h blob.SHA256
 			copy(h[:], raw)
 			shas = append(shas, h)
@@ -258,7 +410,9 @@ func (s *Service) purgeContent(ctx context.Context, shas [][]byte) {
 		if err != nil {
 			s.Log.Warn("purge content", "err", err)
 		}
-		Enqueue(ctx, s.DB, JobGCBlobs, map[string]any{}, JobGCBlobs, time.Now().Add(time.Minute))
+		if err := Enqueue(ctx, s.DB, JobGCBlobs, map[string]any{}, JobGCBlobs, time.Now().Add(time.Minute)); err != nil {
+			s.Log.Error("purge content: could not queue the cleanup", "err", err) // content stays until the next full GC
+		}
 	}
 }
 

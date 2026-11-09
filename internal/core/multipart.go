@@ -146,15 +146,14 @@ func (s *Service) CleanupUploads(ctx context.Context, maxAge time.Duration) (int
 	if err != nil {
 		return 0, err
 	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		rows.Scan(&id)
-		ids = append(ids, id)
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return 0, err
 	}
-	rows.Close()
 	for _, id := range ids {
-		s.DeleteUpload(ctx, id)
+		if err := s.DeleteUpload(ctx, id); err != nil {
+			s.Log.Warn("clean up upload", "id", id, "err", err)
+		}
 	}
 	// stale staging files (crashed uploads)
 	entries, _ := os.ReadDir(s.Blobs.TempDir())

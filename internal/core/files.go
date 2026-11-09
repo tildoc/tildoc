@@ -504,13 +504,10 @@ func (s *Service) moveTreeCrossSpaceTx(ctx context.Context, tx pgx.Tx, p *Princi
 	if err != nil {
 		return "", err
 	}
-	var ids []string
-	for links.Next() {
-		var id string
-		links.Scan(&id)
-		ids = append(ids, id)
+	ids, err := pgx.CollectRows(links, pgx.RowTo[string])
+	if err != nil { // moving only part of a folder must not go unnoticed
+		return "", err
 	}
-	links.Close()
 	for _, id := range ids {
 		if _, err := s.moveLinkTx(ctx, tx, p, id, newID, "", false); err != nil {
 			return "", err
@@ -524,10 +521,16 @@ func (s *Service) moveTreeCrossSpaceTx(ctx context.Context, tx pgx.Tx, p *Princi
 	var children []sub
 	for subs.Next() {
 		var c sub
-		subs.Scan(&c.id, &c.name)
+		if err := subs.Scan(&c.id, &c.name); err != nil {
+			subs.Close()
+			return "", err
+		}
 		children = append(children, c)
 	}
 	subs.Close()
+	if err := subs.Err(); err != nil {
+		return "", err
+	}
 	for _, c := range children {
 		if _, err := s.moveTreeCrossSpaceTx(ctx, tx, p, c.id, newID, c.name); err != nil {
 			return "", err
@@ -567,10 +570,16 @@ func (s *Service) DeleteFolder(ctx context.Context, p *Principal, folderID strin
 		var docs []string
 		for rows.Next() {
 			var d string
-			rows.Scan(&d)
+			if err := rows.Scan(&d); err != nil {
+				rows.Close()
+				return err
+			}
 			docs = append(docs, d)
 		}
 		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
 		if err := trashOrphans(ctx, tx, docs); err != nil {
 			return err
 		}

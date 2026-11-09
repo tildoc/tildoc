@@ -144,7 +144,10 @@ func (s *Service) CreateRole(ctx context.Context, p *Principal, name, scope stri
 		if err != nil {
 			return err
 		}
-		return setRolePermsTx(ctx, tx, id, perms)
+		if err := setRolePermsTx(ctx, tx, id, perms); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, p, "role.create", "role", id, "", map[string]any{"name": name, "scope": scope, "permissions": perms})
 	})
 	if err != nil {
 		return nil, err
@@ -192,9 +195,11 @@ func (s *Service) UpdateRole(ctx context.Context, p *Principal, id string, name 
 			if err := validRolePerms(r.Scope, perms); err != nil {
 				return err
 			}
-			return setRolePermsTx(ctx, tx, id, perms)
+			if err := setRolePermsTx(ctx, tx, id, perms); err != nil {
+				return err
+			}
 		}
-		return nil
+		return s.audit(ctx, tx, p, "role.update", "role", id, "", map[string]any{"name": r.Name, "before": r.Permissions, "after": perms})
 	})
 	if err != nil {
 		return nil, err
@@ -210,15 +215,17 @@ func (s *Service) DeleteRole(ctx context.Context, p *Principal, id string) error
 	if !looksLikeUUID(id) {
 		return errf(ErrNotFound, "role not found")
 	}
-	tag, err := s.DB.Exec(ctx, `DELETE FROM roles WHERE id=$1 AND NOT built_in`, id)
-	if db.IsForeignKeyViolation(err) {
-		return errf(ErrConflict, "this role is still in use")
-	}
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return errf(ErrInvalid, "built-in roles cannot be deleted")
-	}
-	return nil
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `DELETE FROM roles WHERE id=$1 AND NOT built_in`, id)
+		if db.IsForeignKeyViolation(err) {
+			return errf(ErrConflict, "this role is still in use")
+		}
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return errf(ErrInvalid, "built-in roles cannot be deleted")
+		}
+		return s.audit(ctx, tx, p, "role.delete", "role", id, "", nil)
+	})
 }

@@ -23,7 +23,7 @@ name, and treat the whole bundle as untrusted input.
 | `backup` | server backups: `{id, mode: full\|differential, base_id}` |
 | `settings` | server backups: instance id, OCR preference, backup retention |
 | `people` | users referenced by the bundle (`id`, `username`); imports map them by username |
-| `users`, `identities`, `teams`, `roles`, `grants`, `share_links`, `api_keys`, `imports`, `access_keys`, `ssh_keys` | server backups only (passwords, link tokens and API keys only as hashes; access key secrets stay encrypted with the master key) |
+| `users`, `identities`, `teams`, `team_links`, `roles`, `grants`, `share_links`, `api_keys`, `purge_log`, `audit_events`, `imports`, `access_keys`, `ssh_keys` | server backups only (passwords, link tokens and API keys only as hashes; access key secrets stay encrypted with the master key) |
 | `tags` | `{id, name, color, created_by, created_at}` |
 | `spaces` | `{id, slug, name, owner_user_id, owner_team_id, created_at, folders, documents}` |
 | `documents` | collection bundles: documents with one place each |
@@ -35,10 +35,10 @@ A folder is `{id, parent_id, name, created_at, created_by}`; exactly one root
 per space (`parent_id` null, empty name). A document is `{id, created_at,
 updated_at, created_by, forked_from, deleted_at, current_version, versions,
 links, tags}`; versions are `{version, sha256, created_at, created_by, source,
-meta, restored_from}`, numbered from 1 without gaps and referencing blobs;
+meta, restored_from}`, with rising numbers, which may have gaps where a version was purged, referencing blobs;
 `source` is one of `web`, `api`, `webdav`, `sftp`, `s3`, `rename`, `copy`,
-`restore`, `editor`, `office`; `restored_from` (an earlier version number) is
-set exactly when `source` is `restore`;
+`restore`, `editor`, `office`; `restored_from` (an earlier version number) can only be set when `source` is
+`restore`, and is empty if that version was purged;
 links (places) are `{id, folder_id, name, original_path, import_id,
 created_at, created_by, updated_at, deleted_at, deleted_path}`.
 
@@ -63,6 +63,12 @@ blobs that are not in its base full backup (`included=false` for the
 others). Restore reads the full backup and the newest differential:
 `tildoc restore FULL DIFFERENTIAL`.
 
+## Purged content
+
+A backup keeps what was in it when it was made. `purge_log` (in the manifest)
+and `purge.log` next to the backups (it outlives the database) list what was
+deleted for good afterwards; `tildoc restore` removes it again.
+
 ## Encryption
 
 Reserved: exports pass through an optional sealing stage (planned: `age`)
@@ -76,5 +82,7 @@ that wraps the whole stream; the tar format inside stays the same.
 | 2 | `restored_from` on versions (restores are a column now, no longer `meta.restored_from`) |
 | 1 | initial format |
 
-A server reads only its own format version; there are no released bundles
+During development a server reads only its own format version. **From the
+moment of productivation (to be defined), importing older exports is
+mandatory.** There are no released bundles
 older than version 3.

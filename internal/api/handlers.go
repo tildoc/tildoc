@@ -104,6 +104,8 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("GET /api/documents/{id}/text", s.authed(s.documentText))
 	h("POST /api/documents/{id}/versions", s.authed(s.addVersion))
 	h("POST /api/documents/{id}/versions/{v}/restore", s.authed(s.restoreVersion))
+	h("DELETE /api/documents/{id}/versions/{v}", s.authed(s.purgeVersion))
+	h("GET /api/admin/audit", s.authed(s.auditEvents))
 	h("POST /api/documents/{id}/reprocess", s.authed(s.reprocess))
 	h("PUT /api/documents/{id}/text", s.authed(s.saveText))
 	h("POST /api/documents/{id}/edit-lease", s.authed(s.acquireEditLease))
@@ -239,10 +241,14 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, tok string, exp time.Ti
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) error {
 	if c, err := r.Cookie(SessionCookie); err == nil {
-		s.Svc.DeleteSession(r.Context(), c.Value)
+		if err := s.Svc.DeleteSession(r.Context(), c.Value); err != nil {
+			return err // the session must really end
+		}
 	}
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-		s.Svc.DeleteSession(r.Context(), strings.TrimPrefix(h, "Bearer "))
+		if err := s.Svc.DeleteSession(r.Context(), strings.TrimPrefix(h, "Bearer ")); err != nil {
+			return err
+		}
 	}
 	http.SetCookie(w, &http.Cookie{Name: SessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true,
 		Secure: s.Cfg.CookieSecure, SameSite: http.SameSiteStrictMode})

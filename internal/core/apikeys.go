@@ -31,7 +31,7 @@ type APIKey struct {
 	RevokedAt   *time.Time `json:"revoked_at"`
 }
 
-const apiKeySelect = `SELECT k.id::text, k.label, k.folder_id::text, k.all_spaces, k.expires_at, k.created_at, k.last_used_at, k.revoked_at,
+const apiKeySelect = `SELECT k.id::text, k.label, (SELECT folder_id::text FROM api_key_spaces WHERE key_id = k.id AND folder_id IS NOT NULL LIMIT 1), k.all_spaces, k.expires_at, k.created_at, k.last_used_at, k.revoked_at,
 	ARRAY(SELECT permission FROM api_key_permissions WHERE key_id = k.id ORDER BY permission),
 	ARRAY(SELECT space_id::text FROM api_key_spaces WHERE key_id = k.id ORDER BY space_id)
 	FROM api_keys k`
@@ -94,15 +94,17 @@ func (s *Service) createKey(ctx context.Context, p *Principal, label string, per
 	secret := randomToken(32)
 	var id string
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := tx.QueryRow(ctx, `INSERT INTO api_keys(user_id, secret_hash, label, folder_id, all_spaces, expires_at) VALUES($1,$2,$3,$4::uuid,$5,$6) RETURNING id::text`,
-			p.UserID, tokenHash(secret), strings.TrimSpace(label), nonEmpty(folderID), len(spaces) == 0, expires).Scan(&id); err != nil {
+		if err := tx.QueryRow(ctx, `INSERT INTO api_keys(user_id, secret_hash, label, all_spaces, expires_at) VALUES($1,$2,$3,$4,$5) RETURNING id::text`,
+			p.UserID, tokenHash(secret), strings.TrimSpace(label), len(spaces) == 0, expires).Scan(&id); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO api_key_permissions(key_id, permission) SELECT $1, unnest($2::text[])`, id, perms); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `INSERT INTO api_key_spaces(key_id, space_id) SELECT $1, unnest($2::uuid[])`, id, spaces)
-		return err
+		if _, err := tx.Exec(ctx, `INSERT INTO api_key_spaces(key_id, space_id, folder_id) SELECT $1, unnest($2::uuid[]), $3::uuid`, id, spaces, nonEmpty(folderID)); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, p, "api_key.create", "api_key", id, "", map[string]any{"label": strings.TrimSpace(label), "permissions": perms, "spaces": spaces, "folder_id": nonEmpty(folderID)})
 	})
 	if err != nil {
 		return nil, "", err
@@ -140,14 +142,16 @@ func (s *Service) RevokeAPIKey(ctx context.Context, p *Principal, id string) err
 	if !looksLikeUUID(id) {
 		return errf(ErrNotFound, "API key not found")
 	}
-	tag, err := s.DB.Exec(ctx, `UPDATE api_keys SET revoked_at = now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL`, id, p.UserID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return errf(ErrNotFound, "API key not found")
-	}
-	return nil
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE api_keys SET revoked_at = now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL`, id, p.UserID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return errf(ErrNotFound, "API key not found")
+		}
+		return s.audit(ctx, tx, p, "api_key.revoke", "api_key", id, "", nil)
+	})
 }
 
 // DropIn stores an upload through a Drop-In key: always a new file. The key
@@ -202,9 +206,10 @@ func (s *Service) APIKeyPrincipal(ctx context.Context, token string) (*Principal
 	var perms []string
 	err := s.DB.QueryRow(ctx, `SELECT k.secret_hash, u.id::text, u.username,
 		ARRAY(SELECT permission FROM api_key_permissions WHERE key_id = k.id),
-		ARRAY(SELECT space_id::text FROM api_key_spaces WHERE key_id = k.id), k.folder_id::text, k.all_spaces
+		ARRAY(SELECT space_id::text FROM api_key_spaces WHERE key_id = k.id),
+		(SELECT folder_id::text FROM api_key_spaces WHERE key_id = k.id AND folder_id IS NOT NULL LIMIT 1), k.all_spaces
 		FROM api_keys k JOIN users u ON u.id = k.user_id
-		WHERE k.id = $1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now()) AND NOT u.disabled AND u.status = 'active'`, id).
+		WHERE k.id = $1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now()) AND u.status = 'active'`, id).
 		Scan(&hash, &p.UserID, &p.Username, &perms, &p.KeySpaces, &p.KeyFolder, &p.KeyAllSpaces)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errf(ErrUnauthorized, "invalid API key")
@@ -216,6 +221,6 @@ func (s *Service) APIKeyPrincipal(ctx context.Context, token string) (*Principal
 		return nil, errf(ErrUnauthorized, "invalid API key")
 	}
 	p.KeyCaps = capsFromNames(perms)
-	s.DB.Exec(ctx, `UPDATE api_keys SET last_used_at = now() WHERE id = $1 AND (last_used_at IS NULL OR last_used_at < now() - interval '1 minute')`, id)
+	s.DB.Exec(ctx, `UPDATE api_keys SET last_used_at = now() WHERE id = $1 AND (last_used_at IS NULL OR last_used_at < now() - interval '1 minute')`, id) //nolint:errcheck // only a usage hint
 	return p, nil
 }

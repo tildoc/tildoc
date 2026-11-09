@@ -30,8 +30,7 @@ CREATE TABLE users (
     id            uuid PRIMARY KEY DEFAULT uuidv7(),
     username      text NOT NULL UNIQUE CHECK (username ~ '^[a-z0-9][a-z0-9._-]{1,31}$'),
     display_name  text NOT NULL DEFAULT '',
-    status        text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'pending')), -- pending: first login with a provider, waits for approval
-    disabled      boolean NOT NULL DEFAULT false,
+    status        text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'pending', 'disabled')), -- pending: first login with a provider, waits for approval
     pdf_viewer    text NOT NULL DEFAULT 'pdfjs' CHECK (pdf_viewer IN ('pdfjs', 'native')),
     created_at    timestamptz NOT NULL DEFAULT now()
 );
@@ -42,12 +41,13 @@ CREATE TABLE identities (
     id            uuid PRIMARY KEY DEFAULT uuidv7(),
     user_id       uuid NOT NULL REFERENCES users ON DELETE CASCADE,
     provider      text NOT NULL CHECK (provider ~ '^[a-z0-9-]{1,40}$'),
+    issuer        text NOT NULL CHECK (issuer <> ''), -- subjects are unique only per issuer
     subject       text NOT NULL CHECK (subject <> ''),
     password_hash text,
     email         text NOT NULL DEFAULT '', -- as the provider reports it: shown, never used to match accounts
     created_at    timestamptz NOT NULL DEFAULT now(),
     last_login_at timestamptz,
-    UNIQUE (provider, subject),
+    UNIQUE (issuer, subject),
     CHECK ((provider = 'local') = (password_hash IS NOT NULL))
 );
 CREATE INDEX identities_user ON identities(user_id);
@@ -122,7 +122,7 @@ SELECT n, 'space' FROM unnest(ARRAY['view', 'download', 'export', 'write', 'move
     'share.file.people', 'share.file.login_link', 'share.file.public_link']) n
 UNION ALL
 SELECT n, 'instance' FROM unnest(ARRAY['users.manage', 'teams.manage', 'teams.create', 'roles.manage', 'spaces.create',
-    'spaces.recover', 'tags.manage', 'backups.manage', 'settings.manage']) n;
+    'spaces.recover', 'tags.manage', 'backups.manage', 'settings.manage', 'audit.view']) n;
 
 CREATE TABLE roles (
     id         uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -325,8 +325,9 @@ CREATE TABLE document_versions (
     -- a restore re-adds the content of an earlier version of the same document
     restored_from integer CHECK (restored_from < version),
     PRIMARY KEY (document_id, version),
-    FOREIGN KEY (document_id, restored_from) REFERENCES document_versions (document_id, version) DEFERRABLE INITIALLY DEFERRED,
-    CHECK ((source = 'restore') = (restored_from IS NOT NULL))
+    FOREIGN KEY (document_id, restored_from) REFERENCES document_versions (document_id, version)
+        ON DELETE SET NULL (restored_from) DEFERRABLE INITIALLY DEFERRED,
+    CHECK (restored_from IS NULL OR source = 'restore') -- NULL with source restore: that version was purged
 );
 CREATE INDEX document_versions_sha ON document_versions(sha256);
 
@@ -412,10 +413,31 @@ CREATE FUNCTION folder_path(fid uuid) RETURNS text LANGUAGE sql STABLE AS $$
         SELECT id, parent_id, name, 0 FROM entries WHERE id = fid AND kind = 'folder'
         UNION ALL
         SELECT e.id, e.parent_id, e.name, up.depth + 1 FROM entries e JOIN up ON e.id = up.parent_id
-    )
+    ) CYCLE id SET is_cycle USING cycle_path
     SELECT coalesce(string_agg('/' || name, '' ORDER BY depth DESC) FILTER (WHERE parent_id IS NOT NULL), '')
-    FROM up
+    FROM up WHERE NOT is_cycle
 $$;
+
+-- two moves at once can each pass the application's check; at commit, one
+-- after the other per space, the second sees the first and fails
+CREATE FUNCTION entries_no_cycle() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    cur uuid := NEW.parent_id;
+    steps integer := 0;
+BEGIN
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.space_id::text, 42));
+    WHILE cur IS NOT NULL LOOP
+        IF cur = NEW.id OR steps > 100000 THEN
+            RAISE EXCEPTION 'folder % would be inside itself', NEW.id USING ERRCODE = 'check_violation';
+        END IF;
+        SELECT parent_id INTO cur FROM entries WHERE id = cur;
+        steps := steps + 1;
+    END LOOP;
+    RETURN NULL;
+END $$;
+CREATE CONSTRAINT TRIGGER entries_no_cycle AFTER INSERT OR UPDATE OF parent_id ON entries
+    DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.kind = 'folder' AND NEW.parent_id IS NOT NULL)
+    EXECUTE FUNCTION entries_no_cycle();
 
 -- ---------------------------------------------------------------- tags & collections
 -- Tags are one vocabulary per server; they attach to documents.
@@ -753,7 +775,8 @@ CREATE TABLE share_links (
     token_hash    bytea NOT NULL UNIQUE CHECK (length(token_hash) = 32),
     space_id      uuid REFERENCES spaces ON DELETE CASCADE,
     document_id   uuid REFERENCES documents ON DELETE CASCADE,
-    folder_id     uuid REFERENCES entries ON DELETE CASCADE, -- drop links: where uploads land
+    folder_id     uuid, -- drop links: where uploads land
+    folder_kind   text NOT NULL DEFAULT 'folder' CHECK (folder_kind = 'folder'), -- makes the FK below accept folders only
     kind          text NOT NULL CHECK (kind IN ('login', 'public', 'drop')),
     preset        text NOT NULL CHECK (preset IN ('restricted', 'view', 'drop')),
     label         text NOT NULL DEFAULT '',
@@ -765,7 +788,8 @@ CREATE TABLE share_links (
     CHECK (num_nonnulls(space_id, document_id) = 1),
     CHECK ((kind = 'drop') = (preset = 'drop')),
     CHECK (kind <> 'drop' OR space_id IS NOT NULL),
-    CHECK (folder_id IS NULL OR kind = 'drop')
+    CHECK (folder_id IS NULL OR kind = 'drop'),
+    FOREIGN KEY (folder_id, space_id, folder_kind) REFERENCES entries (id, space_id, kind) ON DELETE CASCADE
 );
 CREATE INDEX share_links_space ON share_links(space_id) WHERE space_id IS NOT NULL;
 CREATE INDEX share_links_document ON share_links(document_id) WHERE document_id IS NOT NULL;
@@ -785,7 +809,6 @@ CREATE TABLE api_keys (
     user_id      uuid NOT NULL REFERENCES users ON DELETE CASCADE,
     secret_hash  bytea NOT NULL CHECK (length(secret_hash) = 32),
     label        text NOT NULL DEFAULT '',
-    folder_id    uuid REFERENCES entries ON DELETE CASCADE, -- Drop-In keys: where uploads land
     all_spaces   boolean NOT NULL DEFAULT false, -- explicit: no rows in api_key_spaces means no space
     expires_at   timestamptz,
     created_at   timestamptz NOT NULL DEFAULT now(),
@@ -799,9 +822,12 @@ CREATE TABLE api_key_permissions (
     PRIMARY KEY (key_id, permission)
 );
 CREATE TABLE api_key_spaces (
-    key_id   uuid NOT NULL REFERENCES api_keys ON DELETE CASCADE,
-    space_id uuid NOT NULL REFERENCES spaces ON DELETE CASCADE,
-    PRIMARY KEY (key_id, space_id)
+    key_id      uuid NOT NULL REFERENCES api_keys ON DELETE CASCADE,
+    space_id    uuid NOT NULL REFERENCES spaces ON DELETE CASCADE,
+    folder_id   uuid, -- Drop-In keys: where uploads land
+    folder_kind text NOT NULL DEFAULT 'folder' CHECK (folder_kind = 'folder'),
+    PRIMARY KEY (key_id, space_id),
+    FOREIGN KEY (folder_id, space_id, folder_kind) REFERENCES entries (id, space_id, kind) ON DELETE CASCADE
 );
 
 -- a sign-in with an external provider that is under way
@@ -811,4 +837,35 @@ CREATE TABLE oauth_logins (
     nonce      text NOT NULL,
     verifier   text NOT NULL,
     expires_at timestamptz NOT NULL
+);
+
+-- security-relevant changes: append-only, and without foreign keys so that it
+-- outlives what it talks about
+CREATE TABLE audit_events (
+    id          uuid PRIMARY KEY DEFAULT uuidv7(),
+    at          timestamptz NOT NULL DEFAULT now(),
+    actor_id    uuid,
+    actor       text NOT NULL,
+    action      text NOT NULL,
+    target_type text NOT NULL,
+    target_id   text NOT NULL DEFAULT '',
+    space_id    uuid,
+    details     jsonb NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(details) = 'object')
+);
+CREATE INDEX audit_events_at ON audit_events(at DESC);
+CREATE INDEX audit_events_space ON audit_events(space_id) WHERE space_id IS NOT NULL;
+CREATE FUNCTION audit_events_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'audit_events is append-only';
+END $$;
+CREATE TRIGGER audit_events_immutable BEFORE UPDATE OR DELETE ON audit_events
+    FOR EACH ROW EXECUTE FUNCTION audit_events_immutable();
+
+-- what was deleted for good: a restore of an older backup applies this, so
+-- purged content does not come back
+CREATE TABLE purge_log (
+    id          uuid PRIMARY KEY DEFAULT uuidv7(),
+    document_id uuid NOT NULL,
+    version     integer, -- NULL: the whole document
+    purged_at   timestamptz NOT NULL DEFAULT now()
 );

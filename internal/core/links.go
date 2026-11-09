@@ -203,6 +203,13 @@ func (s *Service) moveLinkTx(ctx context.Context, tx pgx.Tx, p *Principal, linkI
 		if _, err := tx.Exec(ctx, `UPDATE documents SET space_id=$2 WHERE id=$1`, docID, dstSpace); err != nil {
 			return "", err
 		}
+		// a share was given for the old space; the new space's people didn't give it
+		if _, err := tx.Exec(ctx, `DELETE FROM grants WHERE document_id=$1`, docID); err != nil {
+			return "", err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE share_links SET revoked_at = now() WHERE document_id=$1 AND revoked_at IS NULL`, docID); err != nil {
+			return "", err
+		}
 	} else {
 		if docID, err = forkDocTx(ctx, tx, p, l.DocID, dstSpace); err != nil {
 			return "", err
@@ -497,7 +504,9 @@ func (s *Service) copyTreeTx(ctx context.Context, tx pgx.Tx, p *Principal, srcID
 		var out []item
 		for rows.Next() {
 			var it item
-			rows.Scan(&it.id, &it.name)
+			if err := rows.Scan(&it.id, &it.name); err != nil {
+				return nil, err
+			}
 			out = append(out, it)
 		}
 		return out, rows.Err()
@@ -643,7 +652,9 @@ func (s *Service) ImportLinks(ctx context.Context, p *Principal, importID string
 	var out []string
 	for rows.Next() {
 		var id string
-		rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
 		out = append(out, id)
 	}
 	return out, rows.Err()

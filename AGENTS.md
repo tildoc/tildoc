@@ -135,6 +135,14 @@ When the user requests a programming task, **do not start coding immediately.**
   match accounts by (provider, subject), never by e-mail address.
   OIDC protocol in `internal/oidc`; a first external login creates a `pending`
   user, who has no access until approved.
+- **Export format compatibility:** during development only the current format
+  version is imported. From the moment of productivation (the owner defines it)
+  importing older exports is mandatory: add version upgraders, never break it.
+  `TestBackupCoversEveryColumn` fails for any new column until it is handled.
+- **Audit:** security-relevant changes write `s.audit(...)` in the transaction
+  that makes them. `audit_events` is append-only.
+- **Encryption:** instance-level only (`masterKeyVersion` prefix on secrets); no
+  per-space keys, content-addressed blobs are shared across spaces.
 - **Bundles** (`internal/core/bundle.go`, `import.go`, `backup.go`): format in
   `docs/bundle-format.md`; bump `BundleVersion` for incompatible changes and
   keep imports going through the normal ingest rules.

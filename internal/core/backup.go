@@ -86,6 +86,9 @@ func (s *Service) UpdateSettings(ctx context.Context, p *Principal, u SettingsUp
 			return nil, err
 		}
 	}
+	if err := s.audit(ctx, s.DB, p, "settings.update", "instance", "", "", map[string]any{"ocr_preference": u.OCRPreference, "backup_keep": u.BackupKeep, "public_links": u.PublicLinks}); err != nil {
+		return nil, err
+	}
 	return s.GetSettings(ctx, p)
 }
 
@@ -190,10 +193,10 @@ func (s *Service) serverManifest(ctx context.Context, b *Backup, exclude map[str
 			Scan(&m.Settings.InstanceID, &m.Settings.OCRPreference, &m.Settings.BackupKeep, &m.Settings.PublicLinks); err != nil {
 			return err
 		}
-		if err := collectRows(ctx, tx, `SELECT id::text, username, display_name, status, disabled, pdf_viewer, created_at
+		if err := collectRows(ctx, tx, `SELECT id::text, username, display_name, status, pdf_viewer, created_at
 			FROM users ORDER BY created_at, id`, func(r pgx.Rows) error {
 			var u MUser
-			if err := r.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Status, &u.Disabled, &u.PDFViewer, &u.CreatedAt); err != nil {
+			if err := r.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Status, &u.PDFViewer, &u.CreatedAt); err != nil {
 				return err
 			}
 			m.Users = append(m.Users, u)
@@ -201,13 +204,43 @@ func (s *Service) serverManifest(ctx context.Context, b *Backup, exclude map[str
 		}); err != nil {
 			return err
 		}
-		if err := collectRows(ctx, tx, `SELECT id::text, user_id::text, provider, subject, password_hash, email, created_at, last_login_at
+		if err := collectRows(ctx, tx, `SELECT id::text, user_id::text, provider, issuer, subject, password_hash, email, created_at, last_login_at
 			FROM identities ORDER BY created_at, id`, func(r pgx.Rows) error {
 			var i MIdentity
-			if err := r.Scan(&i.ID, &i.UserID, &i.Provider, &i.Subject, &i.PasswordHash, &i.Email, &i.CreatedAt, &i.LastLoginAt); err != nil {
+			if err := r.Scan(&i.ID, &i.UserID, &i.Provider, &i.Issuer, &i.Subject, &i.PasswordHash, &i.Email, &i.CreatedAt, &i.LastLoginAt); err != nil {
 				return err
 			}
 			m.Identities = append(m.Identities, i)
+			return nil
+		}); err != nil {
+			return err
+		}
+		if err := collectRows(ctx, tx, `SELECT team_id::text, provider, external_group FROM team_links ORDER BY provider, external_group`, func(r pgx.Rows) error {
+			var l MTeamLink
+			if err := r.Scan(&l.TeamID, &l.Provider, &l.ExternalGroup); err != nil {
+				return err
+			}
+			m.TeamLinks = append(m.TeamLinks, l)
+			return nil
+		}); err != nil {
+			return err
+		}
+		if err := collectRows(ctx, tx, `SELECT id::text, document_id::text, version, purged_at FROM purge_log ORDER BY id`, func(r pgx.Rows) error {
+			var e MPurge
+			if err := r.Scan(&e.ID, &e.DocumentID, &e.Version, &e.PurgedAt); err != nil {
+				return err
+			}
+			m.PurgeLog = append(m.PurgeLog, e)
+			return nil
+		}); err != nil {
+			return err
+		}
+		if err := collectRows(ctx, tx, `SELECT id::text, at, actor_id::text, actor, action, target_type, target_id, space_id::text, details FROM audit_events ORDER BY id`, func(r pgx.Rows) error {
+			var e MAuditEvent
+			if err := r.Scan(&e.ID, &e.At, &e.ActorID, &e.Actor, &e.Action, &e.TargetType, &e.TargetID, &e.SpaceID, &e.Details); err != nil {
+				return err
+			}
+			m.AuditEvents = append(m.AuditEvents, e)
 			return nil
 		}); err != nil {
 			return err
@@ -247,7 +280,7 @@ func (s *Service) serverManifest(ctx context.Context, b *Backup, exclude map[str
 		}); err != nil {
 			return err
 		}
-		if err := collectRows(ctx, tx, `SELECT k.id::text, k.user_id::text, k.secret_hash, k.label, k.folder_id::text, k.all_spaces, k.expires_at, k.created_at, k.last_used_at, k.revoked_at,
+		if err := collectRows(ctx, tx, `SELECT k.id::text, k.user_id::text, k.secret_hash, k.label, (SELECT folder_id::text FROM api_key_spaces WHERE key_id = k.id AND folder_id IS NOT NULL LIMIT 1), k.all_spaces, k.expires_at, k.created_at, k.last_used_at, k.revoked_at,
 			ARRAY(SELECT permission FROM api_key_permissions WHERE key_id = k.id ORDER BY permission),
 			ARRAY(SELECT space_id::text FROM api_key_spaces WHERE key_id = k.id ORDER BY space_id) FROM api_keys k ORDER BY k.created_at, k.id`, func(r pgx.Rows) error {
 			var k MAPIKey
@@ -272,9 +305,9 @@ func (s *Service) serverManifest(ctx context.Context, b *Backup, exclude map[str
 		}
 		for i := range m.Teams {
 			t := &m.Teams[i]
-			if err := collectRows(ctx, tx, `SELECT user_id::text, is_manager, created_at FROM team_members WHERE team_id=$1 ORDER BY user_id`, func(r pgx.Rows) error {
+			if err := collectRows(ctx, tx, `SELECT user_id::text, is_manager, source_provider, created_at FROM team_members WHERE team_id=$1 ORDER BY user_id`, func(r pgx.Rows) error {
 				var mm MMember
-				if err := r.Scan(&mm.UserID, &mm.IsManager, &mm.CreatedAt); err != nil {
+				if err := r.Scan(&mm.UserID, &mm.IsManager, &mm.SourceProvider, &mm.CreatedAt); err != nil {
 					return err
 				}
 				t.Members = append(t.Members, mm)
@@ -387,7 +420,7 @@ func (s *Service) RunBackup(ctx context.Context, id string) (err error) {
 				os.Remove(tmpName)
 			}
 			msg := err.Error()
-			s.DB.Exec(context.Background(), `UPDATE backups SET status='failed', error=$2, finished_at=now() WHERE id=$1`, id, msg)
+			s.DB.Exec(context.Background(), `UPDATE backups SET status='failed', error=$2, finished_at=now() WHERE id=$1`, id, msg) //nolint:errcheck // already failing
 			s.Log.Error("backup failed", "id", id, "err", err)
 		}
 	}()
@@ -399,10 +432,16 @@ func (s *Service) RunBackup(ctx context.Context, id string) (err error) {
 		}
 		for rows.Next() {
 			var sha []byte
-			rows.Scan(&sha)
+			if err := rows.Scan(&sha); err != nil {
+				rows.Close()
+				return err
+			}
 			exclude[hex.EncodeToString(sha)] = true
 		}
 		rows.Close()
+		if err := rows.Err(); err != nil { // a partial list would back up too much or too little
+			return err
+		}
 	}
 	m, err := s.serverManifest(ctx, b, exclude)
 	if err != nil {
@@ -474,10 +513,16 @@ func (s *Service) applyBackupRetention(ctx context.Context) error {
 	var old []string
 	for rows.Next() {
 		var id string
-		rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
 		old = append(old, id)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	for _, id := range old {
 		if err := s.deleteBackup(ctx, id, true); err != nil {
 			return err
@@ -678,8 +723,22 @@ func (s *Service) RestoreServer(ctx context.Context, files []string) (*BackupSum
 			return nil, fmt.Errorf("%s: %w", f, err)
 		}
 	}
-	err = s.tx(ctx, func(tx pgx.Tx) error { return s.applyRestore(ctx, tx, br) })
+	// purges since this backup was taken are not in it: they come from the
+	// log next to the backups
+	purges := append(m.PurgeLog, s.readPurgeFile(filepath.Dir(files[0]))...)
+	if s.Cfg.BackupDir != filepath.Dir(files[0]) {
+		purges = append(purges, s.readPurgeFile(s.Cfg.BackupDir)...)
+	}
+	err = s.tx(ctx, func(tx pgx.Tx) error {
+		if err := s.applyRestore(ctx, tx, br); err != nil {
+			return err
+		}
+		return applyPurgesTx(ctx, tx, purges)
+	})
 	if err != nil {
+		return nil, err
+	}
+	if _, _, err := s.GCBlobs(ctx, nil); err != nil { // the content of what the log removed
 		return nil, err
 	}
 	return sum, nil
@@ -696,14 +755,14 @@ func (s *Service) applyRestore(ctx context.Context, tx pgx.Tx, br *bundleReader)
 		return err
 	}
 	for _, u := range m.Users {
-		if err := ex(`INSERT INTO users(id, username, display_name, status, disabled, pdf_viewer, created_at)
-			VALUES($1,$2,$3,$4,$5,$6,$7)`, u.ID, u.Username, u.DisplayName, u.Status, u.Disabled, u.PDFViewer, u.CreatedAt); err != nil {
+		if err := ex(`INSERT INTO users(id, username, display_name, status, pdf_viewer, created_at)
+			VALUES($1,$2,$3,$4,$5,$6)`, u.ID, u.Username, u.DisplayName, u.Status, u.PDFViewer, u.CreatedAt); err != nil {
 			return err
 		}
 	}
 	for _, i := range m.Identities {
-		if err := ex(`INSERT INTO identities(id, user_id, provider, subject, password_hash, email, created_at, last_login_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
-			i.ID, i.UserID, i.Provider, i.Subject, i.PasswordHash, i.Email, i.CreatedAt, i.LastLoginAt); err != nil {
+		if err := ex(`INSERT INTO identities(id, user_id, provider, issuer, subject, password_hash, email, created_at, last_login_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+			i.ID, i.UserID, i.Provider, i.Issuer, i.Subject, i.PasswordHash, i.Email, i.CreatedAt, i.LastLoginAt); err != nil {
 			return err
 		}
 	}
@@ -724,7 +783,7 @@ func (s *Service) applyRestore(ctx context.Context, tx pgx.Tx, br *bundleReader)
 			return err
 		}
 		for _, mm := range t.Members {
-			if err := ex(`INSERT INTO team_members(team_id, user_id, is_manager, created_at) VALUES($1,$2,$3,$4)`, t.ID, mm.UserID, mm.IsManager, mm.CreatedAt); err != nil {
+			if err := ex(`INSERT INTO team_members(team_id, user_id, is_manager, source_provider, created_at) VALUES($1,$2,$3,$4,$5)`, t.ID, mm.UserID, mm.IsManager, mm.SourceProvider, mm.CreatedAt); err != nil {
 				return err
 			}
 		}
@@ -844,6 +903,17 @@ func (s *Service) applyRestore(ctx context.Context, tx pgx.Tx, br *bundleReader)
 			}
 		}
 	}
+	for _, l := range m.TeamLinks {
+		if err := ex(`INSERT INTO team_links(team_id, provider, external_group) VALUES($1,$2,$3)`, l.TeamID, l.Provider, l.ExternalGroup); err != nil {
+			return err
+		}
+	}
+	for _, e := range m.AuditEvents {
+		if err := ex(`INSERT INTO audit_events(id, at, actor_id, actor, action, target_type, target_id, space_id, details) VALUES($1,$2,$3::uuid,$4,$5,$6,$7,$8::uuid,$9)`,
+			e.ID, e.At, e.ActorID, e.Actor, e.Action, e.TargetType, e.TargetID, e.SpaceID, e.Details); err != nil {
+			return err
+		}
+	}
 	for _, g := range m.Grants {
 		if err := ex(`INSERT INTO grants(id, space_id, document_id, user_id, team_id, role_id, created_by, created_at)
 			VALUES($1,$2::uuid,$3::uuid,$4::uuid,$5::uuid,(SELECT id FROM roles WHERE slug=$6),$7::uuid,$8)`,
@@ -862,14 +932,14 @@ func (s *Service) applyRestore(ctx context.Context, tx pgx.Tx, br *bundleReader)
 		}
 	}
 	for _, k := range m.APIKeys {
-		if err := ex(`INSERT INTO api_keys(id, user_id, secret_hash, label, folder_id, all_spaces, expires_at, created_at, last_used_at, revoked_at) VALUES($1,$2,$3,$4,$5::uuid,$6,$7,$8,$9,$10)`,
-			k.ID, k.UserID, k.SecretHash, k.Label, k.FolderID, k.AllSpaces, k.ExpiresAt, k.CreatedAt, k.LastUsedAt, k.RevokedAt); err != nil {
+		if err := ex(`INSERT INTO api_keys(id, user_id, secret_hash, label, all_spaces, expires_at, created_at, last_used_at, revoked_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+			k.ID, k.UserID, k.SecretHash, k.Label, k.AllSpaces, k.ExpiresAt, k.CreatedAt, k.LastUsedAt, k.RevokedAt); err != nil {
 			return err
 		}
 		if err := ex(`INSERT INTO api_key_permissions(key_id, permission) SELECT $1, unnest($2::text[])`, k.ID, k.Permissions); err != nil {
 			return err
 		}
-		if err := ex(`INSERT INTO api_key_spaces(key_id, space_id) SELECT $1, unnest($2::uuid[])`, k.ID, k.SpaceIDs); err != nil {
+		if err := ex(`INSERT INTO api_key_spaces(key_id, space_id, folder_id) SELECT $1, unnest($2::uuid[]), $3::uuid`, k.ID, k.SpaceIDs, k.FolderID); err != nil {
 			return err
 		}
 	}

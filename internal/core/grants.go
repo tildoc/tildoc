@@ -74,7 +74,9 @@ func (s *Service) resolveSubject(ctx context.Context, p *Principal, user, teamID
 			return nil, nil, errf(ErrNotFound, "team not found")
 		}
 		var member bool
-		s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM team_members WHERE team_id=$1 AND user_id=$2)`, teamID, p.UserID).Scan(&member)
+		if err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM team_members WHERE team_id=$1 AND user_id=$2)`, teamID, p.UserID).Scan(&member); err != nil {
+			return nil, nil, err
+		}
 		if !member && !p.Can(InstTeams) && !p.Can(InstRoles) {
 			return nil, nil, errf(ErrNotFound, "team not found")
 		}
@@ -112,6 +114,10 @@ func saveGrantTx(ctx context.Context, tx pgx.Tx, p *Principal, spaceID, docID, u
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO grant_permissions(grant_id, permission) SELECT $1, unnest($2::text[])`, id, extra)
 	return id, err
+}
+
+func grantDetails(userID, team *string, role string, extra []string) map[string]any {
+	return map[string]any{"user_id": userID, "team_id": team, "role": role, "permissions": extra}
 }
 
 func nonEmpty(s string) *string {
@@ -173,8 +179,10 @@ func (s *Service) SetGrant(ctx context.Context, p *Principal, spaceID, user, tea
 	var id string
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
-		id, err = saveGrantTx(ctx, tx, p, &spaceID, nil, userID, team, roleID, extra)
-		return err
+		if id, err = saveGrantTx(ctx, tx, p, &spaceID, nil, userID, team, roleID, extra); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, p, "grant.set", "space", spaceID, spaceID, grantDetails(userID, team, role, extra))
 	})
 	if err != nil {
 		return nil, err
@@ -201,21 +209,23 @@ func (s *Service) DeleteGrant(ctx context.Context, p *Principal, spaceID, grantI
 	if err := s.requireCap(ctx, s.DB, p, spaceID, CapShareSpacePeople); err != nil {
 		return err
 	}
-	return s.deleteGrant(ctx, `id=$1 AND space_id=$2`, grantID, spaceID)
+	return s.deleteGrant(ctx, p, "space", spaceID, spaceID, `id=$1 AND space_id=$2`, grantID, spaceID)
 }
 
-func (s *Service) deleteGrant(ctx context.Context, where string, args ...any) error {
+func (s *Service) deleteGrant(ctx context.Context, p *Principal, targetType, targetID, spaceID, where string, args ...any) error {
 	if id, _ := args[0].(string); !looksLikeUUID(id) {
 		return errf(ErrNotFound, "grant not found")
 	}
-	tag, err := s.DB.Exec(ctx, `DELETE FROM grants WHERE `+where, args...)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return errf(ErrNotFound, "grant not found")
-	}
-	return nil
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `DELETE FROM grants WHERE `+where, args...)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return errf(ErrNotFound, "grant not found")
+		}
+		return s.audit(ctx, tx, p, "grant.delete", targetType, targetID, spaceID, map[string]any{"grant_id": args[0]})
+	})
 }
 
 // ---------------------------------------------------------------- single files
@@ -270,8 +280,10 @@ func (s *Service) SetDocumentGrant(ctx context.Context, p *Principal, docID, use
 	var id string
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
-		id, err = saveGrantTx(ctx, tx, p, nil, &docID, userID, team, roleID, extra)
-		return err
+		if id, err = saveGrantTx(ctx, tx, p, nil, &docID, userID, team, roleID, extra); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, p, "grant.set", "document", docID, spaceID, grantDetails(userID, team, role, extra))
 	})
 	if err != nil {
 		return nil, err
@@ -288,7 +300,7 @@ func (s *Service) DeleteDocumentGrant(ctx context.Context, p *Principal, docID, 
 	if err := s.requireDocCap(ctx, s.DB, p, docID, spaceID, CapShareFilePeople); err != nil {
 		return err
 	}
-	return s.deleteGrant(ctx, `id=$1 AND document_id=$2`, grantID, docID)
+	return s.deleteGrant(ctx, p, "document", docID, spaceID, `id=$1 AND document_id=$2`, grantID, docID)
 }
 
 // ListSharedFiles lists single files shared with the caller.
@@ -372,8 +384,10 @@ func (s *Service) SetInstanceGrant(ctx context.Context, p *Principal, user, team
 			}
 		}
 		var err error
-		id, err = saveGrantTx(ctx, tx, p, nil, nil, userID, team, roleID, extra)
-		return err
+		if id, err = saveGrantTx(ctx, tx, p, nil, nil, userID, team, roleID, extra); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, p, "grant.set", "instance", "", "", grantDetails(userID, team, role, extra))
 	})
 	if err != nil {
 		return nil, err
@@ -405,7 +419,9 @@ func (s *Service) DeleteInstanceGrant(ctx context.Context, p *Principal, grantID
 				return err
 			}
 		}
-		_, err = tx.Exec(ctx, `DELETE FROM grants WHERE id=$1`, grantID)
-		return err
+		if _, err = tx.Exec(ctx, `DELETE FROM grants WHERE id=$1`, grantID); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, p, "grant.delete", "instance", "", "", map[string]any{"grant_id": grantID})
 	})
 }

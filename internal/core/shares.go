@@ -151,9 +151,14 @@ func (s *Service) CreateShareLink(ctx context.Context, p *Principal, n NewShareL
 	}
 	token := randomToken(32)
 	var id string
-	if err := s.DB.QueryRow(ctx, `INSERT INTO share_links(token_hash, space_id, document_id, folder_id, kind, preset, label, password_hash, expires_at, created_by)
-		VALUES($1,$2::uuid,$3::uuid,$4::uuid,$5,$6,$7,$8,$9,$10) RETURNING id::text`,
-		tokenHash(token), nonEmpty(n.SpaceID), nonEmpty(n.DocumentID), folderID, n.Kind, n.Preset, strings.TrimSpace(n.Label), pwHash, n.ExpiresAt, p.UserID).Scan(&id); err != nil {
+	if err := s.tx(ctx, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `INSERT INTO share_links(token_hash, space_id, document_id, folder_id, kind, preset, label, password_hash, expires_at, created_by)
+			VALUES($1,$2::uuid,$3::uuid,$4::uuid,$5,$6,$7,$8,$9,$10) RETURNING id::text`,
+			tokenHash(token), nonEmpty(n.SpaceID), nonEmpty(n.DocumentID), folderID, n.Kind, n.Preset, strings.TrimSpace(n.Label), pwHash, n.ExpiresAt, p.UserID).Scan(&id); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, p, "share_link.create", "share_link", id, n.SpaceID, map[string]any{"document_id": nonEmpty(n.DocumentID), "kind": n.Kind, "preset": n.Preset, "has_password": pwHash != nil, "expires_at": n.ExpiresAt})
+	}); err != nil {
 		return nil, "", err
 	}
 	l, err := scanLink(s.DB.QueryRow(ctx, linkSelect+` WHERE l.id = $1`, id))
@@ -230,8 +235,12 @@ func (s *Service) RevokeShareLink(ctx context.Context, p *Principal, id string) 
 			return err
 		}
 	}
-	_, err = s.DB.Exec(ctx, `UPDATE share_links SET revoked_at = now() WHERE id = $1`, id)
-	return err
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE share_links SET revoked_at = now() WHERE id = $1`, id); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, p, "share_link.revoke", "share_link", id, "", nil)
+	})
 }
 
 // ErrSharePassword: the link needs a (correct) password.
@@ -324,8 +333,10 @@ func (s *Service) OpenShare(ctx context.Context, token, password, existing strin
 	}
 	if existing != "" {
 		var ok bool
-		s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM share_sessions WHERE token_hash=$1 AND link_id=$2 AND expires_at > now()
-			AND user_id IS NOT DISTINCT FROM $3::uuid)`, tokenHash(existing), l.ID, uid).Scan(&ok)
+		if err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM share_sessions WHERE token_hash=$1 AND link_id=$2 AND expires_at > now()
+			AND user_id IS NOT DISTINCT FROM $3::uuid)`, tokenHash(existing), l.ID, uid).Scan(&ok); err != nil {
+			return nil, "", err
+		}
 		if ok {
 			return a, existing, nil
 		}

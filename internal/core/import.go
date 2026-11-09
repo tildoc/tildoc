@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -215,13 +216,14 @@ func validateManifest(m *Manifest, server bool) error {
 	docs := map[string]bool{}
 	checkDocs := func(list []MDocument, folders map[string]bool) error {
 		for _, d := range list {
-			if !looksLikeUUID(d.ID) || docs[d.ID] || len(d.Versions) == 0 || d.CurrentVersion < 1 || d.CurrentVersion > len(d.Versions) {
+			if !looksLikeUUID(d.ID) || docs[d.ID] || len(d.Versions) == 0 || !slices.ContainsFunc(d.Versions, func(v MVersion) bool { return v.Version == d.CurrentVersion }) {
 				return bad("document %q", d.ID)
 			}
 			docs[d.ID] = true
 			for i, v := range d.Versions {
-				if v.Version != i+1 || !blobs[v.SHA256] || !versionSources[v.Source] ||
-					(v.Source == "restore") != (v.RestoredFrom != nil) || (v.RestoredFrom != nil && (*v.RestoredFrom < 1 || *v.RestoredFrom >= v.Version)) {
+				// numbers rise but may have gaps: single versions can be purged
+				if v.Version < 1 || (i > 0 && v.Version <= d.Versions[i-1].Version) || !blobs[v.SHA256] || !versionSources[v.Source] ||
+					(v.RestoredFrom != nil && (v.Source != "restore" || *v.RestoredFrom < 1 || *v.RestoredFrom >= v.Version)) {
 					return bad("version %d of document %s", v.Version, d.ID)
 				}
 			}

@@ -265,7 +265,10 @@ func (s *Service) AdminStats(ctx context.Context, p *Principal) (*Stats, error) 
 		for rows.Next() {
 			var k string
 			var n int
-			rows.Scan(&k, &n)
+			if err := rows.Scan(&k, &n); err != nil {
+				rows.Close()
+				return nil, err
+			}
 			q.m[k] = n
 		}
 		rows.Close()
@@ -277,7 +280,9 @@ func (s *Service) AdminStats(ctx context.Context, p *Principal) (*Stats, error) 
 	defer rows.Close()
 	for rows.Next() {
 		var j JobInfo
-		rows.Scan(&j.ID, &j.Kind, &j.Status, &j.Attempts, &j.LastError)
+		if err := rows.Scan(&j.ID, &j.Kind, &j.Status, &j.Attempts, &j.LastError); err != nil {
+			return nil, err
+		}
 		st.FailedJobs = append(st.FailedJobs, j)
 	}
 	return st, rows.Err()

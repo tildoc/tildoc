@@ -38,6 +38,9 @@ type Manifest struct {
 	People      []MPerson     `json:"people"`
 	Users       []MUser       `json:"users,omitempty"`
 	Identities  []MIdentity   `json:"identities,omitempty"`
+	TeamLinks   []MTeamLink   `json:"team_links,omitempty"`
+	PurgeLog    []MPurge      `json:"purge_log,omitempty"`
+	AuditEvents []MAuditEvent `json:"audit_events,omitempty"`
 	Teams       []MTeam       `json:"teams,omitempty"`
 	Roles       []MRole       `json:"roles,omitempty"`
 	Grants      []MGrant      `json:"grants,omitempty"`
@@ -80,7 +83,6 @@ type MUser struct {
 	ID          string    `json:"id"`
 	Username    string    `json:"username"`
 	DisplayName string    `json:"display_name"`
-	Disabled    bool      `json:"disabled"`
 	PDFViewer   string    `json:"pdf_viewer"`
 	CreatedAt   time.Time `json:"created_at"`
 	Status      string    `json:"status"`
@@ -96,9 +98,38 @@ type MTeam struct {
 
 // MMember is a team membership.
 type MMember struct {
-	UserID    string    `json:"user_id"`
-	IsManager bool      `json:"is_manager"`
-	CreatedAt time.Time `json:"created_at"`
+	UserID         string    `json:"user_id"`
+	IsManager      bool      `json:"is_manager"`
+	CreatedAt      time.Time `json:"created_at"`
+	SourceProvider *string   `json:"source_provider"`
+}
+
+// MTeamLink maps a login provider's group to a team (server backups only).
+type MTeamLink struct {
+	TeamID        string `json:"team_id"`
+	Provider      string `json:"provider"`
+	ExternalGroup string `json:"external_group"`
+}
+
+// MPurge records content deleted for good (server backups only).
+type MPurge struct {
+	ID         string    `json:"id"`
+	DocumentID string    `json:"document_id"`
+	Version    *int      `json:"version"`
+	PurgedAt   time.Time `json:"purged_at"`
+}
+
+// MAuditEvent is one security-relevant change (server backups only).
+type MAuditEvent struct {
+	ID         string         `json:"id"`
+	At         time.Time      `json:"at"`
+	ActorID    *string        `json:"actor_id"`
+	Actor      string         `json:"actor"`
+	Action     string         `json:"action"`
+	TargetType string         `json:"target_type"`
+	TargetID   string         `json:"target_id"`
+	SpaceID    *string        `json:"space_id"`
+	Details    map[string]any `json:"details"`
 }
 
 // MIdentity is how a user logs in (server backups only).
@@ -111,6 +142,7 @@ type MIdentity struct {
 	CreatedAt    time.Time  `json:"created_at"`
 	LastLoginAt  *time.Time `json:"last_login_at"`
 	Email        string     `json:"email"`
+	Issuer       string     `json:"issuer"`
 }
 
 // MRole is a role (server backups only).

@@ -22,6 +22,7 @@ type Provider struct {
 
 // Claims is what tildoc takes from a verified ID token.
 type Claims struct {
+	Issuer  string
 	Subject string
 	Email   string
 	Name    string
@@ -72,5 +73,5 @@ func (p *Provider) Exchange(ctx context.Context, code, verifier, nonce string) (
 	if err := idt.Claims(&c); err != nil {
 		return nil, fmt.Errorf("oidc claims: %w", err)
 	}
-	return &Claims{Subject: idt.Subject, Email: c.Email, Name: c.Name}, nil
+	return &Claims{Issuer: idt.Issuer, Subject: idt.Subject, Email: c.Email, Name: c.Name}, nil
 }

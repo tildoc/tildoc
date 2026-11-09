@@ -147,7 +147,7 @@ func (s *Service) SaveText(ctx context.Context, p *Principal, docID, clientID st
 	if err != nil {
 		return nil, err
 	}
-	s.RenewEditLease(ctx, p, docID, clientID)
+	s.RenewEditLease(ctx, p, docID, clientID) //nolint:errcheck // the next heartbeat renews it
 	d.EditLease, err = s.editLease(ctx, p, docID)
 	return d, err
 }

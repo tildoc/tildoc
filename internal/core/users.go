@@ -23,7 +23,7 @@ type User struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-const userCols = `id::text, username, display_name, is_administrator(id), disabled, status, created_at`
+const userCols = `id::text, username, display_name, is_administrator(id), status = 'disabled', status, created_at`
 
 func scanUser(row pgx.Row) (*User, error) {
 	u := &User{}
@@ -77,8 +77,10 @@ func (s *Service) CreateUser(ctx context.Context, p *Principal, username, passwo
 	var u *User
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
-		u, err = s.createUserTx(ctx, tx, username, password, displayName, isAdmin)
-		return err
+		if u, err = s.createUserTx(ctx, tx, username, password, displayName, isAdmin); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, p, "user.create", "user", u.ID, "", map[string]any{"username": u.Username, "administrator": isAdmin})
 	})
 	return u, err
 }
@@ -106,7 +108,7 @@ func (s *Service) createUserTx(ctx context.Context, tx pgx.Tx, username, passwor
 	if err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO identities(user_id, provider, subject, password_hash) VALUES($1::uuid,$2,$1::text,$3)`,
+	if _, err := tx.Exec(ctx, `INSERT INTO identities(user_id, provider, issuer, subject, password_hash) VALUES($1::uuid,$2,$2,$1::text,$3)`,
 		u.ID, localProvider, hash); err != nil {
 		return nil, err
 	}
@@ -134,7 +136,7 @@ func setInstanceRoleTx(ctx context.Context, tx pgx.Tx, userID, slug string) erro
 // lastAdminCheck refuses to take away the last active administrator.
 func lastAdminCheck(ctx context.Context, tx pgx.Tx, userID string) error {
 	var others bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id <> $1 AND NOT disabled AND is_administrator(id))`, userID).Scan(&others); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id <> $1 AND status = 'active' AND is_administrator(id))`, userID).Scan(&others); err != nil {
 		return err
 	}
 	if !others {
@@ -220,7 +222,7 @@ func (s *Service) UpdateUser(ctx context.Context, p *Principal, id string, upd U
 			}
 		}
 		if upd.Disabled != nil {
-			if _, err := tx.Exec(ctx, `UPDATE users SET disabled=$2 WHERE id=$1`, id, *upd.Disabled); err != nil {
+			if _, err := tx.Exec(ctx, `UPDATE users SET status = CASE WHEN $2 THEN 'disabled' ELSE 'active' END WHERE id=$1 AND status <> 'pending'`, id, *upd.Disabled); err != nil {
 				return err
 			}
 			if *upd.Disabled {
@@ -241,8 +243,13 @@ func (s *Service) UpdateUser(ctx context.Context, p *Principal, id string, upd U
 			}
 		}
 		var err error
-		u, err = scanUser(tx.QueryRow(ctx, `SELECT `+userCols+` FROM users WHERE id=$1`, id))
-		return err
+		if u, err = scanUser(tx.QueryRow(ctx, `SELECT `+userCols+` FROM users WHERE id=$1`, id)); err != nil {
+			return err
+		}
+		if upd.IsAdmin == nil && upd.Disabled == nil && upd.Password == nil {
+			return nil // only a display name
+		}
+		return s.audit(ctx, tx, p, "user.update", "user", id, "", map[string]any{"administrator": upd.IsAdmin, "disabled": upd.Disabled, "password_changed": upd.Password != nil})
 	})
 	return u, err
 }
@@ -271,8 +278,8 @@ func (s *Service) setPasswordTx(ctx context.Context, tx pgx.Tx, id, pw string) e
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO identities(user_id, provider, subject, password_hash) VALUES($1::uuid,$3,$1::text,$2)
-		ON CONFLICT (provider, subject) DO UPDATE SET password_hash = EXCLUDED.password_hash`, id, hash, localProvider); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO identities(user_id, provider, issuer, subject, password_hash) VALUES($1::uuid,$3,$3,$1::text,$2)
+		ON CONFLICT (issuer, subject) DO UPDATE SET password_hash = EXCLUDED.password_hash`, id, hash, localProvider); err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, id)
@@ -302,7 +309,7 @@ func (s *Service) DeleteUser(ctx context.Context, p *Principal, id string) error
 		if tag.RowsAffected() == 0 {
 			return errf(ErrNotFound, "user not found")
 		}
-		return nil
+		return s.audit(ctx, tx, p, "user.delete", "user", id, "", nil)
 	})
 }
 
@@ -328,7 +335,7 @@ func (s *Service) SessionPrincipal(ctx context.Context, token string) (*Principa
 	err := s.DB.QueryRow(ctx, `
 		SELECT u.id::text, u.username, instance_permissions(u.id), s.last_seen_at
 		FROM sessions s JOIN users u ON u.id = s.user_id
-		WHERE s.token_hash=$1 AND s.expires_at > now() AND NOT u.disabled AND u.status = 'active'`, tokenHash(token)).
+		WHERE s.token_hash=$1 AND s.expires_at > now() AND u.status = 'active'`, tokenHash(token)).
 		Scan(&p.UserID, &p.Username, &inst, &lastSeen)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errf(ErrUnauthorized, "invalid session")
@@ -338,7 +345,7 @@ func (s *Service) SessionPrincipal(ctx context.Context, token string) (*Principa
 	}
 	p.Inst = instFromNames(inst)
 	if s.now().Sub(lastSeen) > 5*time.Minute {
-		s.DB.Exec(ctx, `UPDATE sessions SET last_seen_at=now() WHERE token_hash=$1`, tokenHash(token))
+		s.DB.Exec(ctx, `UPDATE sessions SET last_seen_at=now() WHERE token_hash=$1`, tokenHash(token)) //nolint:errcheck // only a usage hint
 	}
 	return p, nil
 }
@@ -379,8 +386,13 @@ func (s *Service) CreateAccessKey(ctx context.Context, p *Principal, label, spac
 		return nil, "", err
 	}
 	k := &AccessKey{ID: id, Label: strings.TrimSpace(label), SpaceID: space, ReadOnly: readOnly}
-	err = s.DB.QueryRow(ctx, `INSERT INTO access_keys(id, user_id, secret_enc, label, space_id, read_only)
-		VALUES($1,$2,$3,$4,$5,$6) RETURNING created_at`, id, p.UserID, enc, k.Label, space, readOnly).Scan(&k.CreatedAt)
+	err = s.tx(ctx, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `INSERT INTO access_keys(id, user_id, secret_enc, label, space_id, read_only)
+			VALUES($1,$2,$3,$4,$5,$6) RETURNING created_at`, id, p.UserID, enc, k.Label, space, readOnly).Scan(&k.CreatedAt); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, p, "access_key.create", "access_key", id, spaceID, map[string]any{"label": k.Label, "read_only": readOnly})
+	})
 	return k, secret, err
 }
 
@@ -405,14 +417,16 @@ func (s *Service) ListAccessKeys(ctx context.Context, p *Principal) ([]AccessKey
 
 // RevokeAccessKey revokes one of the caller's keys.
 func (s *Service) RevokeAccessKey(ctx context.Context, p *Principal, id string) error {
-	tag, err := s.DB.Exec(ctx, `UPDATE access_keys SET revoked_at=now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL`, id, p.UserID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return errf(ErrNotFound, "access key not found")
-	}
-	return nil
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE access_keys SET revoked_at=now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL`, id, p.UserID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return errf(ErrNotFound, "access key not found")
+		}
+		return s.audit(ctx, tx, p, "access_key.revoke", "access_key", id, "", nil)
+	})
 }
 
 // AccessKeySecret resolves a key id to its secret and principal (for SigV4).
@@ -423,7 +437,7 @@ func (s *Service) AccessKeySecret(ctx context.Context, keyID string) (string, *P
 	err := s.DB.QueryRow(ctx, `
 		SELECT k.secret_enc, k.space_id::text, k.read_only, u.id::text, u.username
 		FROM access_keys k JOIN users u ON u.id = k.user_id
-		WHERE k.id=$1 AND k.revoked_at IS NULL AND NOT u.disabled AND u.status = 'active'`, keyID).
+		WHERE k.id=$1 AND k.revoked_at IS NULL AND u.status = 'active'`, keyID).
 		Scan(&enc, &space, &p.ReadOnly, &p.UserID, &p.Username)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil, errf(ErrUnauthorized, "unknown access key")
@@ -443,7 +457,7 @@ func (s *Service) AccessKeySecret(ctx context.Context, keyID string) (string, *P
 
 // TouchAccessKey records key usage (best effort, rate limited by caller).
 func (s *Service) TouchAccessKey(ctx context.Context, keyID string) {
-	s.DB.Exec(ctx, `UPDATE access_keys SET last_used_at=now() WHERE id=$1 AND (last_used_at IS NULL OR last_used_at < now() - interval '1 minute')`, keyID)
+	s.DB.Exec(ctx, `UPDATE access_keys SET last_used_at=now() WHERE id=$1 AND (last_used_at IS NULL OR last_used_at < now() - interval '1 minute')`, keyID) //nolint:errcheck // only a usage hint
 }
 
 // AuthenticateAppPassword authenticates WebDAV/SFTP password logins. The
@@ -462,7 +476,10 @@ func (s *Service) AuthenticateAppPassword(ctx context.Context, login, secret str
 		}
 		for rows.Next() {
 			var id string
-			rows.Scan(&id)
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, err
+			}
 			ids = append(ids, id)
 		}
 		rows.Close()

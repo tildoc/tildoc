@@ -1341,6 +1341,24 @@ To set up: a Google Cloud OAuth client (web application) with that redirect URI.
 - [x] 27.3 Tests against a fake issuer
 - [ ] 27.4 Real sign-in with a Google client (owner)
 
+### Phase 28 — Data model review
+
+**Goal:** the changes from the review of the data model, before the first
+release. Answers (2026-11-09): all accepted, except that format upgraders wait:
+during development only the current export format is imported, and from
+productivation (to be defined) importing older exports is mandatory.
+
+- [x] 28.1 Backups: test that every column is exported; team group mappings added
+- [x] 28.2 Single versions can be purged; `purge_log` and `purge.log`, applied on restore
+- [x] 28.3 `audit_events`, append-only; Activity on the Access page; `audit.view`
+- [x] 28.4 Identities unique per issuer
+- [x] 28.5 Database refuses folder cycles (deferred trigger per space); `folder_path` guarded
+- [x] 28.6 Shares and links end on a cross-space move
+- [x] 28.7 One `users.status` (`pending`, `active`, `disabled`)
+- [x] 28.8 Folder targets of links and Drop-In keys constrained to folders of the same space
+- [x] 28.9 Sealed secrets carry a key version; per-space encryption keys ruled out
+- [x] 28.10 Real lint bugs fixed
+
 ## Open Topics
 
 Collected 2026-11-08; each becomes a phase or step when picked up.
@@ -1427,6 +1445,8 @@ Collected 2026-11-08; each becomes a phase or step when picked up.
 | 40 | Permissions | Permissions fixed in the schema; roles and grants (user or team × role + extras, on a space, file or the instance) are data; only additive; per space, not per folder; Teams kept as the groups |
 | 41 | Sharing | people, sign-in link, public link for spaces and files, drop link for spaces; each its own permission; public links off until enabled; a link never exceeds its creator's current rights |
 | 42 | Space settings | off by default; applied in `space_permissions()`; one "no OCR" setting also stops the image-only step |
+| 43 | Export compatibility | development: only the current format; from productivation (to be defined) importing older exports is mandatory |
+| 44 | Encryption scope | instance-level only; no per-space keys |
 
 ## Open Questions
 

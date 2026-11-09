@@ -490,7 +490,10 @@ func (s *Service) ReprocessAll(ctx context.Context, p *Principal, statuses []str
 		var shas [][]byte
 		for rows.Next() {
 			var sh []byte
-			rows.Scan(&sh)
+			if err := rows.Scan(&sh); err != nil {
+				rows.Close()
+				return err
+			}
 			shas = append(shas, sh)
 		}
 		rows.Close()

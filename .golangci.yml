@@ -2,3 +2,33 @@ version: "2"
 
 linters:
   default: standard
+  settings:
+    errcheck:
+      # closing, cleanup, responses to clients that may be gone, and flag sets
+      # that exit by themselves: failing changes nothing the caller could act on
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - os.Remove
+        - os.RemoveAll
+        - os.Chtimes
+        - (github.com/jackc/pgx/v5.Tx).Rollback
+        - (*github.com/jackc/pgx/v5.Conn).Close
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (*flag.FlagSet).Parse
+        - mime.AddExtensionType
+        - (net/http.ResponseWriter).Write
+        - (*net/http.ResponseController).SetWriteDeadline
+        - (*compress/gzip.Writer).Close
+        - (*archive/zip.ReadCloser).Close
+        - io.WriteString
+        - encoding/xml.EscapeText
+    staticcheck:
+      checks: ["all", "-ST1000", "-ST1003", "-ST1016", "-ST1020", "-ST1021", "-ST1022", "-QF1001"]
+  exclusions:
+    rules:
+      # tests and test helpers fail by themselves; the SSH server's connection handling is best effort
+      - path: (_test\.go|internal/testutil/|internal/wopi/wopitest/|test/|internal/sftpd/)
+        linters:
+          - errcheck

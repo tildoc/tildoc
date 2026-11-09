@@ -1,6 +1,8 @@
 package core_test
 
 import (
+	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -411,7 +413,7 @@ func TestDropInKey(t *testing.T) {
 func TestPendingAccounts(t *testing.T) {
 	f := newFixture(t)
 	admin := session(t, f.svc, "admin", "supersecret")
-	res := ck(f.svc.LoginExternal(f.ctx, "google", "sub-1", "Gerd.Muster@example.org", "Gerd Muster"))
+	res := ck(f.svc.LoginExternal(f.ctx, "google", "https://accounts.google.com", "sub-1", "Gerd.Muster@example.org", "Gerd Muster"))
 	if !res.Pending || res.Principal != nil {
 		t.Fatalf("first login %+v", res)
 	}
@@ -432,7 +434,7 @@ func TestPendingAccounts(t *testing.T) {
 	}
 	_, err := f.svc.SetGrant(f.ctx, f.alice, f.home.ID, pending.Username, "", "viewer")
 	wantKind(t, err, core.ErrNotFound)
-	if res := ck(f.svc.LoginExternal(f.ctx, "google", "sub-1", "x@example.org", "")); !res.Pending {
+	if res := ck(f.svc.LoginExternal(f.ctx, "google", "https://accounts.google.com", "sub-1", "x@example.org", "")); !res.Pending {
 		t.Fatal("still waiting")
 	}
 	_, err = f.svc.ApproveUser(f.ctx, f.alice, pending.ID)
@@ -440,7 +442,7 @@ func TestPendingAccounts(t *testing.T) {
 
 	// approved: a session, a personal space, the default role
 	ck(f.svc.ApproveUser(f.ctx, admin, pending.ID))
-	res = ck(f.svc.LoginExternal(f.ctx, "google", "sub-1", "new-mail@example.org", ""))
+	res = ck(f.svc.LoginExternal(f.ctx, "google", "https://accounts.google.com", "sub-1", "new-mail@example.org", ""))
 	if res.Pending || res.Principal == nil || !res.Principal.Can(core.InstSpacesCreate) || res.Principal.Can(core.InstUsers) {
 		t.Fatalf("after approval %+v", res)
 	}
@@ -448,7 +450,7 @@ func TestPendingAccounts(t *testing.T) {
 		t.Fatalf("spaces %+v", spaces)
 	}
 	// the account follows the provider's subject, not the e-mail address
-	other := ck(f.svc.LoginExternal(f.ctx, "google", "sub-2", "new-mail@example.org", ""))
+	other := ck(f.svc.LoginExternal(f.ctx, "google", "https://accounts.google.com", "sub-2", "new-mail@example.org", ""))
 	if !other.Pending {
 		t.Fatal("same e-mail address must not reach the account")
 	}
@@ -458,13 +460,13 @@ func TestPendingAccounts(t *testing.T) {
 			noErr(t, f.svc.DeleteUser(f.ctx, admin, u.ID))
 		}
 	}
-	if !ck(f.svc.LoginExternal(f.ctx, "google", "sub-2", "new-mail@example.org", "")).Pending {
+	if !ck(f.svc.LoginExternal(f.ctx, "google", "https://accounts.google.com", "sub-2", "new-mail@example.org", "")).Pending {
 		t.Fatal("declined accounts start over")
 	}
 	// a disabled account stays out
 	yes := true
 	ck(f.svc.UpdateUser(f.ctx, admin, pending.ID, core.UserUpdate{Disabled: &yes}))
-	_, err = f.svc.LoginExternal(f.ctx, "google", "sub-1", "x@example.org", "")
+	_, err = f.svc.LoginExternal(f.ctx, "google", "https://accounts.google.com", "sub-1", "x@example.org", "")
 	wantKind(t, err, core.ErrUnauthorized)
 }
 
@@ -586,4 +588,168 @@ func TestSpaceSettings(t *testing.T) {
 	if ck(f.svc.OCRAllowed(f.ctx, same.File.SHA256)) {
 		t.Fatal("no space allows it")
 	}
+}
+
+func TestPurgeVersion(t *testing.T) {
+	f := newFixture(t)
+	doc := f.put(t, f.alice, f.home.ID, "/a.txt", "harmless")
+	id := doc.File.DocumentID
+	ck(f.svc.AddDocumentVersion(f.ctx, f.alice, id, strings.NewReader("my secret password"), "web"))
+	secret := ck(f.svc.GetDocument(f.ctx, f.alice, id)).SHA256
+	ck(f.svc.AddDocumentVersion(f.ctx, f.alice, id, strings.NewReader("clean again"), "web"))
+	ck(f.svc.RestoreVersion(f.ctx, f.alice, id, 2)) // v4 restored from v2, same content
+	ck(f.svc.AddDocumentVersion(f.ctx, f.alice, id, strings.NewReader("final"), "web"))
+
+	ck(f.svc.SetGrant(f.ctx, f.alice, f.home.ID, "bob", "", "editor"))
+	wantKind(t, f.svc.PurgeVersion(f.ctx, f.bob, id, 2), core.ErrForbidden)
+	wantKind(t, f.svc.PurgeVersion(f.ctx, f.alice, id, 5), core.ErrInvalid) // current
+	wantKind(t, f.svc.PurgeVersion(f.ctx, f.alice, id, 99), core.ErrNotFound)
+	noErr(t, f.svc.PurgeVersion(f.ctx, f.alice, id, 2))
+	if !f.svc.Blobs.Exists(secret) { // v4 still has the same content
+		t.Fatal("content still used by v4 was removed")
+	}
+	noErr(t, f.svc.PurgeVersion(f.ctx, f.alice, id, 4))
+	if f.svc.Blobs.Exists(secret) {
+		t.Fatal("purged content is still stored")
+	}
+	d := ck(f.svc.GetDocument(f.ctx, f.alice, id))
+	if len(d.Versions) != 3 || d.Version != 5 {
+		t.Fatalf("versions %+v", d.Versions)
+	}
+	var logged int
+	noErr(t, f.svc.DB.QueryRow(f.ctx, `SELECT count(*) FROM purge_log WHERE document_id=$1`, id).Scan(&logged))
+	if logged != 2 {
+		t.Fatalf("purge log: %d", logged)
+	}
+}
+
+func TestAuditTrail(t *testing.T) {
+	f := newFixture(t)
+	admin := session(t, f.svc, "admin", "supersecret")
+	_, err := f.svc.ListAuditEvents(f.ctx, f.alice, "", 10)
+	wantKind(t, err, core.ErrForbidden)
+	g := ck(f.svc.SetGrant(f.ctx, f.alice, f.home.ID, "bob", "", "viewer"))
+	noErr(t, f.svc.DeleteGrant(f.ctx, f.alice, f.home.ID, g.ID))
+	ev := ck(f.svc.ListAuditEvents(f.ctx, admin, "", 2))
+	if len(ev) != 2 || ev[0].Action != "grant.delete" || ev[1].Action != "grant.set" || ev[0].Actor != "alice" || ev[1].Details["role"] != "viewer" {
+		t.Fatalf("events %+v", ev)
+	}
+	// append-only
+	if _, err := f.svc.DB.Exec(f.ctx, `DELETE FROM audit_events`); err == nil {
+		t.Fatal("audit events can be deleted")
+	}
+	if _, err := f.svc.DB.Exec(f.ctx, `UPDATE audit_events SET actor='x'`); err == nil {
+		t.Fatal("audit events can be changed")
+	}
+	// a failed change leaves no event
+	before := len(ck(f.svc.ListAuditEvents(f.ctx, admin, "", 500)))
+	_, _ = f.svc.SetGrant(f.ctx, f.alice, f.home.ID, "bob", "", "nonsense")
+	if after := len(ck(f.svc.ListAuditEvents(f.ctx, admin, "", 500))); after != before {
+		t.Fatalf("%d -> %d", before, after)
+	}
+}
+
+func TestIdentityBoundToIssuer(t *testing.T) {
+	f := newFixture(t)
+	admin := session(t, f.svc, "admin", "supersecret")
+	ck(f.svc.LoginExternal(f.ctx, "google", "https://accounts.google.com", "same-sub", "a@example.org", ""))
+	for _, u := range ck(f.svc.ListUsers(f.ctx, admin)) {
+		if u.Status == "pending" {
+			ck(f.svc.ApproveUser(f.ctx, admin, u.ID))
+		}
+	}
+	if res := ck(f.svc.LoginExternal(f.ctx, "google", "https://accounts.google.com", "same-sub", "", "")); res.Principal == nil {
+		t.Fatal("same issuer signs in")
+	}
+	// the same subject from another issuer is someone else
+	if res := ck(f.svc.LoginExternal(f.ctx, "google", "https://evil.example", "same-sub", "", "")); !res.Pending || res.Principal != nil {
+		t.Fatalf("other issuer: %+v", res)
+	}
+}
+
+func TestDatabaseRefusesFolderCycle(t *testing.T) {
+	f := newFixture(t)
+	f.put(t, f.alice, f.home.ID, "/a/b/x.txt", "x")
+	a := ck(f.svc.FolderByPath(f.ctx, f.alice, f.home.ID, []string{"a"}))
+	b := ck(f.svc.FolderByPath(f.ctx, f.alice, f.home.ID, []string{"a", "b"}))
+	// what two concurrent moves could leave behind
+	if _, err := f.svc.DB.Exec(f.ctx, `UPDATE entries SET parent_id=$1 WHERE id=$2`, b.ID, a.ID); err == nil {
+		t.Fatal("a folder cycle was accepted")
+	}
+	if f.svc.DB.QueryRow(f.ctx, `SELECT folder_path($1)`, a.ID).Scan(new(string)) != nil {
+		t.Fatal("folder_path")
+	}
+}
+
+func TestSharesEndOnCrossSpaceMove(t *testing.T) {
+	f := newFixture(t)
+	admin := session(t, f.svc, "admin", "supersecret")
+	on := true
+	ck(f.svc.UpdateSettings(f.ctx, admin, core.SettingsUpdate{PublicLinks: &on}))
+	allowSharing(t, f, f.home.ID)
+	doc := f.put(t, f.alice, f.home.ID, "/a.txt", "text")
+	ck(f.svc.SetDocumentGrant(f.ctx, f.alice, doc.File.DocumentID, "bob", "", "viewer"))
+	_, token := ck2(f.svc.CreateShareLink(f.ctx, f.alice, core.NewShareLink{DocumentID: doc.File.DocumentID, Kind: "public", Preset: "view"}))
+	other := ck(f.svc.CreateSpace(f.ctx, f.alice, "ziel", "", ""))
+	allowSharing(t, f, other.ID)
+	root := ck(f.svc.FolderByPath(f.ctx, f.alice, other.ID, nil))
+	ck(f.svc.MoveLink(f.ctx, f.alice, doc.File.LinkID, root.ID, "", false))
+	_, err := f.svc.GetDocument(f.ctx, f.bob, doc.File.DocumentID)
+	wantKind(t, err, core.ErrNotFound)
+	_, _, err = f.svc.OpenShare(f.ctx, token, "", "", nil)
+	wantKind(t, err, core.ErrNotFound)
+}
+
+func TestLinkAndKeyFoldersMustBeFoldersOfTheSpace(t *testing.T) {
+	f := newFixture(t)
+	doc := f.put(t, f.alice, f.home.ID, "/d/a.txt", "x")
+	other := ck(f.svc.FolderByPath(f.ctx, f.bob, f.bhome.ID, nil))
+	for name, sql := range map[string]string{
+		"file as link target": `INSERT INTO share_links(token_hash, space_id, folder_id, kind, preset, created_by) SELECT sha256('a')::bytea, $1, $2, 'drop', 'drop', owner_user_id FROM spaces WHERE id=$1`,
+	} {
+		if _, err := f.svc.DB.Exec(f.ctx, sql, f.home.ID, doc.File.LinkID); err == nil {
+			t.Fatal(name)
+		}
+	}
+	if _, err := f.svc.DB.Exec(f.ctx, `INSERT INTO share_links(token_hash, space_id, folder_id, kind, preset, created_by) SELECT sha256('b')::bytea, $1, $2, 'drop', 'drop', owner_user_id FROM spaces WHERE id=$1`, f.home.ID, other.ID); err == nil {
+		t.Fatal("a folder of another space")
+	}
+}
+
+// Every column of a table that belongs in a server backup must be exported:
+// a new column fails here until backup.go handles it (or it is listed).
+func TestBackupCoversEveryColumn(t *testing.T) {
+	f := newFixture(t)
+	notBackedUp := map[string]bool{ // transient state or rebuilt on restore
+		"sessions": true, "share_sessions": true, "wopi_tokens": true, "office_sessions": true, "oauth_logins": true,
+		"edit_leases": true, "jobs": true, "multipart_uploads": true, "multipart_parts": true, "transfers": true, "backups": true,
+		"permissions": true, "schema_migrations": true, "instance_settings": false,
+	}
+	var src strings.Builder
+	for _, name := range []string{"backup.go", "bundle.go"} {
+		b, err := os.ReadFile(name)
+		noErr(t, err)
+		src.Write(b)
+	}
+	code := src.String()
+	rows, err := f.svc.DB.Query(f.ctx, `SELECT c.table_name, c.column_name FROM information_schema.columns c
+		JOIN information_schema.tables t USING (table_schema, table_name)
+		WHERE c.table_schema = 'public' AND t.table_type = 'BASE TABLE' AND c.is_generated = 'NEVER' ORDER BY 1, 2`)
+	noErr(t, err)
+	defer rows.Close()
+	for rows.Next() {
+		var table, col string
+		noErr(t, rows.Scan(&table, &col))
+		if notBackedUp[table] || col == "singleton" || (table == "blob_texts" && col == "tsv") || strings.HasSuffix(col, "_kind") {
+			continue
+		}
+		if !strings.Contains(code, table) {
+			t.Errorf("table %s is not in the backup; add it, or list it as not backed up", table)
+			continue
+		}
+		if !regexp.MustCompile(`\b` + col + `\b`).MatchString(code) {
+			t.Errorf("column %s.%s is not in the backup", table, col)
+		}
+	}
+	noErr(t, rows.Err())
 }

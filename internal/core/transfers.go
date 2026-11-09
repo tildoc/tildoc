@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -66,7 +67,9 @@ func (s *Service) CreateTransfer(ctx context.Context, p *Principal, kind string,
 	}
 	limit := s.Cfg.MaxUploadBytes
 	n, err := io.Copy(tmp, io.LimitReader(r, limit+1))
-	tmp.Close()
+	if cerr := tmp.Close(); err == nil {
+		err = cerr // a failed close means a possibly incomplete file
+	}
 	if err == nil && n > limit {
 		err = errf(ErrTooLarge, "file exceeds the upload limit")
 	}
@@ -100,7 +103,7 @@ func scanTransfer(row pgx.Row) (*Transfer, error) {
 		return nil, errf(ErrNotFound, "transfer not found")
 	}
 	if err == nil {
-		json.Unmarshal(opts, &t.Options)
+		json.Unmarshal(opts, &t.Options) //nolint:errcheck // only shown; a status list must not fail on it
 	}
 	return t, err
 }
@@ -136,7 +139,7 @@ func (s *Service) ListTransfers(ctx context.Context, p *Principal) ([]Transfer, 
 func (s *Service) principalOf(ctx context.Context, userID string) (*Principal, error) {
 	p := &Principal{UserID: userID, Via: "session"}
 	var inst []string
-	err := s.DB.QueryRow(ctx, `SELECT username, instance_permissions(id) FROM users WHERE id=$1 AND NOT disabled AND status = 'active'`, userID).Scan(&p.Username, &inst)
+	err := s.DB.QueryRow(ctx, `SELECT username, instance_permissions(id) FROM users WHERE id=$1 AND status = 'active'`, userID).Scan(&p.Username, &inst)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errf(ErrForbidden, "user no longer active")
 	}
@@ -158,7 +161,7 @@ func (s *Service) RunTransfer(ctx context.Context, id string) error {
 		return err
 	}
 	var opt ImportOptions
-	json.Unmarshal(opts, &opt)
+	optErr := json.Unmarshal(opts, &opt)
 	finish := func(result any, runErr error) error {
 		os.Remove(file)
 		res, _ := json.Marshal(result)
@@ -177,6 +180,9 @@ func (s *Service) RunTransfer(ctx context.Context, id string) error {
 			id, st, res, msg)
 		return err
 	}
+	if optErr != nil {
+		return finish(nil, fmt.Errorf("transfer options: %w", optErr))
+	}
 	p, err := s.principalOf(ctx, userID)
 	if err != nil {
 		return finish(nil, err)
@@ -185,7 +191,7 @@ func (s *Service) RunTransfer(ctx context.Context, id string) error {
 	progress := func(f float64) {
 		if time.Since(last) > time.Second {
 			last = time.Now()
-			s.DB.Exec(context.Background(), `UPDATE transfers SET progress=$2 WHERE id=$1`, id, f*0.95)
+			s.DB.Exec(context.Background(), `UPDATE transfers SET progress=$2 WHERE id=$1`, id, f*0.95) //nolint:errcheck // only a progress display
 		}
 	}
 	switch kind {

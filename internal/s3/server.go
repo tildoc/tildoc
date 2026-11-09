@@ -179,7 +179,7 @@ func (s *Server) writeErr(w http.ResponseWriter, r *http.Request, e *Error) {
 		w.WriteHeader(e.Status)
 		return
 	}
-	writeXML(w, e.Status, errorBody{Code: e.Code, Message: e.Message, Resource: r.URL.Path, RequestID: w.Header().Get("x-amz-request-id")})
+	writeXML(w, e.Status, errorBody{Code: e.Code, Message: e.Message, Resource: r.URL.Path, RequestID: w.Header().Get("x-amz-request-id")}) //nolint:errcheck // the client is gone
 }
 
 func writeXML(w http.ResponseWriter, status int, v any) error {
@@ -1010,7 +1010,7 @@ func (s *Server) completeUpload(w http.ResponseWriter, r *http.Request, bucket, 
 	if _, err := s.FS.PutStaged(r.Context(), st.p, vpath(bucket, key), staged, core.PutOptions{Protocol: "s3", Meta: u.Meta, CreateParents: true}); err != nil {
 		return err
 	}
-	s.Svc.DeleteUpload(r.Context(), u.ID)
+	s.Svc.DeleteUpload(r.Context(), u.ID) //nolint:errcheck // the upload is complete; cleanup also runs periodically
 	etag := `"` + hex.EncodeToString(etagMD5.Sum(nil)) + "-" + strconv.Itoa(len(req.Parts)) + `"`
 	return writeXML(w, 200, struct {
 		XMLName  xml.Name `xml:"CompleteMultipartUploadResult"`

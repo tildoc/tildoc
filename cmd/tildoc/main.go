@@ -180,7 +180,7 @@ func run(ctx context.Context, cfg *config.Config, log *slog.Logger, serve, work 
 	sctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	for _, f := range shutdown {
-		f(sctx)
+		f(sctx) //nolint:errcheck // shutting down
 	}
 	return err
 }

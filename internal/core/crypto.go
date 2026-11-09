@@ -111,6 +111,10 @@ func (s *Service) gcm() (cipher.AEAD, error) {
 	return cipher.NewGCM(blk)
 }
 
+// masterKeyVersion is the first byte of every sealed secret, so that the
+// master key can be rotated: rows name the key that sealed them.
+const masterKeyVersion = 1
+
 // sealSecret encrypts a secret with AES-256-GCM; aad binds it to its key id.
 func (s *Service) sealSecret(secret, aad string) ([]byte, error) {
 	g, err := s.gcm()
@@ -118,8 +122,10 @@ func (s *Service) sealSecret(secret, aad string) ([]byte, error) {
 		return nil, err
 	}
 	nonce := make([]byte, g.NonceSize())
-	rand.Read(nonce)
-	return g.Seal(nonce, nonce, []byte(secret), []byte(aad)), nil
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	return append([]byte{masterKeyVersion}, g.Seal(nonce, nonce, []byte(secret), []byte(aad))...), nil
 }
 
 func (s *Service) openSecret(enc []byte, aad string) (string, error) {
@@ -127,9 +133,13 @@ func (s *Service) openSecret(enc []byte, aad string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(enc) < g.NonceSize() {
+	if len(enc) < 1+g.NonceSize() {
 		return "", errors.New("ciphertext too short")
 	}
+	if enc[0] != masterKeyVersion {
+		return "", errors.New("secret was sealed with an unknown master key version")
+	}
+	enc = enc[1:]
 	pt, err := g.Open(nil, enc[:g.NonceSize()], enc[g.NonceSize():], []byte(aad))
 	if err != nil {
 		return "", errors.New("cannot decrypt secret (wrong master key?)")

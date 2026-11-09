@@ -103,14 +103,19 @@ func (w *Worker) listen(ctx context.Context, signal func()) {
 
 func (w *Worker) maintenance(ctx context.Context) {
 	tick := func() {
-		core.Enqueue(ctx, w.Svc.DB, core.JobPurgeTrash, map[string]any{}, core.JobPurgeTrash, time.Time{})
+		logErr := func(what string, err error) {
+			if err != nil && ctx.Err() == nil {
+				w.Log.Warn("maintenance: "+what, "err", err)
+			}
+		}
+		logErr("queue trash purge", core.Enqueue(ctx, w.Svc.DB, core.JobPurgeTrash, map[string]any{}, core.JobPurgeTrash, time.Time{}))
 		if n, err := w.Svc.ReclaimStaleJobs(ctx, w.Svc.Cfg.ProcessTimeout+5*time.Minute); err == nil && n > 0 {
 			w.Log.Warn("reclaimed stale jobs", "count", n)
 		}
-		w.Svc.PruneJobs(ctx, 7*24*time.Hour)
-		w.Svc.PruneEditLeases(ctx)
-		w.Svc.PruneShareSessions(ctx)
-		w.Svc.PruneOAuthLogins(ctx)
+		logErr("prune jobs", w.Svc.PruneJobs(ctx, 7*24*time.Hour))
+		logErr("prune edit leases", w.Svc.PruneEditLeases(ctx))
+		logErr("prune share sessions", w.Svc.PruneShareSessions(ctx))
+		logErr("prune sign-ins", w.Svc.PruneOAuthLogins(ctx))
 		if n, err := w.Svc.ExpireOfficeSessions(ctx); err != nil {
 			w.Log.Warn("expire office sessions", "err", err)
 		} else if n > 0 {

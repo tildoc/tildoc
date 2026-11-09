@@ -131,7 +131,7 @@ func TestPutDedupVersionFork(t *testing.T) {
 	}
 	// document-level version is visible in all links (no fork)
 	ck(f.svc.AddLink(f.ctx, f.alice, d.ID, ck(f.svc.FolderByPath(f.ctx, f.alice, sp, nil)).ID, "alias.pdf"))
-	d = ck(f.svc.AddDocumentVersion(f.ctx, f.alice, d.ID, strings.NewReader("shared v5"), "web"))
+	ck(f.svc.AddDocumentVersion(f.ctx, f.alice, d.ID, strings.NewReader("shared v5"), "web"))
 	if f.read(t, f.alice, sp, "/alias.pdf") != "shared v5" || f.read(t, f.alice, sp, "/Inbox/scan.pdf") != "shared v5" {
 		t.Fatal("document version must apply to all links")
 	}
@@ -181,7 +181,7 @@ func TestMoveRenameProvenance(t *testing.T) {
 	if pm.OriginalPath != "/import/scan.pdf" {
 		t.Fatalf("protocol rename provenance: %q", pm.OriginalPath)
 	}
-	m = ck(f.svc.MoveLink(f.ctx, f.alice, r.File.LinkID, "", "contract-final.pdf", false))
+	ck(f.svc.MoveLink(f.ctx, f.alice, r.File.LinkID, "", "contract-final.pdf", false))
 	// age the link: later moves keep provenance
 	f.env.Pool.Exec(f.ctx, `UPDATE links SET created_at = now() - interval '1 hour'`)
 	m = ck(f.svc.MoveLink(f.ctx, f.alice, r.File.LinkID, archive.ID, "", false))

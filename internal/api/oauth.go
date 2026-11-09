@@ -110,7 +110,7 @@ func (s *Server) googleCallback(w http.ResponseWriter, r *http.Request) error {
 		loginResult(w, r, "error=provider")
 		return nil
 	}
-	res, err := s.Svc.LoginExternal(ctx, p.ID, claims.Subject, claims.Email, claims.Name)
+	res, err := s.Svc.LoginExternal(ctx, p.ID, claims.Issuer, claims.Subject, claims.Email, claims.Name)
 	if err != nil {
 		s.Log.Warn("google login rejected", "err", err)
 		loginResult(w, r, "error="+url.QueryEscape("disabled"))

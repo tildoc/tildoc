@@ -36,7 +36,9 @@ func (s *Service) teamRole(ctx context.Context, q db.Querier, p *Principal, team
 	err := q.QueryRow(ctx, `SELECT `+memberRole+` FROM team_members tm WHERE team_id=$1 AND user_id=$2`, teamID, p.UserID).Scan(&role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var exists bool
-		q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM teams WHERE id=$1)`, teamID).Scan(&exists)
+		if err := q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM teams WHERE id=$1)`, teamID).Scan(&exists); err != nil {
+			return "", err
+		}
 		if !exists || !p.Can(InstTeams) {
 			return "", errf(ErrNotFound, "team not found")
 		}
@@ -156,13 +158,17 @@ func (s *Service) DeleteTeam(ctx context.Context, p *Principal, id string) error
 			return errf(ErrForbidden, "team manager required")
 		}
 		var live bool
-		tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM documents d JOIN spaces s ON s.id=d.space_id
-			WHERE s.owner_team_id=$1 AND d.deleted_at IS NULL)`, id).Scan(&live)
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM documents d JOIN spaces s ON s.id=d.space_id
+			WHERE s.owner_team_id=$1 AND d.deleted_at IS NULL)`, id).Scan(&live); err != nil {
+			return err
+		}
 		if live {
 			return errf(ErrNotEmpty, "team spaces still contain documents")
 		}
-		_, err = tx.Exec(ctx, `DELETE FROM teams WHERE id=$1`, id)
-		return err
+		if _, err = tx.Exec(ctx, `DELETE FROM teams WHERE id=$1`, id); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, p, "team.delete", "team", id, "", nil)
 	})
 }
 
@@ -226,7 +232,10 @@ func (s *Service) SetMember(ctx context.Context, p *Principal, teamID, userID, r
 		if db.IsForeignKeyViolation(err) {
 			return errf(ErrNotFound, "user not found")
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, p, "team.member.set", "team", teamID, "", map[string]any{"user_id": userID, "role": role})
 	})
 }
 
@@ -256,8 +265,10 @@ func (s *Service) RemoveMember(ctx context.Context, p *Principal, teamID, userID
 				return err
 			}
 		}
-		_, err = tx.Exec(ctx, `DELETE FROM team_members WHERE team_id=$1 AND user_id=$2`, teamID, userID)
-		return err
+		if _, err = tx.Exec(ctx, `DELETE FROM team_members WHERE team_id=$1 AND user_id=$2`, teamID, userID); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, p, "team.member.remove", "team", teamID, "", map[string]any{"user_id": userID})
 	})
 }
 

@@ -66,9 +66,9 @@ func TestHistoryVersionsAndVariants(t *testing.T) {
 	}
 
 	// the database keeps restores consistent
-	_, err := f.env.Pool.Exec(f.ctx, `UPDATE document_versions SET restored_from=NULL WHERE document_id=$1 AND version=4`, doc)
+	_, err := f.env.Pool.Exec(f.ctx, `UPDATE document_versions SET restored_from=1 WHERE document_id=$1 AND version=2`, doc)
 	if err == nil {
-		t.Fatal("restore without source version accepted")
+		t.Fatal("restored_from on a version that is no restore accepted")
 	}
 	_, err = f.env.Pool.Exec(f.ctx, `UPDATE document_versions SET restored_from=4 WHERE document_id=$1 AND version=4`, doc)
 	if err == nil {

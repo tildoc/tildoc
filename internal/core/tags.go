@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -300,14 +299,4 @@ func documentTags(ctx context.Context, q db.Querier, docID string) ([]TagRef, er
 		out = append(out, t)
 	}
 	return out, rows.Err()
-}
-
-// tagNames returns the names of tags, sorted.
-func tagNames(tags []TagRef) []string {
-	out := make([]string, len(tags))
-	for i, t := range tags {
-		out[i] = t.Name
-	}
-	sort.Strings(out)
-	return out
 }

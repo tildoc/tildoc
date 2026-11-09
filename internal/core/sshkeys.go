@@ -83,7 +83,7 @@ func (s *Service) SSHKeyPrincipal(ctx context.Context, username string, pub ssh.
 	p := &Principal{Via: "ssh"}
 	var stored string
 	err := s.DB.QueryRow(ctx, `SELECT u.id::text, u.username, k.public_key FROM ssh_keys k JOIN users u ON u.id=k.user_id
-		WHERE k.fingerprint=$1 AND u.username=$2 AND NOT u.disabled AND u.status = 'active'`, fp, strings.ToLower(username)).
+		WHERE k.fingerprint=$1 AND u.username=$2 AND u.status = 'active'`, fp, strings.ToLower(username)).
 		Scan(&p.UserID, &p.Username, &stored)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errf(ErrUnauthorized, "unknown key")
@@ -95,6 +95,6 @@ func (s *Service) SSHKeyPrincipal(ctx context.Context, username string, pub ssh.
 	if err != nil || string(sk.Marshal()) != string(pub.Marshal()) {
 		return nil, errf(ErrUnauthorized, "unknown key")
 	}
-	s.DB.Exec(ctx, `UPDATE ssh_keys SET last_used_at=now() WHERE fingerprint=$1`, fp)
+	s.DB.Exec(ctx, `UPDATE ssh_keys SET last_used_at=now() WHERE fingerprint=$1`, fp) //nolint:errcheck // only a usage hint
 	return p, nil
 }

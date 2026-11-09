@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -212,6 +213,26 @@ func (s *Server) dropIn(w http.ResponseWriter, r *http.Request) error {
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+func (s *Server) purgeVersion(w http.ResponseWriter, r *http.Request) error {
+	v, err := strconv.Atoi(r.PathValue("v"))
+	if err != nil {
+		return &core.Error{Kind: core.ErrInvalid, Msg: "invalid version"}
+	}
+	if err := s.Svc.PurgeVersion(r.Context(), principal(r), r.PathValue("id"), v); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func (s *Server) auditEvents(w http.ResponseWriter, r *http.Request) error {
+	ev, err := s.Svc.ListAuditEvents(r.Context(), principal(r), r.URL.Query().Get("before"), queryInt(r, "limit", 100))
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, 200, ev)
 }
 
 func (s *Server) approveUser(w http.ResponseWriter, r *http.Request) error {

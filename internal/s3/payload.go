@@ -249,7 +249,7 @@ func (c *chunkedReader) next() error {
 	c.eof = true
 	if !c.trailer {
 		// optional final CRLF
-		c.br.ReadString('\n')
+		c.br.ReadString('\n') //nolint:errcheck // the next read reports a broken stream
 		return nil
 	}
 	c.trailers = map[string]string{}

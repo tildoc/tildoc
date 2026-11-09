@@ -38,6 +38,9 @@
       errorToast(err);
     }
   }
+  let events = $state([]);
+  $effect(() => { if (can('audit.view')) get('/admin/audit').then((e) => (events = e)).catch(errorToast); });
+  const detail = (e) => Object.entries(e.details ?? {}).filter(([, v]) => v !== null && v !== '' && !(Array.isArray(v) && !v.length)).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ');
   let users = $state([]);
   let nu = $state({ username: '', password: '', display_name: '', is_admin: false });
   async function load() {
@@ -105,7 +108,7 @@
             <tr>
               <td>{u.display_name} <small class="muted">@{u.username}</small></td>
               <td><input type="checkbox" aria-label="Administrator" checked={u.is_admin} disabled={u.id === session.user.id} onchange={(e) => update(u, { is_admin: e.target.checked })} /></td>
-              <td>{#if u.status === 'pending'}<span class="pill">Waiting for approval</span>{:else}{u.disabled ? 'Disabled' : 'Active'}{/if}</td>
+              <td>{#if u.status === 'pending'}<span class="pill">Waiting for approval</span>{:else}{u.status === 'disabled' ? 'Disabled' : 'Active'}{/if}</td>
               <td>{date(u.created_at)}</td>
               <td class="actions">
                 {#if u.status === 'pending'}
@@ -166,6 +169,22 @@
     <h2>Server permissions</h2>
     <p>Who may do what on this server. These never give access to documents.</p>
     <GrantRows url="/instance/grants" scope="instance" canEdit />
+  </section>
+  {/if}
+  {#if can('audit.view')}
+  <section class="section">
+    <h2>Activity</h2>
+    <p>The newest changes to permissions, shares, keys and accounts. This list can't be edited.</p>
+    <div class="table-wrap">
+      <table class="plain">
+        <thead><tr><th>When</th><th>Who</th><th>What</th><th>On</th><th>Details</th></tr></thead>
+        <tbody>
+          {#each events as e (e.id)}
+            <tr><td>{date(e.at)}</td><td>{e.actor}</td><td>{e.action}</td><td>{e.target_type}</td><td class="muted small">{detail(e)}</td></tr>
+          {:else}<tr><td colspan="5" class="muted">Nothing yet.</td></tr>{/each}
+        </tbody>
+      </table>
+    </div>
   </section>
   {/if}
 </div>

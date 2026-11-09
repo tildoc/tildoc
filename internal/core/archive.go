@@ -54,7 +54,7 @@ func (s *Service) holdBlobs(ctx context.Context) (release func(), err error) {
 		return nil, err
 	}
 	return func() {
-		conn.Exec(context.Background(), `SELECT pg_advisory_unlock_shared($1)`, int64(blobLockKey))
+		conn.Exec(context.Background(), `SELECT pg_advisory_unlock_shared($1)`, int64(blobLockKey)) //nolint:errcheck // the lock ends with the connection anyway
 		conn.Release()
 	}, nil
 }

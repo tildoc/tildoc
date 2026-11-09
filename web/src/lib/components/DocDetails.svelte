@@ -5,7 +5,7 @@
   import TagEditor from './TagEditor.svelte';
   import CollectionPicker from './CollectionPicker.svelte';
   import HistoryGraph from './HistoryGraph.svelte';
-  import { get, post, api } from '../api.js';
+  import { get, post, del, api } from '../api.js';
   import { toast, errorToast, session, refreshCollections } from '../state.svelte.js';
   import { size, date, shortType, statusLabel } from '../format.js';
   import { goto } from '$app/navigation';
@@ -76,6 +76,16 @@
     }
   }
 
+  async function purgeVersion(v) {
+    if (!confirm(`Delete version ${v} for good? It can't be brought back, and a restored backup won't bring it back either.`)) return;
+    try {
+      await del(`/documents/${doc.id}/versions/${v}`);
+      viewVersion = 0;
+      onchanged?.();
+    } catch (e) {
+      errorToast(e);
+    }
+  }
   async function restore(v) {
     try {
       await post(`/documents/${doc.id}/versions/${v}/restore`);
@@ -146,7 +156,7 @@
       {/if}
       {#if doc.forked_from}<p class="muted small">This document was split off from another one when it was changed through one of several places (copy-on-write).</p>{/if}
     {:else if tab === 'history'}
-      <HistoryGraph {doc} {canWrite} bind:viewVersion bind:viewVariant onrestore={restore} />
+      <HistoryGraph {doc} {canWrite} bind:viewVersion bind:viewVariant onrestore={restore} onpurge={purgeVersion} />
     {:else if tab === 'links'}
       <ul class="list">
         {#each doc.links as l (l.id)}

@@ -981,12 +981,14 @@ await step('Drop-In token and waiting accounts', async () => {
   // someone who signed in with Google waits on the Access page
   execFileSync('docker', ['exec', 'tildoc-dev-pg', 'psql', '-q', '-U', 'postgres', '-d', 'tildoc', '-c',
     `WITH u AS (INSERT INTO users(username, display_name, status) VALUES('wartend', 'Wartende Person', 'pending') RETURNING id)
-     INSERT INTO identities(user_id, provider, subject, email) SELECT id, 'google', 'g-1', 'w@example.org' FROM u`]);
+     INSERT INTO identities(user_id, provider, issuer, subject, email) SELECT id, 'google', 'https://accounts.google.com', 'g-1', 'w@example.org' FROM u`]);
   await page.goto(`${BASE}/access`);
   const w = page.locator('tbody tr', { hasText: 'wartend' });
   await w.getByText('Waiting for approval').waitFor();
   await w.getByRole('button', { name: 'Approve' }).click();
   await w.getByText('Active').waitFor();
+  await page.reload();
+  await page.locator('section', { hasText: 'Activity' }).getByText('user.approve').first().waitFor();
 });
 
 await step('roles matrix and API key', async () => {

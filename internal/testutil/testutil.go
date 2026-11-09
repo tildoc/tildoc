@@ -115,6 +115,7 @@ func New(t testing.TB) *Env {
 		t.Fatal(err)
 	}
 	cfg.DataDir = dataDir
+	cfg.BackupDir = filepath.Join(dataDir, "backups") // never next to the sources
 	cfg.CookieSecure = false
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	if os.Getenv("TILDOC_TEST_LOG") != "" {

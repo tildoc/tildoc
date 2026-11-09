@@ -11,7 +11,7 @@
   import { size, date, shownVariant } from '../format.js';
 
   // viewVersion: 0 = current; viewVariant: '' = the default for that version
-  let { doc, canWrite = false, viewVersion = $bindable(0), viewVariant = $bindable(''), onrestore } = $props();
+  let { doc, canWrite = false, viewVersion = $bindable(0), viewVariant = $bindable(''), onrestore, onpurge } = $props();
 
   const ROW = 54, LANE = 16, PAD = 10, R = 5;
   const graph = $derived(layoutHistory(doc.versions));
@@ -90,6 +90,7 @@
             {#if relation(v)}<span class="rel">{relation(v)}</span>{/if}
             <span class="acts">
               {#if v.version !== doc.version && canWrite}<button class="small ghost" onclick={() => onrestore?.(v.version)}>Restore</button>{/if}
+              {#if v.version !== doc.version && doc.caps?.includes('purge')}<button class="small ghost" onclick={() => onpurge?.(v.version)} title="Delete this version for good" aria-label="Delete version {v.version} for good"><Icon name="trash" size={14} /></button>{/if}
               {#if canDownload(doc)}<a class="btn small ghost" href={`${contentURL}?version=${v.version}`} download title="Download version {v.version}" aria-label="Download version {v.version}"><Icon name="download" size={14} /></a>{/if}
             </span>
           </div>
