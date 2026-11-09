@@ -30,17 +30,18 @@ func newOfficeClient(internalURL string) *wopi.Client {
 	return wopi.NewClient(internalURL)
 }
 
-// officeInfo tells the UI which file extensions open in Collabora.
+// officeInfo tells the UI which file extensions the office server opens,
+// edits and creates.
 func (s *Server) officeInfo(w http.ResponseWriter, r *http.Request) error {
-	exts := []string{}
+	info := map[string][]string{"extensions": {}, "editable": {}, "create": {}}
 	if s.Office != nil {
 		if d, err := s.Office.Get(r.Context()); err == nil {
-			exts = d.Extensions()
+			info = map[string][]string{"extensions": d.Extensions(), "editable": d.Editable(), "create": d.Creatable()}
 		} else {
 			s.Log.Warn("office discovery", "err", err)
 		}
 	}
-	return writeJSON(w, 200, map[string]any{"extensions": exts})
+	return writeJSON(w, 200, info)
 }
 
 // officeOpen issues a token and the URL the browser posts it to.
@@ -57,7 +58,7 @@ func (s *Server) officeOpen(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	action, ok := d.ActionPath(strings.TrimPrefix(path.Ext(doc.Name), "."), canWrite)
+	action, ok := d.ActionPath(strings.TrimPrefix(path.Ext(doc.Name), "."), canWrite, doc.Size == 0)
 	if !ok {
 		return &core.Error{Kind: core.ErrInvalid, Msg: "this file type does not open in Office"}
 	}

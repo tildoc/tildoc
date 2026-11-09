@@ -1068,6 +1068,44 @@ turns off); the Docs API remains a later option for its extra features.
 - [x] 20.4 Test guide `docs/office-servers.md`
 - [ ] 20.5 Manual test of a real editing session with each server (owner)
 
+### Phase 21 — New files, ONLYOFFICE as default, office files in the preview
+
+**Goal:** create files directly in the folder view ("New file": a text file
+with any ending, or any format the connected office server can create);
+ONLYOFFICE becomes the default office server; office files are recognized
+correctly in the docker image and the preview explains itself; the wait for a
+new version after closing is visible.
+
+**Findings:**
+- Wrong type: the image has no `/etc/mime.types`, so `mime.TypeByExtension`
+  knows no office types and `.ods`/`.docx` stay `application/zip` (the dev
+  machine has the file, so it wasn't visible there).
+- Live updates: a promoted version does send its event, and a browser test
+  where it arrives 3 s after the viewer closed updates without reload (step
+  46). The real delay is at least 10 s (ONLYOFFICE saves after everyone left),
+  and nothing shows that a save is still coming.
+- Creating: discovery has `editnew` for docx, xlsx, pptx, pdf, dotx, xltx, potx
+  (ONLYOFFICE). The WOPI flow is: the host creates a 0-byte file, the server
+  fills it from its template on open. Identical content is deduplicated into
+  one document on upload, so new files must bypass that.
+
+#### Steps
+
+- [x] 21.1 Default: `onlyoffice` in compose defaults, `.env.example`, `docs/office-servers.md`
+- [x] 21.2 Office MIME types registered in code (stdlib `mime.AddExtensionType`), independent of the image
+- [x] 21.3 Preview: office files say "No preview for this format; open it to view and edit"; no live editor in the panel (each selection would start an editing session on the office server)
+- [x] 21.4 Live state: rows and preview show "In Office" while a session runs, until its version has arrived; regression test (step 46) extended to the list
+- [x] 21.5 Core + API: `POST /api/folders/{id}/new-file` (name, needs write, always a new document, name conflict = error); 0-byte files open in the text editor unless they were made for the office server
+- [x] 21.6 WOPI: `create` list in `GET /api/office` from `editnew`; 0-byte documents open with `editnew`
+- [x] 21.7 UI: "New file" dropdown next to "New folder": Text file (name prompt, any ending), then the office formats; opens the new file in the viewer
+- [x] 21.8 Tests (core, API, stub, UI smoke), docs
+
+An empty first version stays in the history (versions are immutable); a new file that is never edited stays an empty file.
+
+Answers (2026-11-09): PDFs open in the PDF viewer by default, "Edit in Office"
+opens them in the office server; the dropdown offers everything the server can
+create, the main formats first.
+
 ## Open Topics
 
 Collected 2026-11-08; each becomes a phase or step when picked up.

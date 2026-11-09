@@ -776,6 +776,65 @@ await step('office document: Collabora, one version per session', async () => {
   await frame.getByText('done: exit').waitFor();
 });
 
+await step('office: a version arriving after the viewer closed shows up by itself', async () => {
+  const spaces = await api('GET', '/spaces');
+  const mine = spaces.find((x) => x.slug === 'admin') ?? spaces[0];
+  const f = await api('POST', '/folders', { parent_id: mine.root_folder_id, name: 'Office live' });
+  const up = await api('PUT', `/folders/${f.id}/files?path=spaet.docx`, 'PK\x03\x04 later');
+  await page.goto(`${BASE}/f/${f.id}`);
+  await row('spaet.docx').click();
+  await page.locator('aside.peek').getByRole('button', { name: 'Open' }).click();
+  const frame = page.frameLocator('iframe.office');
+  await frame.getByRole('button', { name: 'Close later' }).click();
+  await frame.getByText('done: exit-later').waitFor();
+  await page.getByRole('button', { name: 'Close viewer' }).click();
+  await page.waitForURL(`**/f/${f.id}*`);
+  // while the save is still on its way, the row says so; then it clears itself
+  await row('spaet.docx').locator('.badge', { hasText: 'In Office' }).waitFor();
+  await row('spaet.docx').click();
+  await page.locator('aside.peek').getByRole('tab', { name: 'History' }).click();
+  await page.locator('aside.peek .hist li', { hasText: 'Office' }).waitFor({ timeout: 10000 });
+  await row('spaet.docx').locator('.badge', { hasText: 'In Office' }).waitFor({ state: 'detached' });
+});
+
+await step('new file: text with any ending, office formats, PDF edit', async () => {
+  const { readFileSync } = await import('node:fs');
+  const spaces = await api('GET', '/spaces');
+  const mine = spaces.find((x) => x.slug === 'admin') ?? spaces[0];
+  const f = await api('POST', '/folders', { parent_id: mine.root_folder_id, name: 'Neu' });
+  await page.goto(`${BASE}/f/${f.id}`);
+  const menu = () => page.getByRole('button', { name: 'New file' }).click();
+  // a text file with an unusual ending goes to the text editor
+  await menu();
+  await page.getByRole('menuitem', { name: 'Text file' }).click();
+  await page.getByLabel('Name').fill('notizen.foo');
+  await page.getByRole('button', { name: 'Create' }).click();
+  await page.waitForURL(/\/view\//);
+  await page.locator('.cm-content').waitFor();
+  // an office format, opened from its template
+  await page.goto(`${BASE}/f/${f.id}`);
+  await menu();
+  if ((await page.getByRole('menuitem').allTextContents()).join().indexOf('Word document') < 0) throw new Error('no office formats');
+  await page.getByRole('menuitem', { name: 'Word document' }).click();
+  await page.getByLabel('Name').fill('brief');
+  await page.getByRole('button', { name: 'Create' }).click();
+  await page.frameLocator('iframe.office').getByRole('heading', { name: 'brief.docx' }).waitFor();
+  // a PDF opens in the viewer and can be sent to the office server
+  const pdf = await api('PUT', `/folders/${f.id}/files?path=edit-me.pdf`, readFileSync(join(FIX, 'scan.pdf')).toString('latin1'));
+  await page.goto(`${BASE}/view/${pdf.file.link_id}`);
+  await page.locator('.pg').first().waitFor();
+  if (await page.locator('iframe.office').count()) throw new Error('PDF opened in the office server by default');
+  await page.getByRole('button', { name: 'Edit in Office' }).click();
+  await page.frameLocator('iframe.office').getByRole('heading', { name: /\.pdf$/ }).waitFor(); // same content as an earlier upload: named after its first place
+  await page.getByRole('button', { name: 'Back to PDF viewer' }).click();
+  await page.locator('.pg').first().waitFor();
+  // office files explain the missing preview
+  await api('PUT', `/folders/${f.id}/files?path=tabelle.odt`, 'PK\x03\x04 sheet');
+  await page.goto(`${BASE}/f/${f.id}`);
+  await row('tabelle.odt').click();
+  await page.locator('aside.peek').getByText('No preview for this format').waitFor();
+});
+
 await step('text editor: edit, keys, review and save', async () => {
   const sp = await home();
   const f = await api('POST', '/folders', { parent_id: sp.root_folder_id, name: 'Editor' });

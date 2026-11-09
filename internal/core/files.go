@@ -49,6 +49,7 @@ type FileInfo struct {
 	ImportID     *string           `json:"import_id"`
 	Meta         map[string]string `json:"meta,omitempty"`
 	Tags         []TagRef          `json:"tags"`
+	InOffice     bool              `json:"in_office"` // open in the office server; a version may still come
 }
 
 // tagsColumn aggregates the tags of document d as JSON (fileSelect, search).
@@ -63,7 +64,8 @@ SELECT l.id::text, l.document_id::text, l.space_id::text, l.parent_id::text, l.n
        folder_path(l.parent_id) || '/' || l.name,
        b.size, b.sha256, b.md5, b.mime, d.current_version, coalesce(bp.status, 'pending'),
        (SELECT count(*) FROM entries x WHERE x.document_id = d.id AND x.deleted_at IS NULL),
-       l.created_at, d.updated_at, l.original_path, l.import_id::text, d.meta, ` + tagsColumn + `
+       l.created_at, d.updated_at, l.original_path, l.import_id::text, d.meta, ` + tagsColumn + `,
+       EXISTS (SELECT 1 FROM office_sessions o WHERE o.document_id = d.id AND o.expires_at > now())
 FROM entries l
 JOIN document_heads d ON d.id = l.document_id
 JOIN blobs b ON b.sha256 = d.sha256
@@ -74,7 +76,7 @@ func scanFile(row pgx.Row) (*FileInfo, error) {
 	var sha, md5 []byte
 	var folder *string
 	err := row.Scan(&f.LinkID, &f.DocumentID, &f.SpaceID, &folder, &f.Name, &f.Path, &f.Size, &sha, &md5,
-		&f.MIME, &f.Version, &f.Status, &f.LinkCount, &f.CreatedAt, &f.ModifiedAt, &f.OriginalPath, &f.ImportID, &f.Meta, &f.Tags)
+		&f.MIME, &f.Version, &f.Status, &f.LinkCount, &f.CreatedAt, &f.ModifiedAt, &f.OriginalPath, &f.ImportID, &f.Meta, &f.Tags, &f.InOffice)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errf(ErrNotFound, "file not found")
 	}

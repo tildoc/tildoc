@@ -24,6 +24,21 @@ func (s *Server) createFolder(w http.ResponseWriter, r *http.Request) error {
 	return writeJSON(w, 201, f)
 }
 
+// newFile adds an empty file to a folder (the "New file" menu).
+func (s *Server) newFile(w http.ResponseWriter, r *http.Request) error {
+	var b struct {
+		Name string `json:"name"`
+	}
+	if err := readJSON(r, &b); err != nil {
+		return err
+	}
+	f, err := s.Svc.CreateEmptyFile(r.Context(), principal(r), r.PathValue("id"), b.Name)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, 201, f)
+}
+
 type folderListing struct {
 	Folder      *core.FolderInfo  `json:"folder"`
 	Space       *core.Space       `json:"space"`

@@ -94,10 +94,10 @@ func TestOfficeOneVersionPerSession(t *testing.T) {
 	alice, sp := aliceClient(t, e.ts.URL)
 	id := upDocx(t, alice, sp, "report.docx")
 
-	var exts struct{ Extensions []string }
+	var exts struct{ Extensions, Editable, Create []string }
 	alice.ok("GET", "/api/office", nil, &exts)
-	if strings.Join(exts.Extensions, ",") != "docx,odt,txt" {
-		t.Fatalf("extensions %v", exts.Extensions)
+	if strings.Join(exts.Extensions, ",") != "docx,odt,pdf,txt" || strings.Join(exts.Create, ",") != "docx,pdf" {
+		t.Fatalf("office info %+v", exts)
 	}
 
 	s := e.open(alice, id, "lock-1")
@@ -387,4 +387,58 @@ func TestOfficeFramePolicy(t *testing.T) {
 	if got := resp.Header.Get("Content-Security-Policy"); got != "frame-src 'self' https://office.example; form-action 'self' https://office.example" {
 		t.Fatalf("policy %q", got)
 	}
+}
+
+func TestNewFile(t *testing.T) {
+	e := newOffice(t)
+	alice, sp := aliceClient(t, e.ts.URL)
+	type info struct {
+		DocumentID string `json:"document_id"`
+		LinkID     string `json:"link_id"`
+		Name, MIME string
+		Size       int64
+		Version    int
+	}
+	folder := "/api/folders/" + sp.RootFolderID + "/new-file"
+	var a, b, doc info
+	alice.ok("POST", folder, map[string]string{"name": "a.docx"}, &a)
+	alice.ok("POST", folder, map[string]string{"name": "b.docx"}, &b)
+	if a.DocumentID == b.DocumentID || a.Size != 0 || a.Version != 1 {
+		t.Fatalf("new files share a document or aren't empty: %+v %+v", a, b)
+	}
+	if !strings.Contains(a.MIME, "wordprocessingml") {
+		t.Fatalf("mime %q", a.MIME)
+	}
+	expect(t, alice.do("POST", folder, map[string]string{"name": "a.docx"}, nil), 409, "same name")
+	expect(t, alice.do("POST", folder, map[string]string{"name": "../x"}, nil), 400, "bad name")
+
+	// the office server fills it; the first save makes version 2
+	s := e.open(alice, a.DocumentID, "l")
+	s.Call("LOCK", nil)
+	st, body, _ := s.Get()
+	if st != 200 || len(body) != 0 {
+		t.Fatalf("empty file: %d %q", st, body)
+	}
+	s.Put(wopitest.Doc("from the template"), true)
+	sessionOnly(t, alice, a.DocumentID, 2, "first save")
+	sessionOnly(t, alice, b.DocumentID, 1, "the other new file")
+
+	// a text file with any ending can be edited at once
+	alice.ok("POST", folder, map[string]string{"name": "notes.whatever"}, &doc)
+	const c = "33333333-3333-4333-8333-333333333333"
+	alice.ok("POST", "/api/documents/"+doc.DocumentID+"/edit-lease", map[string]any{"client_id": c}, nil)
+	alice.ok("PUT", "/api/documents/"+doc.DocumentID+"/text?client="+c, "hello\n", nil)
+	sessionOnly(t, alice, doc.DocumentID, 2, "text saved")
+
+	// a PDF can open in the office server, a reader cannot create
+	var up upload
+	alice.ok("PUT", "/api/folders/"+sp.RootFolderID+"/files?path=doc.pdf", "%PDF-1.7 x", &up)
+	e.open(alice, up.File.DocumentID, "p")
+	admin := newClient(t, e.ts.URL)
+	admin.ok("POST", "/api/auth/login", map[string]string{"username": "admin", "password": "supersecret"}, nil)
+	admin.ok("POST", "/api/users", map[string]any{"username": "rita", "password": "ritaspassword"}, nil)
+	alice.ok("POST", "/api/spaces/"+sp.ID+"/grants", map[string]any{"user": "rita", "role": "viewer"}, nil)
+	rita := newClient(t, e.ts.URL)
+	rita.ok("POST", "/api/auth/login", map[string]string{"username": "rita", "password": "ritaspassword"}, nil)
+	expect(t, rita.do("POST", folder, map[string]string{"name": "r.docx"}, nil), 403, "reader")
 }

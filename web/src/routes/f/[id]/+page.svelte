@@ -11,6 +11,7 @@
   import PeekPanel from '#lib/components/PeekPanel.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import Prompt from '#lib/components/Prompt.svelte';
+  import NewFileMenu from '#lib/components/NewFileMenu.svelte';
   import Confirm from '#lib/components/Confirm.svelte';
   import FolderPicker from '#lib/components/FolderPicker.svelte';
   import CollectionPicker from '#lib/components/CollectionPicker.svelte';
@@ -104,6 +105,20 @@
     if (opts.version) q.set('v', opts.version);
     if (opts.variant) q.set('variant', opts.variant);
     openView(`/view/${row.link_id}${q.size ? '?' + q : ''}`);
+  }
+
+  // a file made for an office format keeps that format's ending
+  async function newFile(name) {
+    const ext = dialog.ext;
+    dialog = null;
+    if (ext && !name.toLowerCase().endsWith(`.${ext}`)) name += `.${ext}`;
+    try {
+      const f = await post(`/folders/${folderId}/new-file`, { name });
+      await load(true, true);
+      openView(`/view/${f.link_id}`);
+    } catch (e) {
+      errorToast(e);
+    }
   }
 
   function peek(row) {
@@ -257,6 +272,7 @@
           <button class="primary" onclick={() => fileInput.click()} title="Upload files (U)"><Icon name="upload" size={16} /> Upload</button>
           <button onclick={() => dirInput.click()}><Icon name="folder" size={16} /> Upload folder</button>
           <button class="ghost" onclick={() => (dialog = { kind: 'mkdir' })}><Icon name="plus" size={16} /> New folder</button>
+          <NewFileMenu onpick={(t) => (dialog = { kind: 'newfile', ...t })} />
         {/if}
         {#if !selected.length}
           <span class="divider" aria-hidden="true"></span>
@@ -317,6 +333,8 @@
   <CollectionPicker count={selRows.filter((r) => r.kind === 'file').length} onpick={addToCollection} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'mkdir'}
   <Prompt title="New folder" confirm="Create" onsubmit={mkdir} onclose={() => (dialog = null)} />
+{:else if dialog?.kind === 'newfile'}
+  <Prompt title={`New ${dialog.label}`} value={`Untitled.${dialog.ext || 'txt'}`} confirm="Create" onsubmit={newFile} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'rename'}
   <Prompt title="Rename" value={single.name} confirm="Rename" onsubmit={rename} onclose={() => (dialog = null)} />
 {:else if dialog?.kind === 'delete'}

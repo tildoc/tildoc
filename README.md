@@ -92,6 +92,12 @@ new version** (source "Office"). If the office server crashes or loses its
 connection, the working copy becomes a version after 30 minutes. Users without
 write access get the document read-only. WebDAV, SFTP and S3 keep showing the
 last version until the session ends, and are not blocked: the last save wins.
+While a session runs, the file shows "In Office".
+
+"New file" in a folder creates a text file with any ending, or any format the
+office server can create (with ONLYOFFICE: Word, Excel, PowerPoint, PDF and
+their templates). PDFs open in the PDF viewer; "Edit in Office" opens them in
+the office server.
 
 ### Places
 

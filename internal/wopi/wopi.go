@@ -110,23 +110,48 @@ func publicKey(mod, exp string) (*rsa.PublicKey, error) {
 	return &rsa.PublicKey{N: new(big.Int).SetBytes(m), E: int(en.Int64())}, nil
 }
 
-// Extensions lists the file extensions that can be opened for editing or
-// viewing, sorted.
-func (d *Discovery) Extensions() []string {
-	out := make([]string, 0, len(d.actions))
-	for ext, a := range d.actions {
-		if a["edit"] != "" || a["view"] != "" {
+// Extensions lists the file extensions that open for editing or viewing.
+func (d *Discovery) Extensions() []string { return d.with("edit", "view") }
+
+// Editable lists the file extensions that can be edited.
+func (d *Discovery) Editable() []string { return d.with("edit") }
+
+// Creatable lists the file extensions the server can fill from a template.
+// Plain text formats are left out: those belong to tildoc's text editor.
+func (d *Discovery) Creatable() []string {
+	out := []string{}
+	for _, ext := range d.with("editnew") {
+		switch ext {
+		case "txt", "csv", "tsv", "md", "html", "htm", "xml":
+		default:
 			out = append(out, ext)
+		}
+	}
+	return out
+}
+
+func (d *Discovery) with(actions ...string) []string {
+	out := []string{}
+	for ext, a := range d.actions {
+		for _, name := range actions {
+			if a[name] != "" {
+				out = append(out, ext)
+				break
+			}
 		}
 	}
 	sort.Strings(out)
 	return out
 }
 
-// ActionPath returns the URL path that opens ext. Files that cannot be
-// edited, or that the user may not edit, use the view action if there is one.
-func (d *Discovery) ActionPath(ext string, write bool) (string, bool) {
+// ActionPath returns the URL path that opens ext. An empty file that can be
+// edited uses the template action (editnew). Files that cannot be edited, or
+// that the user may not edit, use the view action if there is one.
+func (d *Discovery) ActionPath(ext string, write, empty bool) (string, bool) {
 	a := d.actions[strings.ToLower(ext)]
+	if empty && write && a["editnew"] != "" {
+		return a["editnew"], true
+	}
 	first, second := "edit", "view"
 	if !write {
 		first, second = second, first

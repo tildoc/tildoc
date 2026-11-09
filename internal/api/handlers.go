@@ -62,6 +62,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("DELETE /api/folders/{id}", s.authed(s.deleteFolder))
 	h("POST /api/folders/{id}/copy", s.authed(s.copyFolder))
 	h("PUT /api/folders/{id}/files", s.authed(s.upload))
+	h("POST /api/folders/{id}/new-file", s.authed(s.newFile))
 
 	h("GET /api/files/{id}", s.authed(s.getFile))
 	h("PATCH /api/files/{id}", s.authed(s.moveFile))

@@ -2,7 +2,7 @@
 
 tildoc opens office files in one of two office servers. Both run as a separate
 container and connect through the same interface (WOPI), so you choose one per
-deployment and can switch at any time.
+deployment and can switch at any time. **ONLYOFFICE is the default.**
 
 | | Collabora (CODE 26.04.6.1.1) | ONLYOFFICE (10.0.0.1) |
 |---|---|---|
@@ -29,20 +29,20 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env down -v
 
 Add **one** of these two blocks to `deploy/.env`.
 
+ONLYOFFICE (default):
+
+```
+COMPOSE_PROFILES=onlyoffice
+TILDOC_OFFICE_UPSTREAM=onlyoffice:80
+TILDOC_OFFICE_SERVER_NAME=office.localhost
+TILDOC_OFFICE_URL=https://office.localhost:8443
+```
+
 Collabora:
 
 ```
 COMPOSE_PROFILES=collabora
 TILDOC_OFFICE_UPSTREAM=collabora:9980
-TILDOC_OFFICE_SERVER_NAME=office.localhost
-TILDOC_OFFICE_URL=https://office.localhost:8443
-```
-
-ONLYOFFICE:
-
-```
-COMPOSE_PROFILES=onlyoffice
-TILDOC_OFFICE_UPSTREAM=onlyoffice:80
 TILDOC_OFFICE_SERVER_NAME=office.localhost
 TILDOC_OFFICE_URL=https://office.localhost:8443
 ```
@@ -120,6 +120,9 @@ these servers, so this is the first run against the real ones.
 | 6 | Open it as a user with read access only | read-only editor, nothing saved |
 | 7 | Upload a new version over WebDAV while the editor is open | a notice in the viewer; after closing, the editor's text is the current version and the WebDAV version stays in History |
 | 8 | Open a `.txt` and a `.pdf` | the text editor and the PDF viewer as before |
+| 9 | "New file" > each format | opens from the server's template; one more version after the first save |
+| 10 | "New file" > Text file named `notes.foo` | opens in the text editor |
+| 11 | Open a `.pdf`, "Edit in Office" | the PDF opens in the office server; a version when you leave the editor |
 
 ## If something fails
 

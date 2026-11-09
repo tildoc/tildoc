@@ -58,6 +58,9 @@ func (s *Stub) discovery(w http.ResponseWriter, r *http.Request) {
 <action ext="docx" name="view" urlsrc="https://ignored.example/browser/stub/cool.html?"/>
 <action ext="txt" name="edit" urlsrc="https://ignored.example/browser/stub/cool.html?"/>
 <action ext="odt" name="edit" urlsrc="https://ignored.example/browser/stub/cool.html?"/>
+<action ext="docx" name="editnew" urlsrc="https://ignored.example/browser/stub/cool.html?"/>
+<action ext="pdf" name="edit" urlsrc="https://ignored.example/browser/stub/cool.html?"/>
+<action ext="pdf" name="editnew" urlsrc="https://ignored.example/browser/stub/cool.html?"/>
 </app></net-zone><proof-key exponent="%s" modulus="%s"/></wopi-discovery>`, exp, mod)
 }
 
@@ -89,7 +92,7 @@ func (s *Stub) open(w http.ResponseWriter, r *http.Request) {
 
 func controls(w io.Writer, token string) {
 	fmt.Fprintf(w, `<form method=post action="/browser/stub/do"><input type=hidden name=t value="%s">
-<button name=a value=save>Autosave</button> <button name=a value=exit>Close document</button></form>`, html.EscapeString(token))
+<button name=a value=save>Autosave</button> <button name=a value=exit>Close document</button> <button name=a value=exit-later>Close later</button></form>`, html.EscapeString(token))
 }
 
 func (s *Stub) do(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +106,11 @@ func (s *Stub) do(w http.ResponseWriter, r *http.Request) {
 	switch r.PostFormValue("a") {
 	case "save":
 		sess.Put(Doc("autosaved "+strconv.FormatInt(time.Now().UnixNano(), 10)), false)
+	case "exit-later": // like the real servers: the save arrives seconds after the editor closed
+		time.AfterFunc(3*time.Second, func() {
+			sess.Put(Doc("final text, later"), true)
+			sess.Call("UNLOCK", nil)
+		})
 	case "exit":
 		sess.Put(Doc("final text"), true)
 		sess.Call("UNLOCK", nil)

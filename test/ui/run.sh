@@ -13,7 +13,7 @@ rm -rf .data/store
 go build -o .data/officestub ./test/officestub
 .data/officestub 127.0.0.1:19981 >.data/officestub.log 2>&1 &  # stands in for Collabora, on another origin
 STUB=$!
-TILDOC_OFFICE_URL=http://127.0.0.1:19981 TILDOC_WOPI_URL=http://localhost:8080 \
+TILDOC_DEV_NO_ENV=1 TILDOC_OFFICE_URL=http://127.0.0.1:19981 TILDOC_WOPI_URL=http://localhost:8080 \
   TILDOC_SFTP_ADDR=off scripts/dev.sh >.data/dev.log 2>&1 &  # no SFTP: avoids clashing with a running stack
 SRV=$!
 trap 'kill $SRV $STUB 2>/dev/null; for pid in $(ss -ltnp 2>/dev/null | grep -E ":8080 " | grep -oE "pid=[0-9]+" | cut -d= -f2); do kill $pid; done' EXIT

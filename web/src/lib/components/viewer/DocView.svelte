@@ -14,6 +14,7 @@
     file, // {document_id, name, mime, size}
     doc = null, // the document (optional): enables the fast in-document search
     edit = false, // text and office files open for editing (full viewer, current version)
+    officeEdit = false, // a PDF was asked to open in the office server
     onsaved, // editor saved a new version
     variant = 'original',
     version = 0,
@@ -34,10 +35,13 @@
   let inner = $state();
 
   const mime = $derived(file?.mime ?? '');
+  // an empty file the office server fills from its template shows no content yet
+  const inOffice = $derived(opensInOffice(file.name, mime, file.size, session.office));
   const kind = $derived(
-    mime.startsWith('application/pdf') ? (prefs().pdf_viewer === 'native' ? 'native' : 'pdf')
+    inOffice ? 'other'
+    : mime.startsWith('application/pdf') ? (prefs().pdf_viewer === 'native' ? 'native' : 'pdf')
     : /^image\/(png|jpeg|gif|webp)/.test(mime) ? 'image'
-    : mime.startsWith('text/') || mime.includes('json') ? 'text'
+    : mime.startsWith('text/') || mime.includes('json') || file.size === 0 ? 'text'
     : 'other'
   );
   const base = $derived(`/api/documents/${file.document_id}/content`);
@@ -58,7 +62,7 @@
   );
 
   const editing = $derived(kind === 'text' && edit && !!doc && (!version || version === doc.version));
-  const office = $derived(kind === 'other' && edit && !!doc && (!version || version === doc.version) && opensInOffice(file.name, mime, session.office));
+  const office = $derived(edit && !!doc && (!version || version === doc.version) && (inOffice || officeEdit));
 
   export const capabilities = () => ({
     find: kind === 'pdf' || (kind === 'text' && !editing), // the editor has its own search (Ctrl+F)
@@ -72,7 +76,9 @@
   export function rotate() { inner?.rotate?.(); }
 </script>
 
-{#if kind === 'pdf'}
+{#if office}
+  {#key doc.id}<OfficeView {doc} {file} />{/key}
+{:else if kind === 'pdf'}
   {#key url}
     <PdfView bind:this={inner} {url} {textPath} {mode} {query} {thumbs} {initialPage} {transitionName}
       bind:page bind:numPages bind:zoom bind:scale bind:matchCount bind:current bind:searching />
@@ -83,8 +89,6 @@
   <ImageView {url} alt={file.name} {mode} {transitionName} bind:zoom bind:scale />
 {:else if editing}
   {#key doc.id}<TextEditor {doc} {file} {onsaved} />{/key}
-{:else if office}
-  {#key doc.id}<OfficeView {doc} {file} />{/key}
 {:else if kind === 'text'}
   <TextView bind:this={inner} {url} mime={file.mime} name={file.name} size={file.size} {query} {mode} bind:matchCount bind:current />
 {:else}
@@ -93,8 +97,13 @@
       <Icon name="file" size={40} />
       <strong>{file.name}</strong>
       <span>{shortType(file.mime, file.name)} file, {fmtSize(file.size)}</span>
-      {#if doc?.office_session}<p>Open in Office right now. Changes become a new version when everyone has closed it.</p>{/if}
-      <p>There is no preview for this type. The file is stored unchanged and can be downloaded.</p>
+      {#if doc?.office_session}
+        <p>Open in Office right now. Changes become a new version when everyone has closed it.</p>
+      {:else if inOffice}
+        <p>No preview for this format. Open it to view and edit.</p>
+      {:else}
+        <p>There is no preview for this type. The file is stored unchanged and can be downloaded.</p>
+      {/if}
       <a class="btn primary" href={base} download><Icon name="download" size={16} /> Download</a>
     </div>
   </div>

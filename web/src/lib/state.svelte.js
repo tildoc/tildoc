@@ -2,7 +2,7 @@
 import { get, patch, setUnauthorizedHandler, clearCache } from './api.js';
 import { startEvents, stopEvents, onEvent } from './events.svelte.js';
 
-export const session = $state({ user: null, ready: false, spaces: [], info: null, teams: [], collections: [], tags: [], office: [] });
+export const session = $state({ user: null, ready: false, spaces: [], info: null, teams: [], collections: [], tags: [], office: { extensions: [], editable: [], create: [] } });
 export const ui = $state({ toasts: [], uploads: [], sidebarOpen: false, treeVersion: 0, palette: false, returnTo: null, currentSpace: null });
 
 setUnauthorizedHandler(() => {
@@ -40,7 +40,7 @@ export async function loadSession() {
     session.user = me.value;
     session.spaces = spaces.status === 'fulfilled' ? spaces.value : [];
     session.collections = colls.status === 'fulfilled' ? colls.value : [];
-    session.office = office.status === 'fulfilled' ? office.value.extensions : [];
+    if (office.status === 'fulfilled') session.office = office.value;
     startEvents();
   } else {
     session.user = null;

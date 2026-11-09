@@ -7,7 +7,7 @@
   import { get, cachedData, revalidate } from '#lib/api.js';
   import { errorToast, session, stored, store } from '#lib/state.svelte.js';
   import { COLUMNS, loadView } from '#lib/columns.js';
-  import { shownVariant, hasVariant, opensInOffice } from '#lib/format.js';
+  import { shownVariant, hasVariant, opensInOffice, extOf } from '#lib/format.js';
   import Icon from '#lib/components/Icon.svelte';
   import DocView from '#lib/components/viewer/DocView.svelte';
   import DocDetails from '#lib/components/DocDetails.svelte';
@@ -33,10 +33,19 @@
   // what is shown: the chosen variant of the shown version (or its default)
   let variant = $derived(doc ? shownVariant(doc, viewVersion, viewVariant) : 'original');
   // the text editor and Collabora hold unsaved work: never rebuilt on new versions
-  let editsInPlace = $derived(!!doc && !viewVersion && ((doc.mime ?? '').startsWith('text/') || opensInOffice(file?.name, doc.mime, session.office)));
+  let officeEdit = $state(false); // this PDF is open in the office server
+  let isPdf = $derived((doc?.mime ?? '').startsWith('application/pdf') && doc?.size > 0);
+  let canOfficeEdit = $derived(isPdf && !viewVersion && session.office.editable.includes(extOf(file?.name))
+    && session.spaces.find((s) => s.id === doc?.space_id)?.perm >= 2);
+  let editsInPlace = $derived(!!doc && !viewVersion && ((doc.mime ?? '').startsWith('text/') || officeEdit || opensInOffice(file?.name, doc.mime, doc.size, session.office)));
   let initialPage = $state(1);
   let view = $state();
   let pageInput = $state('1');
+
+  $effect(() => {
+    linkId;
+    officeEdit = false; // the next document opens in its default view
+  });
 
   afterNavigate(({ from }) => {
     if (from && !from.url.pathname.startsWith('/view/')) backTo = from.url.pathname + from.url.search;
@@ -262,6 +271,9 @@
       </div>
 
       <div class="right">
+        {#if canOfficeEdit}
+          <button class:on={officeEdit} onclick={() => (officeEdit = !officeEdit)} title="A new version follows when you leave the editor">{officeEdit ? 'Back to PDF viewer' : 'Edit in Office'}</button>
+        {/if}
         {#if caps.find}<button class="icon" class:on={findOpen} onclick={() => (findOpen ? closeFind() : openFind())} aria-label="Find in document" title="Find in document (Ctrl+F)"><Icon name="search" /></button>{/if}
         {#if siblings.length > 1}
           <button class="icon" onclick={() => openSibling(prevDoc)} disabled={!prevDoc} aria-label="Previous document" title={collectionName ? 'Previous document in collection ([)' : 'Previous document in folder ([)'}><Icon name="left" /></button>
@@ -295,7 +307,7 @@
     {:else if doc && file}
       <!-- a new version re-creates the view (PDF pages reload), but never an editor -->
       {#key editsInPlace ? file.document_id : `${file.document_id}:${doc.version}`}
-        <DocView bind:this={view} file={{ ...file, mime: doc.mime, size: doc.size }} {doc} {variant} version={viewVersion} mode="full" edit onsaved={() => reloadDoc(true)}
+        <DocView bind:this={view} file={{ ...file, mime: doc.mime, size: doc.size }} {doc} {variant} version={viewVersion} mode="full" edit officeEdit={officeEdit && !viewVersion} onsaved={() => reloadDoc(true)}
           {query} {thumbs} {initialPage} transitionName="doc-page"
           bind:page bind:numPages bind:zoom bind:scale bind:matchCount bind:current bind:searching />
       {/key}

@@ -19,7 +19,7 @@ x-tildoc-env: &tildoc-env
   TILDOC_LOG_LEVEL: ${TILDOC_LOG_LEVEL:-info}
   TILDOC_BACKUP_DIR: /backups
   TILDOC_OFFICE_URL: ${TILDOC_OFFICE_URL:-}
-  TILDOC_OFFICE_INTERNAL_URL: http://${TILDOC_OFFICE_UPSTREAM:-collabora:9980}
+  TILDOC_OFFICE_INTERNAL_URL: http://${TILDOC_OFFICE_UPSTREAM:-onlyoffice:80}
   TILDOC_WOPI_URL: http://server:8080
 
 services:
@@ -77,7 +77,7 @@ services:
       TILDOC_UPSTREAM: server
       TILDOC_OFFICE_SERVER_NAME: ${TILDOC_OFFICE_SERVER_NAME:-office.localhost}
       TILDOC_OFFICE_URL: ${TILDOC_OFFICE_URL:-}
-      TILDOC_OFFICE_UPSTREAM: ${TILDOC_OFFICE_UPSTREAM:-collabora:9980}
+      TILDOC_OFFICE_UPSTREAM: ${TILDOC_OFFICE_UPSTREAM:-onlyoffice:80}
     volumes:
       - certs:/etc/nginx/certs
     ports:

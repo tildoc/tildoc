@@ -44,7 +44,7 @@ func (s *Service) editable(ctx context.Context, p *Principal, docID string) (*Do
 	switch {
 	case d.DeletedAt != nil:
 		return nil, errf(ErrInvalid, "the document is in the trash")
-	case !strings.HasPrefix(d.MIME, "text/"):
+	case !strings.HasPrefix(d.MIME, "text/") && d.Size != 0: // a new, empty file can have any ending
 		return nil, errf(ErrInvalid, "only text files can be edited")
 	case d.Size > MaxEditBytes:
 		return nil, errf(ErrTooLarge, "text files larger than 5 MB cannot be edited")

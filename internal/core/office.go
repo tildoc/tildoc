@@ -47,11 +47,11 @@ type OfficeFile struct {
 	Modified time.Time
 }
 
-// OfficeMIME tells whether a type may open in Collabora: everything but the
-// types the viewer and the text editor handle themselves.
+// OfficeMIME tells whether a type may open in the office server: not the
+// types the text editor and image viewer handle. PDFs may (on request): the
+// PDF viewer stays their default.
 func OfficeMIME(mime string) bool {
-	return !strings.HasPrefix(mime, "text/") && !strings.HasPrefix(mime, "application/pdf") &&
-		!strings.Contains(mime, "json") && !strings.HasPrefix(mime, "image/")
+	return !strings.HasPrefix(mime, "text/") && !strings.Contains(mime, "json") && !strings.HasPrefix(mime, "image/")
 }
 
 // officeDocument loads a live document p may read and Collabora may open.

@@ -134,6 +134,8 @@ When the user requests a programming task, **do not start coding immediately.**
   (`internal/wopi`, `internal/api/wopi.go`, `internal/core/office.go`, setup in
   `docs/office-servers.md`), always on their own origin (`config.checkOffice`).
   Only the end of a session creates a version; saves go to the working copy.
+  ONLYOFFICE is the default. Empty files open with `editnew`; new files never
+  dedupe (`CreateEmptyFile`).
   Tests use `internal/wopi/wopitest` instead of real Collabora. Never re-mount
   `OfficeView` on new versions.
 - **Live updates:** schema triggers `pg_notify('tildoc_events', …)` (see end

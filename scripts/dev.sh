@@ -3,7 +3,7 @@
 # with the built web UI. Configuration from deploy/.env if present.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-[ -f deploy/.env ] && set -a && . deploy/.env && set +a
+[ -z "${TILDOC_DEV_NO_ENV:-}" ] && [ -f deploy/.env ] && set -a && . deploy/.env && set +a
 PGPORT=${DEV_PGPORT:-55434}
 scripts/dev-db.sh
 export TILDOC_DATABASE_URL=${TILDOC_DATABASE_URL:-postgres://postgres:dev@127.0.0.1:$PGPORT/tildoc?sslmode=disable}

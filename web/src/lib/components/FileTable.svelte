@@ -242,6 +242,7 @@
                     <small class="mobile-meta">{row.kind === 'folder' ? 'Folder' : `${size(row.size)}, ${date(row.modified_at)}`}</small>
                   </span>
                   {#if row.link_count > 1}<span class="badge" title="Appears in {row.link_count} places"><Icon name="link" size={12} />{row.link_count}</span>{/if}
+                  {#if row.in_office}<span class="badge" title="Open in Office. A new version follows when everyone has closed it.">In Office</span>{/if}
                   {#if row.tags?.length}<span class="tags"><TagChips tags={row.tags} small /></span>{/if}
                 </div></td>
               {:else}
