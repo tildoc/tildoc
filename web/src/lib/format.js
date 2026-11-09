@@ -77,18 +77,14 @@ export function hasVariant(doc, version, variant) {
   return vs.some((x) => x.kind === VARIANT_KIND[variant]);
 }
 
-// foreignOCR: did that version arrive with someone else's OCR layer?
-export function foreignOCR(doc, version = 0) {
-  return (shownVersion(doc, version)?.kind ?? doc?.kind) === 'pdf-ocred';
-}
-
-// defaultVariant picks which PDF to show: tildoc's OCR for scans, the
-// original for files that came with their own OCR unless the server prefers
-// tildoc's OCR.
+// defaultVariant: what opens when nothing is chosen is the latest node of
+// the version's history, i.e. its newest derived variant (tildoc's OCR at
+// the end of original -> image only -> OCR), or the version itself.
+const PARAM = { searchable_pdf: 'searchable', image_only_pdf: 'image_only' };
 export function defaultVariant(doc, version = 0) {
-  if (!hasVariant(doc, version, 'searchable')) return 'original';
-  if (foreignOCR(doc, version)) return doc.ocr_preference === 'tildoc' ? 'searchable' : 'original';
-  return 'searchable';
+  const vs = shownVersion(doc, version)?.variants ?? (version ? [] : doc?.variants ?? []);
+  const latest = vs.reduce((a, b) => (!a || (b.created_at ?? '') >= (a.created_at ?? '') ? b : a), null);
+  return latest ? PARAM[latest.kind] ?? 'original' : 'original';
 }
 
 // shownVariant: the chosen variant if that version has it, else the default.

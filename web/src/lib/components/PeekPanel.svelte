@@ -32,9 +32,9 @@
     }
   }
 
-  // reload only when the document or its version changes, not when the
-  // parent list refreshes the same row
-  let docKey = $derived(`${file.document_id}:${file.version}`);
+  // a newly selected file (or a new version of it) starts at its latest
+  // node; a refresh of the same row keeps what is shown
+  let docKey = $derived(`${file.link_id}:${file.document_id}:${file.version}`);
   $effect(() => {
     docKey;
     untrack(() => {

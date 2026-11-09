@@ -858,6 +858,7 @@ the SVG (keyboard and screen reader friendly); the SVG is decoration
 - [x] 16.4 Worker (if confirmed): content that is already a tildoc variant is not OCRed again
 - [x] 16.5 Tests: layout function (lanes, reuse, merge back, restore), API, UI smoke (graph shows variants and versions, open a variant of an old version)
 - [x] 16.6 Docs: README (history), bundle format if changed
+- [x] 16.8 Selecting or opening a file starts at its latest node (newest version, newest variant); horizontal strip widened and flattened
 - [x] 16.7 Viewer toolbar: the graph horizontally (`HistoryStrip.svelte`, same layout mirrored on the diagonal) replaces the OCR buttons; nodes select version + variant
 
 Answers (2026-11-08): oldest at the top; one "History" tab; `restored_from`
@@ -943,7 +944,7 @@ Collected 2026-11-08; each becomes a phase or step when picked up.
 | 29 | Export encryption (later) | `age` |
 | 30 | Trash in exports | excluded from files exports and bundles, included in server backups; bundles carry all versions and derived variants |
 | 31 | Ids | UUIDv7 for every entity (jobs and multipart uploads included); exceptions: S3 key ids, session token hashes, blob SHA-256 |
-| 32 | OCR preference | server-wide `existing` (default) or `tildoc`; foreign OCR is always kept, tildoc OCR is added |
+| 32 | OCR preference | server-wide `existing` (default) or `tildoc` for search and the text view; foreign OCR is always kept, tildoc OCR is added. What opens is the latest node of the history (2026-11-09), not the preference |
 | 33 | Permissions | capabilities + roles; spaces can be shared with users and teams (`space_grants`) |
 | 34 | Live updates | PostgreSQL triggers + LISTEN/NOTIFY, Server-Sent Events filtered per subscriber; polling only as fallback |
 | 35 | HTTP caching | JSON `no-store` + ETag revalidated by the in-memory UI cache (no authenticated data in the browser disk cache) |

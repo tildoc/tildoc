@@ -9,7 +9,8 @@
 
   let { doc, viewVersion = $bindable(0), viewVariant = $bindable('') } = $props();
 
-  const STEP = 26, LANE = 11, PAD = 9, R = 4;
+  // wide steps, flat lanes: the tree reads left to right, branches go down
+  const STEP = 44, LANE = 10, PAD = 9, R = 4;
   const graph = $derived(layoutHistory(doc.versions));
   // vertical geometry: lane -> x, row -> y; drawn inside a transposing group
   const lx = (lane) => PAD + lane * LANE;
@@ -77,7 +78,7 @@
     --lane-2: #7cc495;
     --lane-3: var(--stage-ink-2);
   }
-  .scroll { overflow-x: auto; overflow-y: hidden; max-width: 260px; scrollbar-width: thin; }
+  .scroll { overflow-x: auto; overflow-y: hidden; max-width: clamp(180px, 34vw, 620px); scrollbar-width: thin; }
   .canvas { position: relative; }
   svg { display: block; overflow: visible; }
   .edge { fill: none; stroke-width: 2; stroke-linecap: round; }

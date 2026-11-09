@@ -575,6 +575,14 @@ await step('history graph', async () => {
   await strip.getByRole('button', { name: 'Show version 3' }).click();
   await page.locator('.viewer', { hasText: 'first draft' }).waitFor();
   await strip.locator('.label', { hasText: 'Version 3' }).waitFor();
+  await page.locator('.viewer .bar').screenshot({ path: join(OUT, 'viewer_history_strip.png') });
+  // selecting the file again starts at its latest version, not at the one viewed before
+  await page.goto(`${BASE}/f/${f.id}`);
+  await row('contract.txt').click();
+  await page.locator('aside.peek .preview', { hasText: 'first draft' }).waitFor();
+  await page.locator('aside.peek').getByRole('tab', { name: 'History (3)' }).click();
+  await page.locator('aside.peek .hist li.shown', { hasText: 'Version 3' }).waitFor();
+  if (await page.locator('aside.peek .bar .pill', { hasText: 'Viewing' }).count()) throw new Error('an older selection was kept');
 });
 
 await step('history: open the selected variant', async () => {
@@ -618,6 +626,7 @@ await step('history: open the selected variant', async () => {
   await strip.getByRole('button', { name: 'Show version 1' }).click();
   await page.locator('.viewer .pg .textLayer span', { hasText: 'Scan Original' }).first().waitFor();
   await strip.locator('.label', { hasText: 'Version 1' }).waitFor();
+  await page.locator('.viewer .bar').screenshot({ path: join(OUT, 'viewer_history_strip_variant.png') });
   await strip.getByRole('button', { name: 'Show tildoc OCR of version 1' }).click();
   await page.locator('.viewer .pg .textLayer span', { hasText: 'Erkannter' }).first().waitFor();
 });

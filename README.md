@@ -128,7 +128,9 @@ restores an older version (dashed). Clicking a node shows it (version and
 variant) in the preview or viewer, and only that node is marked; *Open* opens
 exactly the selected node. Every node can be downloaded, older versions
 restored. The viewer's toolbar shows the same graph horizontally (time
-from left to right); clicking a node switches the document shown.
+from left to right); clicking a node switches the document shown. Selecting
+or opening a file always starts at its latest node: the newest version and,
+if it has variants, the newest of them (e.g. tildoc's OCR).
 
 Glossary: **Team** (users + roles owner/admin/member/viewer), **Space**
 (container, = S3 bucket, = top-level WebDAV/SFTP folder), **Folder**,
