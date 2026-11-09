@@ -30,6 +30,7 @@ CREATE TABLE users (
     id            uuid PRIMARY KEY DEFAULT uuidv7(),
     username      text NOT NULL UNIQUE CHECK (username ~ '^[a-z0-9][a-z0-9._-]{1,31}$'),
     display_name  text NOT NULL DEFAULT '',
+    status        text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'pending')), -- pending: first login with a provider, waits for approval
     disabled      boolean NOT NULL DEFAULT false,
     pdf_viewer    text NOT NULL DEFAULT 'pdfjs' CHECK (pdf_viewer IN ('pdfjs', 'native')),
     created_at    timestamptz NOT NULL DEFAULT now()
@@ -43,6 +44,7 @@ CREATE TABLE identities (
     provider      text NOT NULL CHECK (provider ~ '^[a-z0-9-]{1,40}$'),
     subject       text NOT NULL CHECK (subject <> ''),
     password_hash text,
+    email         text NOT NULL DEFAULT '', -- as the provider reports it: shown, never used to match accounts
     created_at    timestamptz NOT NULL DEFAULT now(),
     last_login_at timestamptz,
     UNIQUE (provider, subject),
@@ -96,6 +98,7 @@ CREATE TABLE spaces (
     allow_public_links boolean NOT NULL DEFAULT false,
     allow_drop_links   boolean NOT NULL DEFAULT false,
     allow_file_shares  boolean NOT NULL DEFAULT false,
+    allow_drop_in      boolean NOT NULL DEFAULT false,
     write_protected    boolean NOT NULL DEFAULT false,
     no_ocr             boolean NOT NULL DEFAULT false,
     created_at    timestamptz NOT NULL DEFAULT now(),
@@ -114,7 +117,7 @@ CREATE TABLE permissions (
     scope text NOT NULL CHECK (scope IN ('space', 'instance'))
 );
 INSERT INTO permissions(name, scope)
-SELECT n, 'space' FROM unnest(ARRAY['view', 'download', 'export', 'write', 'move', 'delete', 'purge', 'manage', 'transfer',
+SELECT n, 'space' FROM unnest(ARRAY['view', 'download', 'export', 'write', 'move', 'delete', 'purge', 'manage', 'transfer', 'drop_in',
     'share.space.people', 'share.space.login_link', 'share.space.public_link', 'share.space.drop_link',
     'share.file.people', 'share.file.login_link', 'share.file.public_link']) n
 UNION ALL
@@ -152,8 +155,8 @@ INSERT INTO role_permissions(role_id, permission)
 SELECT r.id, x.p FROM roles r JOIN (VALUES
     ('restricted_viewer', ARRAY['view']),
     ('viewer', ARRAY['view', 'download', 'export']),
-    ('editor', ARRAY['view', 'download', 'export', 'write']),
-    ('manager', ARRAY['view', 'download', 'export', 'write', 'move', 'delete', 'purge', 'manage',
+    ('editor', ARRAY['view', 'download', 'export', 'write', 'drop_in']),
+    ('manager', ARRAY['view', 'download', 'export', 'write', 'drop_in', 'move', 'delete', 'purge', 'manage',
         'share.space.people', 'share.space.login_link', 'share.space.public_link', 'share.space.drop_link',
         'share.file.people', 'share.file.login_link', 'share.file.public_link']),
     ('user', ARRAY['spaces.create', 'teams.create'])
@@ -233,7 +236,8 @@ $$;
 -- what can be done now: the space's settings take away what they switch off
 CREATE FUNCTION space_permissions(sid uuid, uid uuid) RETURNS text[] LANGUAGE sql STABLE AS $$
     SELECT ARRAY(SELECT h FROM spaces s, unnest(space_permissions_held(sid, uid)) h WHERE s.id = sid AND NOT (
-        (s.write_protected AND h IN ('write', 'move', 'delete', 'purge'))
+        (s.write_protected AND h IN ('write', 'move', 'delete', 'purge', 'drop_in'))
+        OR (NOT s.allow_drop_in AND h = 'drop_in')
         OR (NOT s.allow_login_links AND h IN ('share.space.login_link', 'share.file.login_link'))
         OR (NOT s.allow_public_links AND h IN ('share.space.public_link', 'share.file.public_link'))
         OR (NOT s.allow_drop_links AND h = 'share.space.drop_link')
@@ -781,6 +785,8 @@ CREATE TABLE api_keys (
     user_id      uuid NOT NULL REFERENCES users ON DELETE CASCADE,
     secret_hash  bytea NOT NULL CHECK (length(secret_hash) = 32),
     label        text NOT NULL DEFAULT '',
+    folder_id    uuid REFERENCES entries ON DELETE CASCADE, -- Drop-In keys: where uploads land
+    all_spaces   boolean NOT NULL DEFAULT false, -- explicit: no rows in api_key_spaces means no space
     expires_at   timestamptz,
     created_at   timestamptz NOT NULL DEFAULT now(),
     last_used_at timestamptz,
@@ -796,4 +802,13 @@ CREATE TABLE api_key_spaces (
     key_id   uuid NOT NULL REFERENCES api_keys ON DELETE CASCADE,
     space_id uuid NOT NULL REFERENCES spaces ON DELETE CASCADE,
     PRIMARY KEY (key_id, space_id)
+);
+
+-- a sign-in with an external provider that is under way
+CREATE TABLE oauth_logins (
+    state_hash bytea PRIMARY KEY CHECK (length(state_hash) = 32),
+    provider   text NOT NULL,
+    nonce      text NOT NULL,
+    verifier   text NOT NULL,
+    expires_at timestamptz NOT NULL
 );

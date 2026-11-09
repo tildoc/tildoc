@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/tildoc/tildoc/internal/core"
 	"github.com/tildoc/tildoc/internal/version"
@@ -22,6 +23,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("POST /api/setup", s.public(s.setup))
 	h("POST /api/auth/login", s.public(s.login))
 	h("POST /api/auth/logout", s.public(s.logout))
+	s.oauthRoutes(h)
 
 	h("GET /api/me", s.authed(s.me))
 	h("PATCH /api/me", s.authed(s.updateMe))
@@ -35,6 +37,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 
 	h("GET /api/users", s.authed(s.listUsers))
 	h("POST /api/users", s.authed(s.createUser))
+	h("POST /api/users/{id}/approve", s.authed(s.approveUser))
 	h("PATCH /api/users/{id}", s.authed(s.updateUser))
 	h("DELETE /api/users/{id}", s.authed(s.deleteUser))
 
@@ -77,6 +80,8 @@ func (s *Server) routes(mux *http.ServeMux) {
 	h("GET /api/me/api-keys", s.authed(s.listAPIKeys))
 	h("POST /api/me/api-keys", s.authed(s.createAPIKey))
 	h("DELETE /api/me/api-keys/{id}", s.authed(s.revokeAPIKey))
+	h("POST /api/me/drop-in-keys", s.authed(s.createDropInKey))
+	h("PUT /api/drop/{name}", s.authed(s.dropIn))
 	s.publicRoutes(h)
 
 	h("POST /api/folders", s.authed(s.createFolder))
@@ -219,13 +224,17 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, username, 
 	if err != nil {
 		return err
 	}
-	http.SetCookie(w, &http.Cookie{Name: SessionCookie, Value: tok, Path: "/", Expires: exp, HttpOnly: true,
-		Secure: s.Cfg.CookieSecure, SameSite: http.SameSiteStrictMode})
+	s.setSessionCookie(w, tok, exp)
 	u, err := s.Svc.GetUser(r.Context(), p.UserID)
 	if err != nil {
 		return err
 	}
 	return writeJSON(w, 200, map[string]any{"user": u, "token": tok, "expires_at": exp})
+}
+
+func (s *Server) setSessionCookie(w http.ResponseWriter, tok string, exp time.Time) {
+	http.SetCookie(w, &http.Cookie{Name: SessionCookie, Value: tok, Path: "/", Expires: exp, HttpOnly: true,
+		Secure: s.Cfg.CookieSecure, SameSite: http.SameSiteStrictMode})
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) error {

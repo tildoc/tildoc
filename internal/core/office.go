@@ -99,7 +99,7 @@ func (s *Service) OfficePrincipal(ctx context.Context, token, docID string) (*Pr
 	p := &Principal{Via: "wopi"}
 	err := s.DB.QueryRow(ctx, `SELECT u.id::text, u.username
 		FROM wopi_tokens t JOIN sessions se ON se.token_hash = t.session_hash JOIN users u ON u.id = se.user_id
-		WHERE t.token_hash = $1 AND t.document_id = $2 AND t.expires_at > now() AND se.expires_at > now() AND NOT u.disabled`,
+		WHERE t.token_hash = $1 AND t.document_id = $2 AND t.expires_at > now() AND se.expires_at > now() AND NOT u.disabled AND u.status = 'active'`,
 		tokenHash(token), docID).Scan(&p.UserID, &p.Username)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errf(ErrUnauthorized, "invalid token")

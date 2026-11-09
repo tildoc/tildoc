@@ -44,6 +44,15 @@
     if (can('users.manage')) users = await get('/users');
   }
   $effect(() => { load().catch(errorToast); });
+  async function approve(u) {
+    try {
+      await post(`/users/${u.id}/approve`, {});
+      toast(`Approved ${u.username}`, 'success');
+      load();
+    } catch (e) {
+      errorToast(e);
+    }
+  }
   async function createUser(e) {
     e.preventDefault();
     try {
@@ -96,10 +105,13 @@
             <tr>
               <td>{u.display_name} <small class="muted">@{u.username}</small></td>
               <td><input type="checkbox" aria-label="Administrator" checked={u.is_admin} disabled={u.id === session.user.id} onchange={(e) => update(u, { is_admin: e.target.checked })} /></td>
-              <td>{u.disabled ? 'Disabled' : 'Active'}</td>
+              <td>{#if u.status === 'pending'}<span class="pill">Waiting for approval</span>{:else}{u.disabled ? 'Disabled' : 'Active'}{/if}</td>
               <td>{date(u.created_at)}</td>
               <td class="actions">
-                {#if u.id !== session.user.id}
+                {#if u.status === 'pending'}
+                  <button class="small primary" onclick={() => approve(u)}>Approve</button>
+                  <button class="small ghost" onclick={() => remove(u)}>Decline</button>
+                {:else if u.id !== session.user.id}
                   <button class="small" onclick={() => update(u, { disabled: !u.disabled })}>{u.disabled ? 'Enable' : 'Disable'}</button>
                   <button class="small" onclick={() => resetPw(u)}>Set password</button>
                   <button class="small ghost" onclick={() => remove(u)}>Delete</button>

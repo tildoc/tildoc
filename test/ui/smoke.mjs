@@ -960,6 +960,35 @@ await step('space settings: off by default, write protection', async () => {
   await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click();
 });
 
+await step('Drop-In token and waiting accounts', async () => {
+  const sp = await api('POST', '/spaces', { slug: 'eingang', name: 'Eingang' });
+  await api('PATCH', `/spaces/${sp.id}/settings`, { allow_login_links: false, allow_public_links: false, allow_drop_links: false, allow_file_shares: false, allow_drop_in: true, write_protected: false, no_ocr: false });
+  await page.goto(`${BASE}/f/${sp.root_folder_id}`);
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  const dlg = page.getByRole('dialog');
+  await dlg.getByLabel('Drop-In label').fill('scanner');
+  await dlg.getByRole('button', { name: 'Create token' }).click();
+  const cmd = await dlg.getByLabel('Drop-In command').textContent();
+  await dlg.getByRole('button', { name: 'Done' }).click();
+  const [, token, url] = cmd.match(/Bearer ([^"]+)" (\S+)/);
+  const anon = await browser.newContext();
+  const r = await anon.request.put(`${url}von-scanner.txt`, { headers: { Authorization: `Bearer ${token}` }, data: 'Scan' });
+  if (r.status() !== 204) throw new Error(`drop-in: ${r.status()}`);
+  await anon.close();
+  await page.reload();
+  await row('von-scanner.txt').waitFor();
+
+  // someone who signed in with Google waits on the Access page
+  execFileSync('docker', ['exec', 'tildoc-dev-pg', 'psql', '-q', '-U', 'postgres', '-d', 'tildoc', '-c',
+    `WITH u AS (INSERT INTO users(username, display_name, status) VALUES('wartend', 'Wartende Person', 'pending') RETURNING id)
+     INSERT INTO identities(user_id, provider, subject, email) SELECT id, 'google', 'g-1', 'w@example.org' FROM u`]);
+  await page.goto(`${BASE}/access`);
+  const w = page.locator('tbody tr', { hasText: 'wartend' });
+  await w.getByText('Waiting for approval').waitFor();
+  await w.getByRole('button', { name: 'Approve' }).click();
+  await w.getByText('Active').waitFor();
+});
+
 await step('roles matrix and API key', async () => {
   await page.goto(`${BASE}/access`);
   await page.getByLabel('New role').fill('Prüfer');

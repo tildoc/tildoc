@@ -18,15 +18,16 @@ type User struct {
 	Username    string    `json:"username"`
 	DisplayName string    `json:"display_name"`
 	IsAdmin     bool      `json:"is_admin"`
+	Status      string    `json:"status"` // active, pending (waiting for approval)
 	Disabled    bool      `json:"disabled"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-const userCols = `id::text, username, display_name, is_administrator(id), disabled, created_at`
+const userCols = `id::text, username, display_name, is_administrator(id), disabled, status, created_at`
 
 func scanUser(row pgx.Row) (*User, error) {
 	u := &User{}
-	err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.IsAdmin, &u.Disabled, &u.CreatedAt)
+	err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.IsAdmin, &u.Disabled, &u.Status, &u.CreatedAt)
 	if err == pgx.ErrNoRows {
 		return nil, errf(ErrNotFound, "user not found")
 	}
@@ -159,7 +160,8 @@ func (s *Service) ListUsers(ctx context.Context, p *Principal) ([]User, error) {
 	if p == nil {
 		return nil, ErrUnauthorized
 	}
-	rows, err := s.DB.Query(ctx, `SELECT `+userCols+` FROM users ORDER BY username`)
+	// waiting people are only for those who decide about them
+	rows, err := s.DB.Query(ctx, `SELECT `+userCols+` FROM users WHERE status = 'active' OR $1 ORDER BY username`, p.Can(InstUsers))
 	if err != nil {
 		return nil, err
 	}
@@ -326,7 +328,7 @@ func (s *Service) SessionPrincipal(ctx context.Context, token string) (*Principa
 	err := s.DB.QueryRow(ctx, `
 		SELECT u.id::text, u.username, instance_permissions(u.id), s.last_seen_at
 		FROM sessions s JOIN users u ON u.id = s.user_id
-		WHERE s.token_hash=$1 AND s.expires_at > now() AND NOT u.disabled`, tokenHash(token)).
+		WHERE s.token_hash=$1 AND s.expires_at > now() AND NOT u.disabled AND u.status = 'active'`, tokenHash(token)).
 		Scan(&p.UserID, &p.Username, &inst, &lastSeen)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errf(ErrUnauthorized, "invalid session")
@@ -421,7 +423,7 @@ func (s *Service) AccessKeySecret(ctx context.Context, keyID string) (string, *P
 	err := s.DB.QueryRow(ctx, `
 		SELECT k.secret_enc, k.space_id::text, k.read_only, u.id::text, u.username
 		FROM access_keys k JOIN users u ON u.id = k.user_id
-		WHERE k.id=$1 AND k.revoked_at IS NULL AND NOT u.disabled`, keyID).
+		WHERE k.id=$1 AND k.revoked_at IS NULL AND NOT u.disabled AND u.status = 'active'`, keyID).
 		Scan(&enc, &space, &p.ReadOnly, &p.UserID, &p.Username)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil, errf(ErrUnauthorized, "unknown access key")

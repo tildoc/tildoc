@@ -1,7 +1,7 @@
 // Names for the permission catalogue (internal/core/permissions.go).
 export const PERM_LABEL = {
   view: 'View', download: 'Download', export: 'Export', write: 'Edit', move: 'Move out', delete: 'Delete', purge: 'Delete for good',
-  manage: 'Rename space', transfer: 'Transfer',
+  manage: 'Rename space', transfer: 'Transfer', drop_in: 'Drop-In token',
   'share.space.people': 'Share space with people', 'share.space.login_link': 'Space link (sign-in)', 'share.space.public_link': 'Space link (public)',
   'share.space.drop_link': 'Drop link', 'share.file.people': 'Share file with people', 'share.file.login_link': 'File link (sign-in)',
   'share.file.public_link': 'File link (public)',
@@ -19,6 +19,7 @@ export const PERM_HELP = {
   purge: 'Delete from the trash for good and empty the trash.',
   manage: "Rename the space, change its settings, and delete it once it is empty.",
   transfer: 'Hand the whole space to another owner.',
+  drop_in: 'Create a Drop-In token: a key that scripts and devices use to send files into this space, and nothing else.',
   'share.space.people': 'Add people and teams to this space and set what they may do.',
   'share.space.login_link': 'Make a link to the whole space that works only for people signed in to tildoc.',
   'share.space.public_link': 'Make a link to the whole space that works for anyone who has it, without an account.',

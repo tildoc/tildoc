@@ -185,6 +185,43 @@ func (s *Server) createAPIKey(w http.ResponseWriter, r *http.Request) error {
 	return writeJSON(w, 201, map[string]any{"key": k, "token": token})
 }
 
+func (s *Server) createDropInKey(w http.ResponseWriter, r *http.Request) error {
+	var b struct {
+		Label     string     `json:"label"`
+		SpaceID   string     `json:"space_id"`
+		FolderID  string     `json:"folder_id"`
+		ExpiresAt *time.Time `json:"expires_at"`
+	}
+	if err := readJSON(r, &b); err != nil {
+		return err
+	}
+	k, token, err := s.Svc.CreateDropInKey(r.Context(), principal(r), b.Label, b.SpaceID, b.FolderID, b.ExpiresAt)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, 201, map[string]any{"key": k, "token": token, "url": s.Cfg.PublicURL + "/api/drop/"})
+}
+
+// dropIn takes one file per request: curl -T file -H "Authorization: Bearer ..." .../api/drop/
+func (s *Server) dropIn(w http.ResponseWriter, r *http.Request) error {
+	if s.Cfg.MaxUploadBytes > 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, s.Cfg.MaxUploadBytes)
+	}
+	if err := s.Svc.DropIn(r.Context(), principal(r), r.PathValue("name"), r.Body); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func (s *Server) approveUser(w http.ResponseWriter, r *http.Request) error {
+	u, err := s.Svc.ApproveUser(r.Context(), principal(r), r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, 200, u)
+}
+
 func (s *Server) revokeAPIKey(w http.ResponseWriter, r *http.Request) error {
 	if err := s.Svc.RevokeAPIKey(r.Context(), principal(r), r.PathValue("id")); err != nil {
 		return err

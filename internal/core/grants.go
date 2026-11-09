@@ -61,9 +61,9 @@ func (s *Service) resolveSubject(ctx context.Context, p *Principal, user, teamID
 	switch {
 	case user != "" && teamID == "":
 		var id string
-		q := `SELECT id::text FROM users WHERE username = lower($1)`
+		q := `SELECT id::text FROM users WHERE username = lower($1) AND status = 'active'`
 		if looksLikeUUID(user) {
-			q = `SELECT id::text FROM users WHERE id = $1::uuid`
+			q = `SELECT id::text FROM users WHERE id = $1::uuid AND status = 'active'`
 		}
 		if err := s.DB.QueryRow(ctx, q, user).Scan(&id); err != nil {
 			return nil, nil, errf(ErrNotFound, "user not found")

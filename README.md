@@ -130,6 +130,13 @@ their creator loses the rights behind them. Public and drop links are off
 until an administrator enables them. A drop link accepts anonymous uploads, so
 it can fill the disk up to the upload limit: give it an expiry.
 
+**Drop-In tokens** let scripts and devices send files in, and nothing else
+(enable "Drop-In tokens" in the space's settings):
+
+```
+curl -T file.pdf -H "Authorization: Bearer tildoc_…" https://host/api/drop/
+```
+
 **API keys** (Settings): `Authorization: Bearer tildoc_…` for the REST API,
 limited to chosen permissions and spaces, never more than their owner can do.
 
@@ -278,6 +285,19 @@ All settings are `TILDOC_*` environment variables (template: `deploy/.env.exampl
 | `TILDOC_BACKUP_DIR` | `<data dir>/backups` | where server backups are written (compose: `/backups` volume) |
 | `TILDOC_OCR_REDO_FOREIGN` | `true` | add tildoc's OCR to PDFs that come with a foreign OCR layer |
 
+### Sign in with Google
+
+Optional. Create an OAuth client of type "web application" in Google Cloud with
+the redirect URI `<TILDOC_PUBLIC_URL>/api/auth/google/callback`, then set in
+`deploy/.env`:
+
+```
+TILDOC_GOOGLE_CLIENT_ID=...
+TILDOC_GOOGLE_CLIENT_SECRET=...
+```
+
+A first sign-in creates an account that waits for approval on the Access page.
+
 ### Office documents
 
 Optional: Collabora Online or ONLYOFFICE as a separate container, on its own
@@ -380,6 +400,7 @@ Requirements: Go ≥ 1.27, Node ≥ 24, Docker. `pdftotext` (poppler) locally is
 make test          # unit + integration tests (starts a PostgreSQL test container)
 make test-docker   # all tests incl. OCR inside a container with poppler/ocrmypdf/tesseract
 make e2e           # real clients: aws-cli + rclone (S3, WebDAV, SFTP) against a local build
+docker run --rm -v "$PWD":/app:ro -w /app golangci/golangci-lint:v2.15.0 golangci-lint run  # lint as in CI
 test/e2e/compose.sh  # full docker compose stack incl. nginx/TLS and OCR worker
 test/ui/run.sh     # UI smoke test in Chromium (playwright-core, uses /usr/bin/chromium)
 scripts/dev.sh     # run locally: PostgreSQL container + `tildoc all` on :8080 (UI from web/build)

@@ -214,6 +214,13 @@ func (s *Service) SetMember(ctx context.Context, p *Principal, teamID, userID, r
 				return err
 			}
 		}
+		var active bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND status='active')`, userID).Scan(&active); err != nil {
+			return err
+		}
+		if !active {
+			return errf(ErrNotFound, "user not found")
+		}
 		_, err = tx.Exec(ctx, `INSERT INTO team_members(team_id, user_id, is_manager) VALUES($1,$2,$3)
 			ON CONFLICT (team_id, user_id) DO UPDATE SET is_manager=EXCLUDED.is_manager`, teamID, userID, role == "manager")
 		if db.IsForeignKeyViolation(err) {

@@ -363,6 +363,111 @@ func TestDropLink(t *testing.T) {
 	wantKind(t, err, core.ErrInvalid)
 }
 
+func TestDropInKey(t *testing.T) {
+	f := newFixture(t)
+	f.put(t, f.alice, f.home.ID, "/Eingang/a.txt", "already there")
+	inbox := ck(f.svc.FolderByPath(f.ctx, f.alice, f.home.ID, []string{"Eingang"}))
+	// off until the space allows it
+	_, _, err := f.svc.CreateDropInKey(f.ctx, f.alice, "scanner", f.home.ID, inbox.ID, nil)
+	wantKind(t, err, core.ErrForbidden)
+	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{AllowDropIn: true}))
+	k, token := ck2(f.svc.CreateDropInKey(f.ctx, f.alice, "scanner", f.home.ID, inbox.ID, nil))
+	if k.FolderID == nil || *k.FolderID != inbox.ID || !slices.Equal(k.Permissions, []string{"drop_in"}) {
+		t.Fatalf("key %+v", k)
+	}
+	p := ck(f.svc.APIKeyPrincipal(f.ctx, token))
+	noErr(t, f.svc.DropIn(f.ctx, p, "a.txt", strings.NewReader("from a script")))
+	noErr(t, f.svc.DropIn(f.ctx, p, "a.txt", strings.NewReader("already there")))
+	_, _, files, err := f.svc.ListFolder(f.ctx, f.alice, inbox.ID)
+	noErr(t, err)
+	if len(files) != 3 || f.read(t, f.alice, f.home.ID, "/Eingang/a.txt") != "already there" {
+		t.Fatalf("files %d", len(files))
+	}
+	// the key can do nothing else
+	if spaceFor(t, f, p, f.home.ID) != nil {
+		t.Fatal("a Drop-In key sees the space")
+	}
+	_, err = f.svc.GetDocument(f.ctx, p, files[0].DocumentID)
+	wantKind(t, err, core.ErrNotFound)
+	_, err = f.svc.PutFile(f.ctx, p, f.home.ID, []string{"x.txt"}, strings.NewReader("x"), core.PutOptions{})
+	wantKind(t, err, core.ErrNotFound)
+	// a normal key can't be one, a normal key can't drop
+	_, _, err = f.svc.CreateAPIKey(f.ctx, f.alice, "x", []string{"drop_in"}, []string{f.home.ID}, nil)
+	wantKind(t, err, core.ErrInvalid)
+	_, normal := ck2(f.svc.CreateAPIKey(f.ctx, f.alice, "x", []string{"view", "write"}, nil, nil))
+	wantKind(t, f.svc.DropIn(f.ctx, ck(f.svc.APIKeyPrincipal(f.ctx, normal)), "b.txt", strings.NewReader("x")), core.ErrForbidden)
+	// write protection and the setting stop it at once
+	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{AllowDropIn: true, WriteProtected: true}))
+	wantKind(t, f.svc.DropIn(f.ctx, p, "c.txt", strings.NewReader("x")), core.ErrForbidden)
+	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{}))
+	wantKind(t, f.svc.DropIn(f.ctx, p, "c.txt", strings.NewReader("x")), core.ErrForbidden)
+	// a viewer can't create one
+	ck(f.svc.UpdateSpaceSettings(f.ctx, f.alice, f.home.ID, core.SpaceSettings{AllowDropIn: true}))
+	ck(f.svc.SetGrant(f.ctx, f.alice, f.home.ID, "bob", "", "viewer"))
+	_, _, err = f.svc.CreateDropInKey(f.ctx, f.bob, "x", f.home.ID, "", nil)
+	wantKind(t, err, core.ErrForbidden)
+}
+
+func TestPendingAccounts(t *testing.T) {
+	f := newFixture(t)
+	admin := session(t, f.svc, "admin", "supersecret")
+	res := ck(f.svc.LoginExternal(f.ctx, "google", "sub-1", "Gerd.Muster@example.org", "Gerd Muster"))
+	if !res.Pending || res.Principal != nil {
+		t.Fatalf("first login %+v", res)
+	}
+	var pending *core.User
+	for _, u := range ck(f.svc.ListUsers(f.ctx, admin)) {
+		if u.Status == "pending" {
+			pending = &u
+		}
+	}
+	if pending == nil || pending.Username != "gerd-muster" && pending.Username != "gerd.muster" {
+		t.Fatalf("pending %+v", pending)
+	}
+	// invisible and unusable until approved
+	for _, u := range ck(f.svc.ListUsers(f.ctx, f.alice)) {
+		if u.Status == "pending" {
+			t.Fatal("others see pending accounts")
+		}
+	}
+	_, err := f.svc.SetGrant(f.ctx, f.alice, f.home.ID, pending.Username, "", "viewer")
+	wantKind(t, err, core.ErrNotFound)
+	if res := ck(f.svc.LoginExternal(f.ctx, "google", "sub-1", "x@example.org", "")); !res.Pending {
+		t.Fatal("still waiting")
+	}
+	_, err = f.svc.ApproveUser(f.ctx, f.alice, pending.ID)
+	wantKind(t, err, core.ErrForbidden)
+
+	// approved: a session, a personal space, the default role
+	ck(f.svc.ApproveUser(f.ctx, admin, pending.ID))
+	res = ck(f.svc.LoginExternal(f.ctx, "google", "sub-1", "new-mail@example.org", ""))
+	if res.Pending || res.Principal == nil || !res.Principal.Can(core.InstSpacesCreate) || res.Principal.Can(core.InstUsers) {
+		t.Fatalf("after approval %+v", res)
+	}
+	if spaces := ck(f.svc.ListSpaces(f.ctx, res.Principal)); len(spaces) != 1 || spaces[0].Role != "owner" {
+		t.Fatalf("spaces %+v", spaces)
+	}
+	// the account follows the provider's subject, not the e-mail address
+	other := ck(f.svc.LoginExternal(f.ctx, "google", "sub-2", "new-mail@example.org", ""))
+	if !other.Pending {
+		t.Fatal("same e-mail address must not reach the account")
+	}
+	// declining removes the account
+	for _, u := range ck(f.svc.ListUsers(f.ctx, admin)) {
+		if u.Status == "pending" {
+			noErr(t, f.svc.DeleteUser(f.ctx, admin, u.ID))
+		}
+	}
+	if !ck(f.svc.LoginExternal(f.ctx, "google", "sub-2", "new-mail@example.org", "")).Pending {
+		t.Fatal("declined accounts start over")
+	}
+	// a disabled account stays out
+	yes := true
+	ck(f.svc.UpdateUser(f.ctx, admin, pending.ID, core.UserUpdate{Disabled: &yes}))
+	_, err = f.svc.LoginExternal(f.ctx, "google", "sub-1", "x@example.org", "")
+	wantKind(t, err, core.ErrUnauthorized)
+}
+
 func TestAPIKeys(t *testing.T) {
 	f := newFixture(t)
 	doc := f.put(t, f.alice, f.home.ID, "/a.txt", "text")
@@ -386,6 +491,18 @@ func TestAPIKeys(t *testing.T) {
 	}
 	_, _, err = f.svc.CreateAPIKey(f.ctx, p, "y", []string{"view"}, nil, nil)
 	wantKind(t, err, core.ErrForbidden)
+	// a key whose only space is gone covers nothing, not everything
+	empty := ck(f.svc.CreateSpace(f.ctx, f.alice, "kurzlebig", "", ""))
+	_, tok2 := ck2(f.svc.CreateAPIKey(f.ctx, f.alice, "s", []string{"view"}, []string{empty.ID}, nil))
+	noErr(t, f.svc.DeleteSpace(f.ctx, f.alice, empty.ID))
+	if sp := spaceFor(t, f, ck(f.svc.APIKeyPrincipal(f.ctx, tok2)), f.home.ID); sp != nil {
+		t.Fatal("a key whose space was deleted reaches other spaces")
+	}
+	_, all := ck2(f.svc.CreateAPIKey(f.ctx, f.alice, "a", []string{"view"}, nil, nil))
+	if spaceFor(t, f, ck(f.svc.APIKeyPrincipal(f.ctx, all)), f.home.ID) == nil {
+		t.Fatal("a key for all spaces")
+	}
+
 	// never more than the user: losing the space ends the key's access there
 	noErr(t, f.svc.TransferSpace(f.ctx, f.alice, f.home.ID, "bob", "", "", f.home.Slug))
 	_, err = f.svc.GetDocument(f.ctx, p, doc.File.DocumentID)

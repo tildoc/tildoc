@@ -63,7 +63,7 @@
   }
   $effect(() => {
     loadApiKeys().catch(errorToast);
-    get('/permissions').then((c) => (apiCatalogue = c.space.filter((p) => !p.startsWith('share.') && p !== 'transfer'))).catch(() => {});
+    get('/permissions').then((c) => (apiCatalogue = c.space.filter((p) => !p.startsWith('share.') && p !== 'transfer' && p !== 'drop_in'))).catch(() => {});
   });
   async function createApiKey(e) {
     e.preventDefault();
@@ -72,6 +72,18 @@
       apiToken = r.token;
       apiLabel = '';
       apiPerms = [];
+      loadApiKeys();
+    } catch (err) {
+      errorToast(err);
+    }
+  }
+  let dropLabel = $state(''), dropSpace = $state(''), dropCmd = $state('');
+  async function createDropKey(e) {
+    e.preventDefault();
+    try {
+      const r = await post('/me/drop-in-keys', { label: dropLabel, space_id: dropSpace });
+      dropCmd = `curl -T file.pdf -H "Authorization: Bearer ${r.token}" ${r.url}`;
+      dropLabel = '';
       loadApiKeys();
     } catch (err) {
       errorToast(err);
@@ -217,7 +229,7 @@ directory_markers = true` : '');
         <thead><tr><th>Label</th><th>Permissions</th><th>Spaces</th><th>Last used</th><th></th></tr></thead>
         <tbody>
           {#each apiKeys.filter((k) => !k.revoked_at) as k (k.id)}
-            <tr><td>{k.label}</td><td>{k.permissions.map(permLabel).join(', ')}</td><td>{k.space_ids.length ? k.space_ids.map(spaceName).join(', ') : 'All spaces'}</td>
+            <tr><td>{k.label}</td><td>{k.permissions.map(permLabel).join(', ')}</td><td>{k.all_spaces ? 'All spaces' : k.space_ids.map(spaceName).join(', ')}</td>
               <td>{date(k.last_used_at) || 'Never'}</td><td class="actions"><button class="small" onclick={() => revokeApiKey(k)}>Revoke</button></td></tr>
           {:else}<tr><td colspan="5" class="muted">No API keys yet.</td></tr>{/each}
         </tbody>
@@ -231,6 +243,17 @@ directory_markers = true` : '');
         <button class="primary" disabled={!apiPerms.length}>Create API key</button>
       </div>
     </form>
+    <form onsubmit={createDropKey} class="row newkey">
+      <input placeholder="Drop-In label, for example office-scanner" bind:value={dropLabel} aria-label="Drop-In token label" required />
+      <select bind:value={dropSpace} aria-label="Drop-In space" required><option value="" disabled>Space</option>{#each session.spaces.filter((s) => s.caps.includes('drop_in')) as s}<option value={s.id}>{s.slug}</option>{/each}</select>
+      <button>Create Drop-In token</button>
+    </form>
+    <p class="hint">A Drop-In token sends files into one space and can do nothing else. The space must allow it in its settings.</p>
+    {#if dropCmd}
+      <p><strong>Copy the command now. The token is shown only this once.</strong></p>
+      <pre class="snippet" aria-label="Drop-In command">{dropCmd}</pre>
+      <button onclick={() => copy(dropCmd)}>Copy</button>
+    {/if}
     {#if apiToken}
       <p><strong>Copy the key now. It is shown only this once.</strong></p>
       <div class="row"><input readonly value={apiToken} aria-label="New API key" /><button onclick={() => copy(apiToken)}>Copy</button></div>
@@ -284,6 +307,7 @@ directory_markers = true` : '');
 {/if}
 
 <style>
+  .hint { color: var(--ink-2); font-size: var(--t-sm); }
   .perms { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 12px; margin: 10px 0; }
   .sub { margin: 18px 0 6px; }
   .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; }

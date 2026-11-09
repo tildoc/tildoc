@@ -12,7 +12,8 @@
       ['allow_login_links', 'Sign-in links', 'Links to the space or a file that work for people signed in to tildoc.'],
       ['allow_public_links', 'Public links', 'Links that work for anyone who has them, without an account. The server must also allow them.'],
       ['allow_drop_links', 'Drop links', 'Links where anyone can upload into this space without seeing what is in it. The server must also allow them.'],
-      ['allow_file_shares', 'File shares', 'Sharing single files with people and teams.']
+      ['allow_file_shares', 'File shares', 'Sharing single files with people and teams.'],
+      ['allow_drop_in', 'Drop-In tokens', 'Keys that scripts and devices use to send files into this space, and nothing else.']
     ]],
     ['Protection', [
       ['write_protected', 'Write protection', 'Nobody, the owner included, can upload, edit, move or delete anything here, by any channel, until this is switched off.'],

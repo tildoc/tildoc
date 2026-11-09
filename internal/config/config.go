@@ -53,6 +53,11 @@ type Config struct {
 	OfficeInternalURL string // where tildoc fetches the discovery from
 	WOPIURL           string // how Collabora reaches tildoc
 
+	// Google login (off without a client id).
+	GoogleClientID     string
+	GoogleClientSecret string
+	GoogleIssuer       string // only tests change it
+
 	UIDir    string
 	LogLevel slog.Level
 }
@@ -60,22 +65,25 @@ type Config struct {
 // Load reads the configuration from the environment.
 func Load() (*Config, error) {
 	c := &Config{
-		DatabaseURL:    env("TILDOC_DATABASE_URL", ""),
-		DataDir:        env("TILDOC_DATA_DIR", "./data"),
-		HTTPAddr:       env("TILDOC_HTTP_ADDR", ":8080"),
-		S3Addr:         env("TILDOC_S3_ADDR", ":9000"),
-		SFTPAddr:       env("TILDOC_SFTP_ADDR", ":2222"),
-		S3Region:       env("TILDOC_S3_REGION", "us-east-1"),
-		PublicURL:      strings.TrimRight(env("TILDOC_PUBLIC_URL", "https://localhost:8443"), "/"),
-		S3PublicURL:    strings.TrimRight(env("TILDOC_S3_PUBLIC_URL", "https://localhost:9443"), "/"),
-		SFTPPublicAddr: env("TILDOC_SFTP_PUBLIC_ADDR", "localhost:2222"),
-		OCRLangs:       env("TILDOC_OCR_LANGS", "deu+eng"),
-		PdftotextBin:   env("TILDOC_PDFTOTEXT_BIN", "pdftotext"),
-		OcrmypdfBin:    env("TILDOC_OCRMYPDF_BIN", "ocrmypdf"),
-		GhostscriptBin: env("TILDOC_GHOSTSCRIPT_BIN", "gs"),
-		UIDir:          env("TILDOC_UI_DIR", ""),
-		OfficeURL:      strings.TrimRight(env("TILDOC_OFFICE_URL", ""), "/"),
-		WOPIURL:        strings.TrimRight(env("TILDOC_WOPI_URL", ""), "/"),
+		DatabaseURL:        env("TILDOC_DATABASE_URL", ""),
+		DataDir:            env("TILDOC_DATA_DIR", "./data"),
+		HTTPAddr:           env("TILDOC_HTTP_ADDR", ":8080"),
+		S3Addr:             env("TILDOC_S3_ADDR", ":9000"),
+		SFTPAddr:           env("TILDOC_SFTP_ADDR", ":2222"),
+		S3Region:           env("TILDOC_S3_REGION", "us-east-1"),
+		PublicURL:          strings.TrimRight(env("TILDOC_PUBLIC_URL", "https://localhost:8443"), "/"),
+		S3PublicURL:        strings.TrimRight(env("TILDOC_S3_PUBLIC_URL", "https://localhost:9443"), "/"),
+		SFTPPublicAddr:     env("TILDOC_SFTP_PUBLIC_ADDR", "localhost:2222"),
+		OCRLangs:           env("TILDOC_OCR_LANGS", "deu+eng"),
+		PdftotextBin:       env("TILDOC_PDFTOTEXT_BIN", "pdftotext"),
+		OcrmypdfBin:        env("TILDOC_OCRMYPDF_BIN", "ocrmypdf"),
+		GhostscriptBin:     env("TILDOC_GHOSTSCRIPT_BIN", "gs"),
+		UIDir:              env("TILDOC_UI_DIR", ""),
+		OfficeURL:          strings.TrimRight(env("TILDOC_OFFICE_URL", ""), "/"),
+		WOPIURL:            strings.TrimRight(env("TILDOC_WOPI_URL", ""), "/"),
+		GoogleClientID:     env("TILDOC_GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret: env("TILDOC_GOOGLE_CLIENT_SECRET", ""),
+		GoogleIssuer:       env("TILDOC_GOOGLE_ISSUER", "https://accounts.google.com"),
 	}
 	c.OfficeInternalURL = strings.TrimRight(env("TILDOC_OFFICE_INTERNAL_URL", c.OfficeURL), "/")
 	var errs []error
@@ -128,6 +136,9 @@ func Load() (*Config, error) {
 		c.MasterKey = key
 	}
 	errs = append(errs, c.checkOffice()...)
+	if (c.GoogleClientID == "") != (c.GoogleClientSecret == "") {
+		errs = append(errs, errors.New("TILDOC_GOOGLE_CLIENT_ID and TILDOC_GOOGLE_CLIENT_SECRET belong together"))
+	}
 	c.BackupDir = env("TILDOC_BACKUP_DIR", "")
 	if c.BackupDir == "" {
 		c.BackupDir = c.DataDir + "/backups"

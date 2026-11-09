@@ -1300,7 +1300,7 @@ writing, or stops tildoc's processing. Stored on `spaces`, changed with `manage`
 
 ---
 
-### Phase 26 — Drop-In API token (proposal)
+### Phase 26 — Drop-In API token
 
 **Goal:** scripts and devices send files into a space with one request.
 
@@ -1318,9 +1318,13 @@ curl -T file.pdf -H "Authorization: Bearer tildoc_…" https://host/api/drop/
 - Editor, Manager and owners hold `drop_in`; a new space setting "Drop-In tokens" (off by default) allows it.
 - Separate from drop links: a link is for people in a browser and needs the public-link switch; a token belongs to an account and doesn't.
 
+- [x] 26.1 `drop_in`, `allow_drop_in`, `api_keys.folder_id`; `PUT /api/drop/{name}`
+- [x] 26.2 Created in the sharing dialog and in Settings; command shown once
+- [x] 26.3 Tests
+
 ---
 
-### Phase 27 — Google login (OIDC) (planned)
+### Phase 27 — Google login (OIDC)
 
 Prepared: `identities`, `Authenticator`, `team_links`. Google is the first provider and the reference for others.
 
@@ -1331,6 +1335,11 @@ Prepared: `identities`, `Authenticator`, `team_links`. Google is the first provi
 - WebDAV, S3 and SFTP use access keys, as for everyone.
 
 To set up: a Google Cloud OAuth client (web application) with that redirect URI.
+
+- [x] 27.1 `internal/oidc`, `/api/auth/google/*`, state cookie, PKCE, nonce
+- [x] 27.2 Pending accounts, approval on the Access page
+- [x] 27.3 Tests against a fake issuer
+- [ ] 27.4 Real sign-in with a Google client (owner)
 
 ## Open Topics
 

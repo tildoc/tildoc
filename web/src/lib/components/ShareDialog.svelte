@@ -56,6 +56,26 @@
       errorToast(err);
     }
   }
+  // Drop-In token: for scripts and devices
+  let dropLabel = $state(''), dropCmd = $state('');
+  async function createDropIn(e) {
+    e.preventDefault();
+    try {
+      const r = await post('/me/drop-in-keys', { label: dropLabel, space_id: space.id, folder_id: folder?.id ?? '' });
+      dropCmd = `curl -T file.pdf -H "Authorization: Bearer ${r.token}" ${r.url}`;
+      dropLabel = '';
+    } catch (err) {
+      errorToast(err);
+    }
+  }
+  async function copyCmd() {
+    try {
+      await navigator.clipboard.writeText(dropCmd);
+      toast('Command copied', 'success');
+    } catch {
+      toast('Select the command and copy it', 'info');
+    }
+  }
   async function revoke(l) {
     try {
       await del(`/share-links/${l.id}`);
@@ -120,6 +140,19 @@
     {#if kind === 'drop'}<p class="hint">Uploads land in {folder ? `the folder ${folder.name}` : 'the top of the space'}. Visitors see nothing that is already there.</p>{/if}
   {:else if !links.length}
     <p class="muted">{isFile ? 'No links can be made here.' : 'Links are off for this space. They can be enabled in its settings.'}</p>
+  {/if}
+  {#if !isFile && caps.includes('drop_in')}
+    <h3>Drop-In token</h3>
+    <p class="hint">For scripts and devices: sends files in{folder ? ` to the folder ${folder.name}` : ''} and can do nothing else. It is listed under Settings, where it can be revoked.</p>
+    <form class="newlink" onsubmit={createDropIn}>
+      <input bind:value={dropLabel} placeholder="Label, for example office-scanner" aria-label="Drop-In label" required />
+      <button class="primary">Create token</button>
+    </form>
+    {#if dropCmd}
+      <p>Copy this command now, the token is shown only once:</p>
+      <pre class="snippet" aria-label="Drop-In command">{dropCmd}</pre>
+      <button onclick={copyCmd}>Copy</button>
+    {/if}
   {/if}
   <div class="row end"><button onclick={onclose}>Done</button></div>
 </Modal>

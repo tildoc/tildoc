@@ -27,6 +27,7 @@ import (
 	"github.com/tildoc/tildoc/internal/blob"
 	"github.com/tildoc/tildoc/internal/config"
 	"github.com/tildoc/tildoc/internal/core"
+	"github.com/tildoc/tildoc/internal/oidc"
 	"github.com/tildoc/tildoc/internal/wopi"
 )
 
@@ -47,7 +48,9 @@ type Server struct {
 	// Events feeds GET /api/events; run it with Events.Run.
 	Events *core.EventHub
 	// Office is the Collabora discovery client (nil: feature off).
-	Office *wopi.Client
+	Office         *wopi.Client
+	googleMu       sync.Mutex
+	googleProvider *oidc.Provider // discovered on first use
 
 	stop     chan struct{}
 	stopOnce sync.Once

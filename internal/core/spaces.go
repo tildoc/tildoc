@@ -38,6 +38,7 @@ type SpaceSettings struct {
 	AllowPublicLinks bool `json:"allow_public_links"`
 	AllowDropLinks   bool `json:"allow_drop_links"`
 	AllowFileShares  bool `json:"allow_file_shares"`
+	AllowDropIn      bool `json:"allow_drop_in"`
 	WriteProtected   bool `json:"write_protected"`
 	NoOCR            bool `json:"no_ocr"`
 }
@@ -45,7 +46,7 @@ type SpaceSettings struct {
 const spaceSelect = `
 	SELECT s.id::text, s.slug, s.name, s.owner_user_id::text, s.owner_team_id::text, coalesce(t.name,''),
 	       f.id::text, s.created_at, space_permissions(s.id, $1::uuid), space_permissions_held(s.id, $1::uuid),
-	       s.allow_login_links, s.allow_public_links, s.allow_drop_links, s.allow_file_shares, s.write_protected, s.no_ocr,
+	       s.allow_login_links, s.allow_public_links, s.allow_drop_links, s.allow_file_shares, s.allow_drop_in, s.write_protected, s.no_ocr,
 	       NOT (s.owner_user_id IS NOT DISTINCT FROM $1::uuid
 	            OR EXISTS (SELECT 1 FROM team_members m WHERE m.team_id = s.owner_team_id AND m.user_id = $1::uuid))
 	FROM spaces s
@@ -57,7 +58,7 @@ func scanSpace(row pgx.Row, p *Principal) (*Space, error) {
 	var names, held []string
 	st := &sp.Settings
 	err := row.Scan(&sp.ID, &sp.Slug, &sp.Name, &sp.OwnerUserID, &sp.OwnerTeamID, &sp.TeamName, &sp.RootFolderID, &sp.CreatedAt, &names, &held,
-		&st.AllowLoginLinks, &st.AllowPublicLinks, &st.AllowDropLinks, &st.AllowFileShares, &st.WriteProtected, &st.NoOCR, &sp.Shared)
+		&st.AllowLoginLinks, &st.AllowPublicLinks, &st.AllowDropLinks, &st.AllowFileShares, &st.AllowDropIn, &st.WriteProtected, &st.NoOCR, &sp.Shared)
 	if err != nil {
 		return nil, err
 	}
@@ -204,8 +205,8 @@ func (s *Service) UpdateSpaceSettings(ctx context.Context, p *Principal, spaceID
 		if err := tx.QueryRow(ctx, `SELECT no_ocr FROM spaces WHERE id=$1 FOR UPDATE`, spaceID).Scan(&hadNoOCR); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE spaces SET allow_login_links=$2, allow_public_links=$3, allow_drop_links=$4, allow_file_shares=$5,
-			write_protected=$6, no_ocr=$7 WHERE id=$1`, spaceID, st.AllowLoginLinks, st.AllowPublicLinks, st.AllowDropLinks, st.AllowFileShares,
+		if _, err := tx.Exec(ctx, `UPDATE spaces SET allow_login_links=$2, allow_public_links=$3, allow_drop_links=$4, allow_file_shares=$5, allow_drop_in=$6,
+			write_protected=$7, no_ocr=$8 WHERE id=$1`, spaceID, st.AllowLoginLinks, st.AllowPublicLinks, st.AllowDropLinks, st.AllowFileShares, st.AllowDropIn,
 			st.WriteProtected, st.NoOCR); err != nil {
 			return err
 		}
@@ -275,9 +276,9 @@ func (s *Service) TransferSpace(ctx context.Context, p *Principal, spaceID, toUs
 		}
 		var toU, toT *string
 		if toUser != "" {
-			q := `SELECT id::text FROM users WHERE username = lower($1) AND NOT disabled`
+			q := `SELECT id::text FROM users WHERE username = lower($1) AND NOT disabled AND status = 'active'`
 			if looksLikeUUID(toUser) {
-				q = `SELECT id::text FROM users WHERE id = $1::uuid AND NOT disabled`
+				q = `SELECT id::text FROM users WHERE id = $1::uuid AND NOT disabled AND status = 'active'`
 			}
 			var id string
 			if err := tx.QueryRow(ctx, q, toUser).Scan(&id); err != nil {

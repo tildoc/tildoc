@@ -83,6 +83,7 @@ type MUser struct {
 	Disabled    bool      `json:"disabled"`
 	PDFViewer   string    `json:"pdf_viewer"`
 	CreatedAt   time.Time `json:"created_at"`
+	Status      string    `json:"status"`
 }
 
 // MTeam is a team with members (server backups only).
@@ -109,6 +110,7 @@ type MIdentity struct {
 	PasswordHash *string    `json:"password_hash"`
 	CreatedAt    time.Time  `json:"created_at"`
 	LastLoginAt  *time.Time `json:"last_login_at"`
+	Email        string     `json:"email"`
 }
 
 // MRole is a role (server backups only).
@@ -149,6 +151,8 @@ type MAPIKey struct {
 	RevokedAt   *time.Time `json:"revoked_at"`
 	Permissions []string   `json:"permissions"`
 	SpaceIDs    []string   `json:"space_ids"`
+	FolderID    *string    `json:"folder_id"`
+	AllSpaces   bool       `json:"all_spaces"`
 }
 
 // MTag is a tag.
@@ -443,8 +447,8 @@ func (b *manifestBuilder) space(id string, withTrash bool) (*MSpace, error) {
 	}
 	if withTrash { // server backup
 		st := &SpaceSettings{}
-		if err := b.tx.QueryRow(b.ctx, `SELECT allow_login_links, allow_public_links, allow_drop_links, allow_file_shares, write_protected, no_ocr FROM spaces WHERE id=$1`, id).
-			Scan(&st.AllowLoginLinks, &st.AllowPublicLinks, &st.AllowDropLinks, &st.AllowFileShares, &st.WriteProtected, &st.NoOCR); err != nil {
+		if err := b.tx.QueryRow(b.ctx, `SELECT allow_login_links, allow_public_links, allow_drop_links, allow_file_shares, allow_drop_in, write_protected, no_ocr FROM spaces WHERE id=$1`, id).
+			Scan(&st.AllowLoginLinks, &st.AllowPublicLinks, &st.AllowDropLinks, &st.AllowFileShares, &st.AllowDropIn, &st.WriteProtected, &st.NoOCR); err != nil {
 			return nil, err
 		}
 		sp.Settings = st

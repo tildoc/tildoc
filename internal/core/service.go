@@ -48,9 +48,11 @@ type Principal struct {
 	Via          string // session | accesskey | ssh | system
 	KeyID        string
 	KeyCaps      Cap      // Via apikey: at most these
-	KeySpaces    []string // Via apikey: only these spaces (empty: all)
-	SessionHash  []byte   // Via session: the login session
-	IdentityID   string   // how the user logged in
+	KeySpaces    []string // Via apikey: only these spaces, unless KeyAllSpaces
+	KeyAllSpaces bool
+	KeyFolder    *string // Via apikey: Drop-In target
+	SessionHash  []byte  // Via session: the login session
+	IdentityID   string  // how the user logged in
 }
 
 // SystemPrincipal is used by background jobs.

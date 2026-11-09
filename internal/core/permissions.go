@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 
@@ -25,6 +26,7 @@ const (
 	CapPurge                    // delete for good, empty the trash
 	CapManage                   // rename and delete the space
 	CapTransfer                 // hand the space to another owner
+	CapDropIn                   // send files in with a Drop-In token
 	CapShareSpacePeople
 	CapShareSpaceLogin
 	CapShareSpacePublic
@@ -38,7 +40,7 @@ var capNames = []struct {
 	c Cap
 	n string
 }{{CapView, "view"}, {CapDownload, "download"}, {CapExport, "export"}, {CapWrite, "write"}, {CapMove, "move"},
-	{CapDelete, "delete"}, {CapPurge, "purge"}, {CapManage, "manage"}, {CapTransfer, "transfer"},
+	{CapDelete, "delete"}, {CapPurge, "purge"}, {CapManage, "manage"}, {CapTransfer, "transfer"}, {CapDropIn, "drop_in"},
 	{CapShareSpacePeople, "share.space.people"}, {CapShareSpaceLogin, "share.space.login_link"},
 	{CapShareSpacePublic, "share.space.public_link"}, {CapShareSpaceDrop, "share.space.drop_link"},
 	{CapShareFilePeople, "share.file.people"}, {CapShareFileLogin, "share.file.login_link"}, {CapShareFilePublic, "share.file.public_link"}}
@@ -47,7 +49,7 @@ const (
 	capRead  = CapView | CapDownload | CapExport
 	capShare = CapShareSpacePeople | CapShareSpaceLogin | CapShareSpacePublic | CapShareSpaceDrop |
 		CapShareFilePeople | CapShareFileLogin | CapShareFilePublic
-	capAll = capRead | CapWrite | CapMove | CapDelete | CapPurge | CapManage | CapTransfer | capShare
+	capAll = capRead | CapWrite | CapMove | CapDelete | CapPurge | CapManage | CapTransfer | CapDropIn | capShare
 	// capFile: what a grant on a single file can give
 	capFile = CapView | CapDownload | CapWrite
 )
@@ -152,14 +154,8 @@ func effectiveCaps(p *Principal, spaceID string, c Cap) Cap {
 	}
 	if p.Via == "apikey" {
 		c &= p.KeyCaps
-		if len(p.KeySpaces) > 0 {
-			found := false
-			for _, id := range p.KeySpaces {
-				found = found || id == spaceID
-			}
-			if !found {
-				return 0
-			}
+		if !p.KeyAllSpaces && !slices.Contains(p.KeySpaces, spaceID) {
+			return 0
 		}
 	}
 	return c
@@ -206,7 +202,7 @@ func roleLabel(c Cap) string {
 		return "restricted_viewer"
 	case capRead:
 		return "viewer"
-	case capRead | CapWrite:
+	case capRead | CapWrite | CapDropIn:
 		return "editor"
 	case capAll &^ CapTransfer:
 		return "manager"

@@ -133,6 +133,8 @@ When the user requests a programming task, **do not start coding immediately.**
   `internal/core/shares.go`, the only caller of `SystemPrincipal` for it.
 - **Logins:** `identities` + `Authenticator` (`internal/core/identity.go`);
   match accounts by (provider, subject), never by e-mail address.
+  OIDC protocol in `internal/oidc`; a first external login creates a `pending`
+  user, who has no access until approved.
 - **Bundles** (`internal/core/bundle.go`, `import.go`, `backup.go`): format in
   `docs/bundle-format.md`; bump `BundleVersion` for incompatible changes and
   keep imports going through the normal ingest rules.
