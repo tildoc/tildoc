@@ -165,7 +165,11 @@
   // drag rows onto folder rows
   let dragOver = $state(null);
   function dragstart(e, row) {
-    if (!selected.includes(row.key)) selected = [row.key];
+    // A Ctrl/Shift-click with a slightly moving mouse starts a drag instead
+    // of a click: with a modifier the row joins the selection (it used to
+    // replace it, so multi-selection "started over" at random). A plain drag
+    // of an unselected row drags just that row.
+    if (!selected.includes(row.key)) selected = e.ctrlKey || e.metaKey || e.shiftKey ? [...selected, row.key] : [row.key];
     e.dataTransfer.setData('application/x-tildoc-keys', JSON.stringify(selected));
     e.dataTransfer.effectAllowed = 'move';
   }

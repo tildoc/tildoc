@@ -720,6 +720,28 @@ await step('selection in the URL, shareable', async () => {
   void mia;
 });
 
+await step('multi-select survives a shaky Ctrl-click', async () => {
+  const sp = await home();
+  const tree = await api('GET', `/spaces/${sp.id}/tree`);
+  const many = tree.find((x) => x.name === 'Many');
+  await page.goto(`${BASE}/f/${many.id}`);
+  const rows = page.locator('tbody tr[data-key]');
+  await rows.nth(0).locator('td').nth(2).click();
+  for (const i of [1, 2, 3]) await rows.nth(i).locator('td').nth(2).click({ modifiers: ['Control'] });
+  // Ctrl-click with the mouse moving a few pixels: the browser starts a drag
+  const box = await rows.nth(4).locator('td').nth(2).boundingBox();
+  await page.keyboard.down('Control');
+  await page.mouse.move(box.x + 10, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 22, box.y + box.height / 2 + 3, { steps: 4 });
+  await page.mouse.up();
+  await page.keyboard.up('Control');
+  for (const i of [5, 6, 7, 8, 9]) await rows.nth(i).locator('td').nth(2).click({ modifiers: ['Control'] });
+  const n = await page.locator('tbody tr.sel').count();
+  if (n !== 10) throw new Error(`${n} rows selected, want 10`);
+  await page.locator('.tools .count', { hasText: '10 selected' }).waitFor();
+});
+
 await browser.close();
 if (errors.length) {
   console.error('\nBrowser errors:\n' + errors.join('\n'));
