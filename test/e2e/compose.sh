@@ -153,6 +153,10 @@ ETAG=$(echo "$H" | grep -i '^etag:' | cut -d' ' -f2- | tr -d '\r')
 CODE=$(curl -sk -o /dev/null -w '%{http_code}' -H "If-None-Match: $ETAG" "${AUTH[@]}" "$B/api/folders/$ROOTF")
 [ "$CODE" = 304 ] || fail "revalidation returned $CODE, not 304"
 
+step "version only after login"
+curl -skf "$B/api/me" "${AUTH[@]}" | grep -qE '"version":"[^"]*-g[0-9a-f]+"|"version":"[0-9a-f]{7,}"' || fail "no git version in /api/me"
+curl -skf "$B/api/info" | grep -q '"version"' && fail "/api/info shows the version without login"
+
 step "text editor lease through nginx"
 TD=$(curl -skf -X PUT "$B/api/folders/$ROOTF/files?path=edit-me.md" "${AUTH[@]}" -H 'Content-Type: application/octet-stream' --data-binary '# edit me' \
   | sed -E 's/.*"document_id":"([^"]+)".*/\1/')

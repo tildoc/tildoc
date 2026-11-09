@@ -1,12 +1,13 @@
 # tildoc developer tasks
 GO      ?= go
 BIN     := bin/tildoc
+VERSION := $(shell git describe --tags --long --always --dirty 2>/dev/null || echo dev)
 TESTPG  := postgres://postgres:test@127.0.0.1:55432/postgres?sslmode=disable
 
 .PHONY: build web test test-docker e2e vet clean
 
 build:
-	$(GO) build -trimpath -o $(BIN) ./cmd/tildoc
+	$(GO) build -trimpath -ldflags "-X github.com/tildoc/tildoc/internal/version.Version=$(VERSION)" -o $(BIN) ./cmd/tildoc
 
 web:
 	cd web && npm ci && npm run build

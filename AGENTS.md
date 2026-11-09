@@ -138,6 +138,8 @@ When the user requests a programming task, **do not start coding immediately.**
   dedupe (`CreateEmptyFile`).
   Tests use `internal/wopi/wopitest` instead of real Collabora. Never re-mount
   `OfficeView` on new versions.
+- **Version:** `internal/version.Version`, from `git describe` at link time;
+  releases are git tags (`vX.Y.Z`). Never expose it without login.
 - **Live updates:** schema triggers `pg_notify('tildoc_events', …)` (see end
   of `0001_init.sql`); `core.EventHub` filters per subscriber; `/api/events`
   is SSE. New tables whose changes the UI shows get a trigger, never a new

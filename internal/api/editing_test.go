@@ -45,3 +45,19 @@ func TestEditLeaseAPI(t *testing.T) {
 	alice.csrf = false
 	expect(t, alice.do("POST", doc+"/edit-lease", map[string]any{"client_id": a}, nil), 403, "csrf")
 }
+
+func TestVersionOnlyAfterLogin(t *testing.T) {
+	ts, _ := liveServer(t, "")
+	alice, _ := aliceClient(t, ts.URL)
+	var me struct{ Version string }
+	alice.ok("GET", "/api/me", nil, &me)
+	if me.Version == "" {
+		t.Fatal("no version")
+	}
+	anon := newClient(t, ts.URL)
+	var info string
+	anon.ok("GET", "/api/info", nil, &info)
+	if strings.Contains(info, "version") {
+		t.Fatalf("/api/info: %s", info)
+	}
+}

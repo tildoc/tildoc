@@ -19,6 +19,12 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/tildoc ./cmd/tildoc
+# The version comes from the repository (no .git in the context: "dev"). Only
+# this step repeats on a new commit: it relinks what was compiled above.
+COPY go.mod .gi[t] /vcs/
+RUN V=$(git --git-dir=/vcs describe --tags --long --always 2>/dev/null || echo dev) \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/tildoc/tildoc/internal/version.Version=$V" -o /out/tildoc ./cmd/tildoc \
+ && rm -rf /vcs
 
 # Tesseract from source: Debian ships 5.5.0; the release tarball is pinned
 # by SHA-256. Installed to /usr/local, which comes first in PATH, so

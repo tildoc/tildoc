@@ -16,4 +16,5 @@ export TILDOC_UI_DIR=${TILDOC_UI_DIR:-$PWD/web/build}
 export TILDOC_COOKIE_SECURE=${TILDOC_COOKIE_SECURE:-false}
 export TILDOC_PUBLIC_URL=${TILDOC_PUBLIC_URL:-http://localhost:8080}
 export TILDOC_S3_PUBLIC_URL=${TILDOC_S3_PUBLIC_URL:-http://localhost:9000}
-exec go run ./cmd/tildoc all
+V=$(git describe --tags --long --always --dirty 2>/dev/null || echo dev)
+exec go run -ldflags "-X github.com/tildoc/tildoc/internal/version.Version=$V" ./cmd/tildoc all

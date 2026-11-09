@@ -1106,6 +1106,16 @@ Answers (2026-11-09): PDFs open in the PDF viewer by default, "Edit in Office"
 opens them in the office server; the dropdown offers everything the server can
 create, the main formats first.
 
+### Phase 22 — Version from git
+
+**Goal:** tildoc's version is `git describe --tags --long`
+(`<tag>-<commits since the tag>-g<commit>`), shown after login next to the
+program name. Only for logged-in users (`/api/me`), not on `/api/info`.
+
+- [x] 22.1 `internal/version`, set at link time (Makefile, `scripts/dev.sh`, Dockerfile; `-dirty` outside Docker)
+- [x] 22.2 `version` in `GET /api/me`, shown in the sidebar and mobile bar
+- [x] 22.3 Tests (API, UI smoke, compose); first tag `v0.1.0`
+
 ## Open Topics
 
 Collected 2026-11-08; each becomes a phase or step when picked up.

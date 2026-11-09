@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/tildoc/tildoc/internal/core"
+	"github.com/tildoc/tildoc/internal/version"
 )
 
 func (s *Server) routes(mux *http.ServeMux) {
@@ -221,12 +222,13 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) error {
 // meResponse is the caller's own account including preferences.
 type meResponse struct {
 	*core.User
-	Prefs core.Prefs `json:"prefs"`
+	Prefs   core.Prefs `json:"prefs"`
+	Version string     `json:"version"` // only for logged-in users
 }
 
 func (s *Server) meBody(r *http.Request, u *core.User) (meResponse, error) {
 	prefs, err := s.Svc.GetPrefs(r.Context(), u.ID)
-	return meResponse{User: u, Prefs: prefs}, err
+	return meResponse{User: u, Prefs: prefs, Version: version.Version}, err
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) error {

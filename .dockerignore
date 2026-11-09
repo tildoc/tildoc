@@ -1,4 +1,8 @@
-.git
+.git/index
+.git/logs
+.git/COMMIT_EDITMSG
+.git/FETCH_HEAD
+.git/ORIG_HEAD
 data
 .data
 bin

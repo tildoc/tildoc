@@ -196,6 +196,11 @@ await step('viewer inside a collection', async () => {
   await page.locator('tr.sel', { hasText: 'Quartalsbericht.pdf' }).waitFor();
 });
 
+await step('version next to the program name', async () => {
+  const v = (await page.locator('nav.rail .brand .ver').textContent()).trim();
+  if (!/-g[0-9a-f]+|^[0-9a-f]{7,}/.test(v)) throw new Error(`version shows "${v}"`);
+});
+
 await step('search by tag', async () => {
   await page.goto(BASE + '/search');
   await page.getByLabel('Tag').selectOption({ label: 'Steuer 2025 (1)' });
